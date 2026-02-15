@@ -46,14 +46,6 @@ description: Architectural blueprint for weave.us — E2EE task coordination wit
 | Device theft | WebAuthn PRF, no key export |
 | Traffic analysis | Padding, batched sends, no IP logs |
 
-## Quality Gates
-
-- Unit test coverage >= 80% (Vitest + v8)
-- All Playwright E2E tests pass (Chromium)
-- TDD: failing test first, implement, verify coverage
-- Security review (opus) for any crypto or sandbox changes
-- `npm run check` (svelte-check) passes with zero errors
-
 ## Usage
 
-Validate against principles when designing: E2EE flows, agent behavior, privacy guarantees, burn-after-use enforcement.
+Validate against principles when designing: E2EE flows, agent behavior, privacy guarantees, burn-after-use enforcement. For testing and code quality concerns, consult the production-engineer skill instead.
