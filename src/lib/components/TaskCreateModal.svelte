@@ -284,6 +284,14 @@
 		outline: none;
 	}
 
+	.field select {
+		padding-right: 2rem;
+		appearance: none;
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23666' d='M1.4 0L6 4.6 10.6 0 12 1.4l-6 6-6-6z'/%3E%3C/svg%3E");
+		background-repeat: no-repeat;
+		background-position: right 0.6rem center;
+	}
+
 	.field input:focus,
 	.field select:focus {
 		border-color: var(--border-strong);

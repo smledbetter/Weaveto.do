@@ -25,9 +25,10 @@ No accounts, no tracking, no persistence beyond what's necessary.
 |-----------|------|--------|-------------|
 | M0 | E2EE Room Core | Complete | Encrypted rooms, WebAuthn PRF, WebSocket relay, messaging |
 | M1 | Task Management | Complete | Event-sourced tasks, auto-assign agent, in-tab reminders |
-| M2 | Task Intelligence | Not Started | Natural language dates, task dependencies, progress visibility, service worker reminders, keyboard shortcuts, inline editing |
-| M3 | Agent Infrastructure | Not Started | WASM agent sandboxing, persistent agent state, agent module upload |
-| M4 | Federation & Self-Hosting | Not Started | Decentralized hosting, cross-node encrypted sync |
+| M2 | Task Intelligence | Complete | Natural language dates, task dependencies, progress visibility, service worker reminders, keyboard shortcuts, inline editing |
+| M3 | Agent Infrastructure | Complete | WASM agent sandboxing, persistent encrypted state, agent module upload, security hardening |
+| M3.5 | Built-In Agent | Not Started | Auto-balance WASM agent (default-on), agent activity log, AssemblyScript developer template |
+| M4 | Task Polish | Not Started | Task descriptions, due date sorting, quick-pick dates, urgent flag, room search |
 | M5 | Burn-After-Use | Not Started | Auto-deletion, ephemeral mode, manual burn commands |
 
 See `docs/milestones/M{N}-{name}/` for per-milestone plans, acceptance criteria, and lessons learned.

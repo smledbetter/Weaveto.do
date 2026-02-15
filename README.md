@@ -37,7 +37,7 @@ All open source. Zero paid APIs.
 
 ## Milestones
 
-### M0: E2EE Room Core (Alpha) -- current
+### M0: E2EE Room Core ✓
 
 Encrypted rooms with zero-account join and real-time messaging.
 
@@ -46,44 +46,58 @@ Encrypted rooms with zero-account join and real-time messaging.
 - WebAuthn PRF ceremony derives device-bound crypto identity
 - Olm key exchange between members, Megolm group encryption for messages
 - Server relays only ciphertext — zero plaintext, zero IP logging
-- Invalid room links show a clear error
-- Encryption indicators visible throughout the UI
 
-### M1: Task Management & Agent Orchestration (Beta)
+### M1: Task Management ✓
 
 Create, assign, and automate tasks with privacy-preserving agents.
 
-- Task creation and subtask splitting within encrypted rooms
-- Auto-assignment based on member availability (client-side analysis)
+- Event-sourced task store with conflict resolution
+- Task creation via modal and `/task` command, subtask support
+- Auto-assignment based on member load and recency
 - Encrypted reminders for approaching deadlines
-- All agent logic runs client-side — no plaintext on server
 
-### M2: Agent Teams & WASM Sandboxing (Beta+)
+### M2: Task Intelligence ✓
 
-Run autonomous agents in isolated WASM sandboxes.
+Dependencies, natural language dates, and productivity features.
 
-- Upload and run custom WASM agent modules
-- WebContainer sandboxing with no host access
-- Agents process encrypted events with ephemeral session keys
-- All agent state destroyed after execution
+- Task dependencies with DAG validation (cycle detection)
+- Natural language due dates ("tomorrow", "next friday", "in 3 hours")
+- Service worker reminders (survive tab close)
+- Progress visibility, keyboard shortcuts, inline editing
 
-### M3: Federation & Self-Hosting (RC)
+### M3: Agent Infrastructure ✓
 
-Decentralized hosting and cross-node sync.
+WASM sandboxing for user-uploaded agent modules.
 
-- Self-host a Weave.us node for your group
-- Encrypted Matrix-like P2P sync between federated nodes
-- Client-verified Merkle proofs for consistency
-- No node can read plaintext or correlate users
+- Upload and run custom WASM agent modules (raw WebAssembly API, zero dependencies)
+- Host function imports: read tasks, emit events, persist state
+- AES-256-GCM encrypted persistent state per agent
+- Security hardened: hash verification, memory isolation, circuit breaker, bounds checking
 
-### M4: Burn-After-Use & Ephemeral Mode (Stable)
+### M3.5: Built-In Agent — current
+
+Ship a working agent so users get immediate value from the infrastructure.
+
+- Auto-balance WASM agent: assigns unassigned tasks fairly (default-on)
+- Agent activity log in AgentPanel
+- AssemblyScript developer template and host import documentation
+
+### M4: Task Polish
+
+Describe, sort, and triage tasks more effectively.
+
+- Task descriptions (encrypted, expandable)
+- Due date sorting, quick-pick date buttons
+- Urgent flag (binary)
+- Room-scoped task search
+
+### M5: Burn-After-Use
 
 Automatic data destruction after task completion.
 
-- Rooms auto-delete after TTL expires (all tasks complete)
-- Manual `!burn` command for immediate destruction
-- Session keys wiped from all clients
-- Room URLs become permanently invalid
+- Rooms auto-delete after all tasks complete (with grace period)
+- Manual `/burn` command for immediate destruction
+- Ephemeral mode (in-memory only, no persistence)
 
 ## Development
 

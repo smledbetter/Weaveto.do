@@ -2,7 +2,7 @@
 
 Last updated: 2026-02-15
 
-## Current Milestone: M3 — Agent Infrastructure
+## Current Milestone: M3.5 — Built-In Agent & Developer Tooling
 
 ### What's Done
 
@@ -35,14 +35,31 @@ Last updated: 2026-02-15
 - 119 unit tests, 30 E2E tests, 93%+ statement coverage
 - See: `docs/milestones/M2-task-intelligence/`
 
-### What's Next (M3 — Agent Infrastructure)
+**M3 — Agent Infrastructure** (Complete)
+- WASM agent sandboxing via raw WebAssembly API (zero new dependencies)
+- Agent module upload with manifest validation, hash verification, size limits
+- Encrypted persistent state (AES-256-GCM, HKDF-derived per-agent keys)
+- Host function imports: read tasks/members, emit events, persist state, logging
+- Event dispatch (host-pull model) and 30s tick loop
+- Circuit breaker (3 consecutive failures auto-deactivates)
+- Memory isolation (host-provided memory, bounds checking)
+- AgentPanel UI with activate/deactivate/delete controls
+- Opus security audit completed: 7 findings fixed (2 critical, 4 high, 1 medium bonus)
+- 207 unit tests, 36 E2E tests, 89%+ statement coverage
+- See: `docs/milestones/M3-agent-infra/`
 
-See: `docs/milestones/M3-agent-infra/`
+### What's Next (M3.5 — Built-In Agent)
+
+Ship a working auto-balance agent as a pre-bundled WASM module so users get immediate value from the agent infrastructure. Add minimal developer tooling (template + docs) so early adopters can build custom agents.
+
+See: `docs/milestones/M3.5-built-in-agent/`
 
 ### Known Issues
 
-- No WASM sandboxing for agents yet — agents run as pure functions in-tab
+- No reference WASM agent binary exists yet (auto-assign is still plain TypeScript)
+- WASM timeout wrapper can't preempt synchronous execution (Web Worker deferred as C-2)
 - Service worker notifications show generic body (no decrypted task titles)
+- Agent-emitted events not validated against known taskIds (deferred M-4)
 
 ### Milestone Roadmap
 
@@ -51,9 +68,17 @@ See: `docs/milestones/M3-agent-infra/`
 | M0 | E2EE Room Core | Complete |
 | M1 | Task Management | Complete |
 | M2 | Task Intelligence | Complete |
-| M3 | Agent Infrastructure | Not Started |
+| M3 | Agent Infrastructure | Complete |
+| M3.5 | Built-In Agent | Not Started |
 | M4 | Task Polish | Not Started |
 | M5 | Burn-After-Use | Not Started |
+
+#### M3.5 — Built-In Agent (Release Goal)
+Users get automatic task distribution out of the box. Developers get a reference agent and build template.
+- Auto-balance WASM agent (port of autoAssign, default-on)
+- AgentPanel enhancements (built-in badge, activity log, toggle)
+- AssemblyScript agent template with build script
+- Host import API documentation
 
 #### M4 — Task Polish (Release Goal)
 Users can describe, sort, and triage tasks more effectively within ephemeral rooms.
@@ -73,6 +98,7 @@ Rooms and tasks auto-delete on completion, with manual burn for sensitive coordi
 
 - **Frontend**: SvelteKit 5, TypeScript, Svelte 5 runes ($state, $derived, $effect)
 - **Crypto**: vodozemac WASM (Olm/Megolm), WebAuthn PRF, HKDF-SHA256
+- **Agents**: Raw WebAssembly API, AES-256-GCM state encryption
 - **Server**: Node.js WebSocket relay (ciphertext-only)
 - **Testing**: Vitest (unit, 80%+ coverage), Playwright (E2E, Chromium)
 - **Build**: Vite, fnm for Node version management

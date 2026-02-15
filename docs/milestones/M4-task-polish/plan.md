@@ -46,7 +46,7 @@ Users can describe, sort, and triage tasks more effectively within ephemeral roo
 
 ## Prerequisites
 
-- M3 complete (or can run in parallel if M3 is blocked)
+- M3.5 complete (built-in agent ships first per PM recommendation)
 
 ## Estimated Complexity
 
