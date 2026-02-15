@@ -10,7 +10,19 @@
 	import { ReminderScheduler } from '$lib/tasks/reminders';
 	import type { TaskEvent, Task } from '$lib/tasks/types';
 	import TaskPanel from '$lib/components/TaskPanel.svelte';
+	import AgentPanel from '$lib/components/AgentPanel.svelte';
 	import { ShortcutManager } from '$lib/keyboard/shortcuts';
+	import { AgentExecutor } from '$lib/agents/executor';
+	import type { AgentManifest, StoredAgentModule } from '$lib/agents/types';
+	import {
+		validateManifest,
+		validateWasmBinary,
+		openModuleDB,
+		storeModule,
+		listModules,
+		deleteModule,
+		setModuleActive,
+	} from '$lib/agents/loader';
 
 	let roomId = $derived($page.params.id ?? '');
 	let isCreator = $derived($page.url.searchParams.has('create'));
@@ -30,7 +42,7 @@
 	const taskStore = createTaskStore();
 	let taskList = $state<Task[]>([]);
 	let showTaskPanel = $state(false);
-	let mobileTab: 'messages' | 'tasks' = $state('messages');
+	let mobileTab: 'messages' | 'tasks' | 'agents' = $state('messages');
 	let taskCount = $derived(taskList.filter((t) => t.status !== 'completed').length);
 	let lastMessageTimes = $state<Map<string, number>>(new Map());
 	let reminderNotice = $state('');
@@ -38,6 +50,13 @@
 	// Keyboard shortcuts
 	let shortcutManager: ShortcutManager | null = null;
 	let showShortcutHelp = $state(false);
+
+	// Agent infrastructure
+	let showAgentPanel = $state(false);
+	let agentModules = $state<StoredAgentModule[]>([]);
+	let agentExecutor: AgentExecutor | null = $state(null);
+	let activeAgentIds = $state<string[]>([]);
+	let agentPrfSeed: Uint8Array | undefined = undefined;
 
 	// Reminder scheduler — fires 5 min before due, in-tab only
 	const reminderScheduler = new ReminderScheduler((task) => {
@@ -112,6 +131,10 @@
 
 	function refreshTaskList() {
 		taskList = taskStore.getTasks();
+		// Keep agent executor context in sync
+		if (agentExecutor) {
+			agentExecutor.updateContext(taskList, members);
+		}
 	}
 
 	function handleTaskEvent(event: TaskEvent) {
@@ -119,6 +142,9 @@
 		taskStore.applyEvent(event);
 		refreshTaskList();
 		session.sendTaskEvent(event);
+
+		// Dispatch to active agents (they may react to task changes)
+		agentExecutor?.dispatchTaskEvent(event);
 
 		// Schedule/cancel reminders based on event
 		if (event.type === 'task_created' || event.type === 'subtask_created') {
@@ -148,6 +174,102 @@
 		}
 	}
 
+	function toggleAgentPanel() {
+		showAgentPanel = !showAgentPanel;
+	}
+
+	async function refreshAgentModules() {
+		try {
+			const db = await openModuleDB();
+			agentModules = await listModules(db, roomId);
+			db.close();
+		} catch {
+			// Silent fail — IndexedDB may be unavailable
+		}
+	}
+
+	async function initAgentExecutor(prfSeed?: Uint8Array) {
+		agentPrfSeed = prfSeed;
+		agentExecutor = new AgentExecutor(roomId, prfSeed ?? null, (event) => {
+			// Agent-emitted events flow through the same E2EE path
+			handleTaskEvent(event);
+		});
+		await refreshAgentModules();
+
+		// Auto-activate previously active agents
+		for (const mod of agentModules) {
+			if (mod.active) {
+				try {
+					await agentExecutor.activate(mod);
+				} catch {
+					// Failed to activate — skip
+				}
+			}
+		}
+		activeAgentIds = agentExecutor.getActiveAgents();
+	}
+
+	async function handleAgentUpload(manifest: AgentManifest, wasmBytes: ArrayBuffer) {
+		// Validate manifest
+		const manifestErr = validateManifest(manifest);
+		if (manifestErr) {
+			error = `Invalid agent manifest: ${manifestErr}`;
+			return;
+		}
+
+		// Validate WASM binary
+		const wasmErr = await validateWasmBinary(wasmBytes, manifest.wasmHash);
+		if (wasmErr) {
+			error = `Invalid WASM binary: ${wasmErr}`;
+			return;
+		}
+
+		// Store in IndexedDB
+		const db = await openModuleDB();
+		await storeModule(db, roomId, manifest, wasmBytes);
+		db.close();
+		await refreshAgentModules();
+	}
+
+	async function handleAgentActivate(moduleId: string) {
+		if (!agentExecutor) return;
+		const mod = agentModules.find((m) => m.id === moduleId);
+		if (!mod) return;
+
+		try {
+			await agentExecutor.activate(mod);
+			const db = await openModuleDB();
+			await setModuleActive(db, moduleId, true);
+			db.close();
+			activeAgentIds = agentExecutor.getActiveAgents();
+		} catch (e) {
+			error = `Failed to activate agent: ${e instanceof Error ? e.message : String(e)}`;
+		}
+	}
+
+	async function handleAgentDeactivate(moduleId: string) {
+		if (!agentExecutor) return;
+
+		await agentExecutor.deactivate(moduleId);
+		const db = await openModuleDB();
+		await setModuleActive(db, moduleId, false);
+		db.close();
+		activeAgentIds = agentExecutor.getActiveAgents();
+	}
+
+	async function handleAgentDelete(moduleId: string) {
+		// Deactivate first if active
+		if (agentExecutor?.isActive(moduleId)) {
+			await agentExecutor.deactivate(moduleId);
+		}
+
+		const db = await openModuleDB();
+		await deleteModule(db, moduleId);
+		db.close();
+		await refreshAgentModules();
+		activeAgentIds = agentExecutor?.getActiveAgents() ?? [];
+	}
+
 	onMount(() => {
 		// Show tab-close warning once
 		const warned = sessionStorage.getItem('weave-key-warning-shown');
@@ -161,6 +283,7 @@
 		taskStore.clear();
 		reminderScheduler.clearAll();
 		shortcutManager?.detach();
+		agentExecutor?.shutdown();
 	});
 
 	function dismissKeyWarning() {
@@ -201,6 +324,8 @@
 				if (msg.taskEvent) {
 					taskStore.applyEvent(msg.taskEvent);
 					refreshTaskList();
+					// Dispatch remote task events to active agents
+					agentExecutor?.dispatchTaskEvent(msg.taskEvent);
 				}
 				// Only show chat messages (non-empty text) in the message feed
 				if (msg.plaintext || msg.decryptionFailed) {
@@ -231,6 +356,9 @@
 
 			await roomSession.connect();
 			session = roomSession;
+
+			// Initialize agent executor after room connection
+			await initAgentExecutor(prfSeed);
 		} catch (e) {
 			if (e instanceof WebAuthnUnsupportedError) {
 				error = e.message;
@@ -390,6 +518,15 @@
 					>
 						Tasks{#if taskCount > 0} ({taskCount}){/if}
 					</button>
+					<button
+						class="agents-toggle"
+						class:active={showAgentPanel}
+						onclick={toggleAgentPanel}
+						aria-label="Toggle agent panel"
+						aria-expanded={showAgentPanel}
+					>
+						Agents{#if activeAgentIds.length > 0} ({activeAgentIds.length}){/if}
+					</button>
 					<button class="copy-link" onclick={copyRoomUrl}>
 						{copied ? 'Copied!' : 'Copy Link'}
 					</button>
@@ -402,7 +539,7 @@
 			</header>
 
 			<!-- Mobile tab bar (visible <768px when panel is open) -->
-			{#if showTaskPanel}
+			{#if showTaskPanel || showAgentPanel}
 				<div class="mobile-tabs" role="tablist" aria-label="Room sections">
 					<button
 						role="tab"
@@ -410,17 +547,27 @@
 						class:active={mobileTab === 'messages'}
 						onclick={() => { mobileTab = 'messages'; }}
 					>Messages</button>
-					<button
-						role="tab"
-						aria-selected={mobileTab === 'tasks'}
-						class:active={mobileTab === 'tasks'}
-						onclick={() => { mobileTab = 'tasks'; }}
-					>Tasks{#if taskCount > 0} ({taskCount}){/if}</button>
+					{#if showTaskPanel}
+						<button
+							role="tab"
+							aria-selected={mobileTab === 'tasks'}
+							class:active={mobileTab === 'tasks'}
+							onclick={() => { mobileTab = 'tasks'; }}
+						>Tasks{#if taskCount > 0} ({taskCount}){/if}</button>
+					{/if}
+					{#if showAgentPanel}
+						<button
+							role="tab"
+							aria-selected={mobileTab === 'agents'}
+							class:active={mobileTab === 'agents'}
+							onclick={() => { mobileTab = 'agents'; }}
+						>Agents</button>
+					{/if}
 				</div>
 			{/if}
 
 			<div class="room-body">
-				<div class="messages-col" class:mobile-hidden={showTaskPanel && mobileTab === 'tasks'}>
+				<div class="messages-col" class:mobile-hidden={(showTaskPanel && mobileTab === 'tasks') || (showAgentPanel && mobileTab === 'agents')}>
 					<div class="messages">
 						{#if messages.length === 0}
 							<p class="empty-hint">Share the link above to invite others. Only people with the link can join.</p>
@@ -454,7 +601,7 @@
 				</div>
 
 				{#if showTaskPanel}
-					<div class="tasks-col" class:mobile-hidden={mobileTab === 'messages'}>
+					<div class="tasks-col" class:mobile-hidden={mobileTab !== 'tasks'}>
 						<TaskPanel
 							tasks={taskList}
 							{members}
@@ -463,6 +610,20 @@
 							onTaskEvent={handleTaskEvent}
 							onAutoAssign={handleAutoAssign}
 							onClose={toggleTaskPanel}
+						/>
+					</div>
+				{/if}
+
+				{#if showAgentPanel}
+					<div class="agents-col" class:mobile-hidden={mobileTab !== 'agents'}>
+						<AgentPanel
+							modules={agentModules}
+							activeAgents={activeAgentIds}
+							onUpload={handleAgentUpload}
+							onActivate={handleAgentActivate}
+							onDeactivate={handleAgentDeactivate}
+							onDelete={handleAgentDelete}
+							onClose={toggleAgentPanel}
 						/>
 					</div>
 				{/if}
@@ -639,6 +800,19 @@
 	.tasks-toggle:hover { border-color: var(--border-strong); color: var(--btn-secondary-hover-text); }
 	.tasks-toggle.active { border-color: var(--accent-default); color: var(--accent-default); background: var(--accent-muted); }
 
+	.agents-toggle {
+		background: none;
+		border: 1px solid var(--border-default);
+		color: var(--btn-secondary-text);
+		padding: 0.3rem 0.75rem;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.8rem;
+	}
+
+	.agents-toggle:hover { border-color: var(--border-strong); color: var(--btn-secondary-hover-text); }
+	.agents-toggle.active { border-color: var(--accent-default); color: var(--accent-default); background: var(--accent-muted); }
+
 	.copy-link {
 		background: none;
 		border: 1px solid var(--border-default);
@@ -727,6 +901,13 @@
 		flex-shrink: 0;
 	}
 
+	.agents-col {
+		width: 40%;
+		min-width: 280px;
+		max-width: 420px;
+		flex-shrink: 0;
+	}
+
 	/* Messages */
 	.messages {
 		flex: 1;
@@ -743,7 +924,8 @@
 			display: flex;
 		}
 
-		.tasks-col {
+		.tasks-col,
+		.agents-col {
 			width: 100%;
 			max-width: none;
 		}
