@@ -7,6 +7,7 @@ import type { Task, TaskEvent } from "$lib/tasks/types";
 import type { RoomMember } from "$lib/room/session";
 import type { AgentInstance, StoredAgentModule } from "./types";
 import { TICK_INTERVAL_MS, CALL_TIMEOUT_MS } from "./types";
+import { deriveAgentStateKey } from "./state";
 import {
   instantiateAgent,
   callWithTimeout,
@@ -17,12 +18,16 @@ import {
 
 const encoder = new TextEncoder();
 
+/** Max consecutive tick failures before auto-deactivation (H-4). */
+const MAX_TICK_FAILURES = 3;
+
 /**
  * Manages all active agent instances for a room.
  */
 export class AgentExecutor {
   private instances = new Map<string, AgentInstance>();
   private contexts = new Map<string, HostContext>();
+  private tickFailures = new Map<string, number>();
   private roomId: string;
   private prfSeed: Uint8Array | null;
   private onEmitEvent: (event: TaskEvent) => void;
@@ -45,15 +50,22 @@ export class AgentExecutor {
       return; // Already active
     }
 
+    // H-1: Derive CryptoKey eagerly, store only the derived key (not raw prfSeed)
+    let stateKey: CryptoKey | null = null;
+    if (this.prfSeed) {
+      stateKey = await deriveAgentStateKey(this.prfSeed, module.id);
+    }
+
     const context: HostContext = {
       tasks: [],
       members: new Map(),
       roomId: this.roomId,
       moduleId: module.id,
-      prfSeed: this.prfSeed,
+      stateKey,
       onEmitEvent: this.onEmitEvent,
       stateCache: null,
       stateDirty: false,
+      pendingEvent: null,
     };
 
     // Load persisted state from IndexedDB
@@ -77,14 +89,26 @@ export class AgentExecutor {
     // Flush any state changes from init
     await flushAgentState(context);
 
-    // Start tick loop
+    // Start tick loop with circuit breaker (H-4)
+    this.tickFailures.set(module.id, 0);
     const tickInterval = setInterval(async () => {
       try {
         await callWithTimeout(() => exports.on_tick(), CALL_TIMEOUT_MS);
         await flushAgentState(context);
+        this.tickFailures.set(module.id, 0); // Reset on success
       } catch (e) {
-        console.error(`[agent:${module.id}] on_tick() failed:`, e);
-        // Deactivate on repeated failures? For now, just log.
+        const failures = (this.tickFailures.get(module.id) ?? 0) + 1;
+        this.tickFailures.set(module.id, failures);
+        console.error(
+          `[agent:${module.id}] on_tick() failed (${failures}/${MAX_TICK_FAILURES}):`,
+          e,
+        );
+        if (failures >= MAX_TICK_FAILURES) {
+          console.error(
+            `[agent:${module.id}] Auto-deactivating after ${MAX_TICK_FAILURES} consecutive tick failures`,
+          );
+          this.deactivate(module.id);
+        }
       }
     }, TICK_INTERVAL_MS);
 
@@ -119,12 +143,14 @@ export class AgentExecutor {
 
     this.instances.delete(moduleId);
     this.contexts.delete(moduleId);
+    this.tickFailures.delete(moduleId);
   }
 
   /**
    * Dispatch a task event to all active agents.
-   * Serializes the event to JSON, writes it into each agent's WASM memory,
-   * and calls on_task_event.
+   * C-1: Stores event in context.pendingEvent, then calls on_task_event() with
+   * no arguments. Agent reads the event via host_get_event(buf_ptr, buf_len).
+   * This avoids writing to agent memory at offset 0 (which corrupts agent data).
    */
   async dispatchTaskEvent(event: TaskEvent): Promise<void> {
     const json = JSON.stringify(event);
@@ -133,22 +159,27 @@ export class AgentExecutor {
     for (const [moduleId, instance] of this.instances) {
       const context = this.contexts.get(moduleId);
       try {
-        // Write event JSON into agent's WASM memory at offset 0
-        const memory = instance.exports.memory;
-        const view = new Uint8Array(memory.buffer, 0, bytes.length);
-        view.set(bytes);
+        // Set pending event in context — agent reads it via host_get_event
+        if (context) {
+          context.pendingEvent = bytes;
+        }
 
         await callWithTimeout(
-          () => instance.exports.on_task_event(0, bytes.length),
+          () => instance.exports.on_task_event(),
           CALL_TIMEOUT_MS,
         );
 
-        // Flush state if agent modified it during event handling
+        // Clear pending event and flush state
         if (context) {
+          context.pendingEvent = null;
           await flushAgentState(context);
         }
       } catch (e) {
         console.error(`[agent:${moduleId}] on_task_event() failed:`, e);
+        // Clear pending event even on failure
+        if (context) {
+          context.pendingEvent = null;
+        }
       }
     }
   }

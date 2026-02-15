@@ -45,6 +45,11 @@ vi.mock("../../src/lib/agents/runtime", () => {
   };
 });
 
+// Mock state key derivation (H-1: executor derives keys eagerly)
+vi.mock("../../src/lib/agents/state", () => ({
+  deriveAgentStateKey: vi.fn().mockResolvedValue(null),
+}));
+
 // Get mock references
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const { __mockExports: mockExports } =
