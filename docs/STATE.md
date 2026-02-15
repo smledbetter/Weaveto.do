@@ -52,8 +52,22 @@ See: `docs/milestones/M3-agent-infra/`
 | M1 | Task Management | Complete |
 | M2 | Task Intelligence | Complete |
 | M3 | Agent Infrastructure | Not Started |
-| M4 | Federation & Self-Hosting | Not Started |
+| M4 | Task Polish | Not Started |
 | M5 | Burn-After-Use | Not Started |
+
+#### M4 — Task Polish (Release Goal)
+Users can describe, sort, and triage tasks more effectively within ephemeral rooms.
+- Task descriptions
+- Due date sorting (single toggle)
+- Quick-pick date buttons (Today / Tomorrow / Next Week)
+- Urgent flag (binary, not P1-P4)
+- Room-scoped task search
+
+#### M5 — Burn-After-Use (Release Goal)
+Rooms and tasks auto-delete on completion, with manual burn for sensitive coordination.
+- Auto-deletion on room completion
+- Manual burn command (immediate room data destruction)
+- Ephemeral mode (in-memory only, no persistence)
 
 ### Tech Stack
 

@@ -82,6 +82,29 @@ All acceptance criteria passing for the above stories.
 - **Ephemeral tasks** mean users need confidence the system works without persistent proof — trust through transparency
 - **Agent coordination** is invisible to users. They see tasks getting done, not infrastructure
 
+## GitHub Milestone & Issue Management
+
+After a milestone plan is aligned on with the whole team, sync it to GitHub:
+
+### Milestones
+- Create or update a GitHub milestone matching the milestone name and description
+- Use `gh api` to create/update milestones (check for existing ones first to avoid duplicates)
+- Set the milestone description to the release goal + feature summary
+- Close milestones when all issues are resolved and the milestone ships
+
+### Issues
+- Create one GitHub issue per feature in the milestone
+- Each issue title should be the feature name; the body should include the user story and Gherkin acceptance criteria
+- Attach every issue to its milestone
+- Apply labels where appropriate (e.g., `feature`, `bug`, `enhancement`)
+- When a feature is implemented and verified, close the issue with a comment summarizing what shipped
+- If scope changes during implementation (features added, cut, or split), update the GitHub issues to match — create new issues, close dropped ones with an explanation, and keep the milestone accurate
+
+### Workflow
+1. **Plan aligned** → create/update milestone + issues
+2. **During development** → keep issues current as scope evolves
+3. **Milestone ships** → close all issues, close milestone
+
 ## When Consulted
 
 When another agent asks for clarification:

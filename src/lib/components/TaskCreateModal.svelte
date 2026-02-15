@@ -96,6 +96,9 @@
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
 			onClose();
+		} else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+			e.preventDefault();
+			handleSubmit();
 		} else if (e.key === 'Enter' && subtaskInputs.length === 0 && !(e.target instanceof HTMLButtonElement)) {
 			e.preventDefault();
 			handleSubmit();
@@ -195,7 +198,7 @@
 		</div>
 
 		<div class="actions">
-			<button class="create-btn" onclick={handleSubmit} disabled={!title.trim()}>Create Task</button>
+			<button class="create-btn" onclick={handleSubmit} disabled={!title.trim()} title="⌘Enter">Create Task</button>
 			<button class="cancel-btn" onclick={onClose}>Cancel</button>
 		</div>
 	</div>
