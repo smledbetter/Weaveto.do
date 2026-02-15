@@ -2,7 +2,7 @@
 
 Last updated: 2026-02-15
 
-## Current Milestone: M3.5 — Built-In Agent & Developer Tooling
+## Current Milestone: M4 — Task Polish
 
 ### What's Done
 
@@ -48,15 +48,29 @@ Last updated: 2026-02-15
 - 207 unit tests, 36 E2E tests, 89%+ statement coverage
 - See: `docs/milestones/M3-agent-infra/`
 
-### What's Next (M3.5 — Built-In Agent)
+**M3.5 — Built-In Agent** (Complete)
+- Hand-written WAT auto-balance agent (634 bytes compiled WASM)
+- Binary host helpers (`host_get_assignment_data`, `host_emit_assignment`) for JSON-free WAT consumption
+- Built-in agent registry (fetches from static assets, bypasses IndexedDB)
+- Auto-activates on room join with localStorage-based enable/disable
+- First-run disclosure toast (once per browser)
+- AgentPanel: "Built-in" badge, no delete for built-ins, upload form behind "Advanced" toggle
+- 221 unit tests, 40 E2E tests, 0 regressions
+- See: `docs/milestones/M3.5-built-in-agent/`
 
-Ship a working auto-balance agent as a pre-bundled WASM module so users get immediate value from the agent infrastructure. Hand-written WAT with binary helper import (`host_get_assignment_data`). Default-on with first-run disclosure toast. Developer tooling and upload UI deferred to M3.6.
+### What's Next (M4 — Task Polish)
 
-See: `docs/milestones/M3.5-built-in-agent/`
+Users can describe, sort, and triage tasks more effectively within ephemeral rooms.
+- Task descriptions (rich text or plain)
+- Due date sorting (single toggle)
+- Quick-pick date buttons (Today / Tomorrow / Next Week)
+- Urgent flag (binary, not P1-P4)
+- Room-scoped task search
+
+See: `docs/milestones/M4-task-polish/`
 
 ### Known Issues
 
-- No reference WASM agent binary exists yet (auto-assign is still plain TypeScript)
 - WASM timeout wrapper can't preempt synchronous execution (Web Worker deferred as C-2)
 - Service worker notifications show generic body (no decrypted task titles)
 - Agent-emitted events not validated against known taskIds (deferred M-4)
@@ -69,7 +83,7 @@ See: `docs/milestones/M3.5-built-in-agent/`
 | M1 | Task Management | Complete |
 | M2 | Task Intelligence | Complete |
 | M3 | Agent Infrastructure | Complete |
-| M3.5 | Built-In Agent | Not Started |
+| M3.5 | Built-In Agent | Complete |
 | M4 | Task Polish | Not Started |
 | M5 | Burn-After-Use | Not Started |
 
