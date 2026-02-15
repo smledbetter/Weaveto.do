@@ -28,67 +28,72 @@ Feature: Auto-balance agent assigns unassigned tasks
     Then the task remains unassigned
 
   Scenario: Agent state persists across sessions
-    Given the auto-balance agent has assigned tasks
+    Given the auto-balance agent has run and assigned tasks
     When I close the tab and reopen the room
-    Then the agent resumes with its previous state
-    And continues assigning fairly
+    Then the agent resumes without re-assigning already-assigned tasks
+```
 
-  Scenario: User can disable auto-balance
-    Given the auto-balance agent is active (default)
-    When I toggle it off in the Agents panel
-    Then new unassigned tasks remain unassigned
-    And the agent status shows "Inactive"
+## First-Run Disclosure
+
+```gherkin
+Feature: Users are informed when auto-balance first activates
+
+  Scenario: Toast shown on first activation
+    Given I have never seen the auto-balance notice
+    When the agent first activates in any room
+    Then a dismissible toast appears: "Auto-Balance is now active"
+    And the toast has a "Manage Agents" link and a "Got it" button
+
+  Scenario: Toast not shown again
+    Given I previously dismissed the auto-balance notice
+    When I join a new room and the agent activates
+    Then no toast is shown
+
+  Scenario: Toast auto-dismisses
+    Given the auto-balance toast is visible
+    When 10 seconds pass without interaction
+    Then the toast disappears
 ```
 
 ## Built-In Agent UX
 
 ```gherkin
-Feature: Built-in agents are distinct from uploaded agents
+Feature: Built-in agents are clearly presented in AgentPanel
 
-  Scenario: Built-in agent shows on room join
-    Given I join a new room
+  Scenario: Built-in agent visible on room join
+    Given I join a room
     When I open the Agents panel
     Then "Auto-Balance" appears with a "Built-in" badge
-    And it is active by default
+    And it shows a description: "Assigns unassigned tasks to the member with the fewest pending tasks"
+    And it shows "Runs every 30 seconds"
 
-  Scenario: Activity log shows agent actions
-    Given the auto-balance agent assigned "Buy groceries" to Alice
-    When I view the Agents panel
-    Then I see an activity entry like "Assigned 'Buy groceries' to Alice"
+  Scenario: Last-run timestamp updates
+    Given the auto-balance agent is active
+    When a tick completes
+    Then the "Last run" timestamp updates in the AgentPanel
+
+  Scenario: User can disable built-in agent
+    Given the auto-balance agent is active (default)
+    When I toggle it off in the Agents panel
+    Then new unassigned tasks remain unassigned
+    And the preference persists across page reloads
 
   Scenario: Built-in agents cannot be deleted
     Given the auto-balance agent is listed
     Then there is no "Delete" button for built-in agents
     And only a toggle to enable/disable
-```
 
-## Developer Tooling
-
-```gherkin
-Feature: Developer can build a custom agent from template
-
-  Scenario: Template compiles to valid WASM
-    Given I clone the agent template from agents/auto-balance/
-    When I run build.sh
-    Then a .wasm file and manifest.json are produced
-    And the manifest wasmHash matches the binary's SHA-256
-
-  Scenario: Custom agent can be uploaded
-    Given I built a custom WASM agent from the template
-    When I upload it via the Agents panel
-    Then it passes validation and appears in the agent list
-    And I can activate it
-
-  Scenario: Host import docs are accurate
-    Given the docs in docs/architecture/agents.md
-    When I call each host import as documented
-    Then the behavior matches the documentation
+  Scenario: Upload form is hidden
+    Given I open the Agents panel
+    Then there is no "Upload Agent" form visible
 ```
 
 ## Quality Gates
 
-- Auto-balance WASM agent matches existing `autoAssign` test coverage
+- Auto-balance WASM matches existing `autoAssign` test coverage (11 test vectors)
 - Assignment distribution variance <= 1
-- Built-in agent activates in new rooms without user action
-- Template builds successfully on clean checkout
+- Built-in agent activates on room join unless user disabled
+- First-run toast shown once, dismissible, auto-dismisses after 10s
+- User toggle persists in localStorage across sessions
 - All M0-M3 regression tests pass (207 unit, 36 E2E)
+- Zero svelte-check errors

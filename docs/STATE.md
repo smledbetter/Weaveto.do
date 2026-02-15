@@ -50,7 +50,7 @@ Last updated: 2026-02-15
 
 ### What's Next (M3.5 — Built-In Agent)
 
-Ship a working auto-balance agent as a pre-bundled WASM module so users get immediate value from the agent infrastructure. Add minimal developer tooling (template + docs) so early adopters can build custom agents.
+Ship a working auto-balance agent as a pre-bundled WASM module so users get immediate value from the agent infrastructure. Hand-written WAT with binary helper import (`host_get_assignment_data`). Default-on with first-run disclosure toast. Developer tooling and upload UI deferred to M3.6.
 
 See: `docs/milestones/M3.5-built-in-agent/`
 
@@ -74,11 +74,12 @@ See: `docs/milestones/M3.5-built-in-agent/`
 | M5 | Burn-After-Use | Not Started |
 
 #### M3.5 — Built-In Agent (Release Goal)
-Users get automatic task distribution out of the box. Developers get a reference agent and build template.
-- Auto-balance WASM agent (port of autoAssign, default-on)
-- AgentPanel enhancements (built-in badge, activity log, toggle)
-- AssemblyScript agent template with build script
-- Host import API documentation
+Users get automatic task distribution out of the box, with no setup required.
+- Auto-balance WAT agent (port of autoAssign, default-on)
+- Binary helper import (`host_get_assignment_data`) for WAT consumption
+- First-run disclosure toast on initial activation
+- AgentPanel: built-in badge, description card, last-run timestamp
+- Upload form hidden until M3.6 ships developer tooling
 
 #### M4 — Task Polish (Release Goal)
 Users can describe, sort, and triage tasks more effectively within ephemeral rooms.

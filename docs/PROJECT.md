@@ -27,7 +27,7 @@ No accounts, no tracking, no persistence beyond what's necessary.
 | M1 | Task Management | Complete | Event-sourced tasks, auto-assign agent, in-tab reminders |
 | M2 | Task Intelligence | Complete | Natural language dates, task dependencies, progress visibility, service worker reminders, keyboard shortcuts, inline editing |
 | M3 | Agent Infrastructure | Complete | WASM agent sandboxing, persistent encrypted state, agent module upload, security hardening |
-| M3.5 | Built-In Agent | Not Started | Auto-balance WASM agent (default-on), agent activity log, AssemblyScript developer template |
+| M3.5 | Built-In Agent | Not Started | Auto-balance WAT agent (default-on), first-run toast, agent description cards |
 | M4 | Task Polish | Not Started | Task descriptions, due date sorting, quick-pick dates, urgent flag, room search |
 | M5 | Burn-After-Use | Not Started | Auto-deletion, ephemeral mode, manual burn commands |
 

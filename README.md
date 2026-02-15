@@ -78,9 +78,9 @@ WASM sandboxing for user-uploaded agent modules.
 
 Ship a working agent so users get immediate value from the infrastructure.
 
-- Auto-balance WASM agent: assigns unassigned tasks fairly (default-on)
-- Agent activity log in AgentPanel
-- AssemblyScript developer template and host import documentation
+- Auto-balance WAT agent: assigns unassigned tasks fairly (default-on)
+- First-run disclosure toast on initial activation
+- Agent description cards with last-run timestamp in AgentPanel
 
 ### M4: Task Polish
 
