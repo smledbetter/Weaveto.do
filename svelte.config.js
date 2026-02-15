@@ -7,7 +7,11 @@ const config = {
     csp: {
       directives: {
         "default-src": ["self"],
-        "script-src": ["self", "wasm-unsafe-eval"],
+        "script-src": [
+          "self",
+          "wasm-unsafe-eval",
+          "sha256-94yTjVcb5wUAs+UjAs3xcZX3TtmUCmw2go8N7mk2g3Q=",
+        ],
         "style-src": ["self", "unsafe-inline"],
         "connect-src": ["self", "ws://localhost:3001", "wss://weave.us:3001"],
         "img-src": ["self", "data:"],

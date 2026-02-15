@@ -22,6 +22,11 @@ export async function initCrypto(): Promise<void> {
   vodozemac = await import("vodozemac-wasm-bindings");
   await vodozemac.default();
   initialized = true;
+
+  // vodozemac WASM binary injects a <p>Hello from Rust!</p> into the DOM on init — remove it.
+  document
+    .querySelectorAll("p")
+    .forEach((p) => p.textContent === "Hello from Rust!" && p.remove());
 }
 
 function ensureInit() {

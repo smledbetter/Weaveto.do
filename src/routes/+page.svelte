@@ -70,8 +70,8 @@
 		justify-content: center;
 		min-height: 100vh;
 		font-family: system-ui, -apple-system, sans-serif;
-		color: #e0e0e0;
-		background: #0a0a0a;
+		color: var(--text-primary);
+		background: var(--bg-base);
 		padding: 2rem;
 	}
 
@@ -85,12 +85,12 @@
 		font-weight: 300;
 		letter-spacing: 0.1em;
 		margin: 0 0 0.5rem;
-		color: #ffffff;
+		color: var(--text-heading);
 	}
 
 	.tagline {
 		font-size: 1.1rem;
-		color: #888;
+		color: var(--text-secondary);
 		margin: 0 0 2.5rem;
 	}
 
@@ -99,8 +99,8 @@
 		padding: 1rem 2.5rem;
 		font-size: 1.1rem;
 		font-weight: 500;
-		color: #0a0a0a;
-		background: #e0e0e0;
+		color: var(--text-inverse);
+		background: var(--btn-primary-bg);
 		border: none;
 		border-radius: 8px;
 		cursor: pointer;
@@ -108,7 +108,7 @@
 	}
 
 	.create-btn:hover:not(:disabled) {
-		background: #ffffff;
+		background: var(--btn-primary-hover);
 		transform: translateY(-1px);
 	}
 
@@ -120,12 +120,12 @@
 	.hint {
 		margin-top: 1rem;
 		font-size: 0.85rem;
-		color: #666;
+		color: var(--text-muted);
 	}
 
 	.unsupported {
-		background: #1a1a1a;
-		border: 1px solid #333;
+		background: var(--bg-surface);
+		border: 1px solid var(--border-default);
 		border-radius: 8px;
 		padding: 1.5rem;
 		margin-top: 1rem;
@@ -133,11 +133,11 @@
 
 	.unsupported p {
 		margin: 0.5rem 0;
-		color: #999;
+		color: var(--text-secondary);
 	}
 
 	.error {
-		color: #e55;
+		color: var(--status-error);
 		margin-top: 1rem;
 	}
 
@@ -149,8 +149,8 @@
 		text-align: center;
 		padding: 1rem;
 		font-size: 0.8rem;
-		color: #555;
-		background: #0a0a0a;
+		color: var(--text-muted);
+		background: var(--bg-base);
 	}
 
 	.lock {

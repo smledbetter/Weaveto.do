@@ -28,6 +28,8 @@ import {
 
 import { padMessage, unpadMessage } from "$lib/crypto/padding";
 
+import type { TaskEvent } from "$lib/tasks/types";
+
 import type {
   Account as OlmAccount,
   Session as OlmSession,
@@ -50,6 +52,7 @@ export interface DecryptedMessage {
   timestamp: number;
   encrypted: boolean;
   decryptionFailed: boolean;
+  taskEvent?: TaskEvent;
 }
 
 export type MessageHandler = (message: DecryptedMessage) => void;
@@ -132,6 +135,9 @@ export class RoomSession {
   // Room members
   private members = new Map<string, RoomMember>();
 
+  // Track last message time per member (for agent recency weighting)
+  private lastMessageTimes = new Map<string, number>();
+
   // Event handlers
   private onMessage: MessageHandler | null = null;
   private onMembersChanged: MemberHandler | null = null;
@@ -170,6 +176,9 @@ export class RoomSession {
   }
   getRoomId(): string {
     return this.roomId;
+  }
+  getLastMessageTimes(): Map<string, number> {
+    return this.lastMessageTimes;
   }
 
   /**
@@ -307,6 +316,50 @@ export class RoomSession {
   }
 
   /**
+   * Send an encrypted task event to the room.
+   */
+  sendTaskEvent(taskEvent: TaskEvent): void {
+    if (
+      !this.outboundSession ||
+      !this.ws ||
+      this.ws.readyState !== WebSocket.OPEN
+    ) {
+      throw new Error("Not connected to room");
+    }
+
+    const payload = JSON.stringify({
+      text: "",
+      sender: this.identityKey,
+      senderName: this.displayName,
+      taskEvent,
+    });
+
+    const paddedPayload = padMessage(payload);
+    const ciphertext = megolmEncrypt(this.outboundSession, paddedPayload);
+    const timestamp = Date.now();
+
+    const msg: EncryptedMessage = {
+      type: "encrypted",
+      senderIdentityKey: this.identityKey,
+      sessionId: this.outboundSessionId,
+      ciphertext,
+      timestamp,
+    };
+    this.ws.send(JSON.stringify(msg));
+
+    // Show our own task event locally
+    this.onMessage?.({
+      senderId: this.identityKey,
+      senderName: this.displayName,
+      plaintext: "",
+      timestamp,
+      encrypted: true,
+      decryptionFailed: false,
+      taskEvent,
+    });
+  }
+
+  /**
    * Disconnect and clean up.
    */
   disconnect(): void {
@@ -319,6 +372,7 @@ export class RoomSession {
     this.olmSessions.clear();
     this.inboundSessions.clear();
     this.members.clear();
+    this.lastMessageTimes.clear();
   }
 
   // --- Private ---
@@ -446,6 +500,7 @@ export class RoomSession {
         text: string;
         sender: string;
         senderName: string;
+        taskEvent?: TaskEvent;
       };
 
       // Use envelope senderIdentityKey (relay-validated) instead of inner
@@ -456,6 +511,9 @@ export class RoomSession {
       const trustedSenderName =
         this.members.get(trustedSenderId)?.displayName ?? payload.senderName;
 
+      // Track last message time for recency-weighted assignment
+      this.lastMessageTimes.set(trustedSenderId, msg.timestamp);
+
       this.onMessage?.({
         senderId: trustedSenderId,
         senderName: trustedSenderName,
@@ -463,6 +521,7 @@ export class RoomSession {
         timestamp: msg.timestamp,
         encrypted: true,
         decryptionFailed: false,
+        ...(payload.taskEvent && { taskEvent: payload.taskEvent }),
       });
     } catch (e) {
       // Decryption failed — show "unable to decrypt" in UI

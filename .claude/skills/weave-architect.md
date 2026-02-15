@@ -55,61 +55,162 @@ description: Architectural blueprint for weave.us — E2EE task coordination wit
 ## Cost Optimization Principles
 
 6. **Cheapest Appropriate Model**
-   Always recommend spawning sub-agents with the cheapest model that can handle the task. Never default to the most expensive option.
+   For development-time sub-agents (Claude Code): use the cheapest Claude tier (haiku/sonnet/opus) that meets quality requirements. For runtime product agents (M2+): default to local open-source models for zero API cost and privacy.
 
-7. **Open Source First**
-   Greatly favor open-source tools and open-source models. Evaluate local open-source models (zero API cost) before Anthropic API models. Include local LLM options in every cost analysis with honest trade-off assessments (quality, latency, infrastructure overhead).
+7. **Open Source First — Scoped to Runtime**
+   Open-source models are the default for **runtime product agents** (WASM-sandboxed, client-side). They are NOT recommended for development-time coding sub-agents due to quality/context limitations. Favor open-source tools and libraries everywhere.
 
 8. **No Fake Timelines**
    Never produce fake execution timelines, calendars, or schedules. Focus on phases, dependencies, and ordering — not dates or durations.
 
-## Recommended Models
+## Model Selection by Context
 
-### Mistral-7B-Instruct-v0.2 (Primary)
-- **Why**: Compact 7B model with excellent instruction following, reduced repetition, strong reasoning
-- **License**: Apache 2.0
-- **Cost**: Single GPU, low inference costs
-- **Best for**: General task coordination, instruction-heavy agent workflows
-- **HF**: [mistralai/Mistral-7B-Instruct-v0.2](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.2)
+### Development-Time (Claude Code Sub-Agents)
 
-### phi-2 (2.7B)
-- **Why**: Microsoft's small model designed for reasoning tasks
-- **License**: MIT
-- **Cost**: Extremely efficient, runs on consumer hardware
-- **Best for**: On-device deployment, privacy-focused applications
-- **HF**: [microsoft/phi-2](https://huggingface.co/microsoft/phi-2)
+Claude Code supports haiku/sonnet/opus. Local open-source models are not supported and not recommended for dev-time coding (quality gap, limited context windows, hallucination risk on modern frameworks).
 
-### OpenHermes-2.5-Mistral-7B
-- **Why**: State-of-the-art Mistral fine-tune with strong multi-turn chat and system prompt capabilities
-- **License**: Apache 2.0 (inherited from Mistral-7B)
-- **Cost**: Competitive with other 7B models, excellent performance-to-cost ratio
-- **Best for**: Complex agent interactions, multi-turn conversations
-- **HF**: [teknium/OpenHermes-2.5-Mistral-7B](https://huggingface.co/teknium/OpenHermes-2.5-Mistral-7B)
+| Task | Model | Rationale |
+|------|-------|-----------|
+| Codebase exploration | haiku | Fast, cheap, good enough for search |
+| Simple code generation | haiku | Formatting, simple components |
+| Complex code generation | sonnet | Multi-file features, TypeScript inference |
+| Test writing | sonnet | Needs reasoning for edge cases |
+| Refactoring (multi-file) | sonnet | Context window critical |
+| Code review | sonnet | Pattern recognition, architecture |
+| Security review | opus | Non-negotiable for E2EE codebase |
+| Architectural decisions | opus | Long-term cost savings |
 
-### Decision Framework
-- **Default for agent teams**: Mistral-7B-Instruct-v0.2 (proven reasoning, Apache 2.0, strong tooling)
-- **On-device / max privacy**: phi-2 (tiny footprint, MIT, consumer hardware)
-- **Complex multi-turn agents**: OpenHermes-2.5-Mistral-7B (sophisticated conversations)
+### Runtime Product Agents (M2+ WASM Sandboxing)
+
+Open-source models are the **default** for runtime agents. Zero API cost, full privacy, offline-first.
+
+| Model | License | Best For | Memory |
+|-------|---------|----------|--------|
+| **Mistral-7B-Instruct-v0.2** | Apache 2.0 | Task coordination, auto-assign, splitting | ~8GB |
+| **phi-2 (2.7B)** | MIT | Low-memory devices, on-device deployment | ~2GB |
+| **OpenHermes-2.5-Mistral-7B** | Apache 2.0 | Complex multi-turn agent interactions | ~8GB |
+
+Decision framework:
+- **Default**: Mistral-7B-Instruct-v0.2 (best quality/size, Apache 2.0)
+- **Low-memory devices**: phi-2 (tiny footprint, MIT)
+- **Complex reasoning**: OpenHermes-2.5-Mistral-7B
+
+### Local Development Tooling (Optional)
+
+- **Commit messages**: Local Mistral-7B via Ollama (zero cost, non-critical)
+- **Documentation drafts**: Local models adequate, human review required
+- **NOT for security-critical tasks**
+
+### CI/CD Pipeline
+
+- Use Claude Haiku (fast, cheap, no GPU runner overhead)
+- Local models too slow on CPU-only CI runners
 
 ## Milestone Savings Tracking
 
 At every milestone:
-1. Perform thorough cost/token analysis comparing open-source model usage vs. hypothetical Opus 4.6-only baseline
-2. Export findings to `docs/cost-savings-log.md` with:
-   - Token counts per model used
-   - Cost per model (API pricing or $0 for local)
-   - Equivalent Opus 4.6 cost for the same work
-   - Net savings (absolute and percentage)
-3. All claims must cite clear, strong evidence (token counts, model pricing docs, benchmark references)
+1. Track Claude API token usage by tier (haiku/sonnet/opus)
+2. Compare against hypothetical all-opus baseline
+3. For M2+: track user-side savings from local runtime agents vs hypothetical API costs
+4. Export findings to `docs/cost-savings-log.md`
 
-## Sub-Agent Spawning Guidelines
+## Testing Requirements
 
-When spawning sub-agents via the Task tool:
-- **Local open-source model** (zero cost): Use when latency and quality are acceptable for the task
-- **haiku**: Use for quick, straightforward tasks (search, simple transforms, formatting)
-- **sonnet**: Use for moderate complexity (code generation, multi-step reasoning)
-- **opus**: Reserve only for tasks requiring highest capability (architectural decisions, complex debugging)
-- Always document model choice rationale in the task prompt
+- All code must have unit tests with 80%+ line coverage
+- Integration tests for all API endpoints
+- E2E tests for critical user flows
+- Security tests for all input validation and authentication
+- Performance tests for all database queries and API endpoints
+- Accessibility tests using axe-core
+- Cross-browser testing for all UI components
+
+### Test Plan Template
+
+**Unit Tests**
+- [ ] Test all public functions
+- [ ] Test edge cases and error conditions
+- [ ] Mock external dependencies
+- [ ] Verify inputs and outputs
+
+**Integration Tests**
+- [ ] Test API endpoints with realistic payloads
+- [ ] Test database interactions
+- [ ] Test third-party service integrations
+- [ ] Test error handling
+
+**E2E Tests**
+- [ ] Test complete user workflows
+- [ ] Test authentication flows
+- [ ] Test data persistence
+- [ ] Test error recovery
+
+### Testing Stack
+
+- Unit/Integration: Jest, Vitest, or PyTest
+- E2E: Playwright or Cypress
+- Security: OWASP ZAP, Snyk, or SonarQube
+- Accessibility: axe-core or pa11y
+- Performance: Lighthouse, k6, or Artillery
+- Coverage: Istanbul or Coverage.py
+
+### Quality Gates
+
+- Block merge if test coverage < 80%
+- Block merge if security scan finds critical vulnerabilities
+- Block merge if accessibility score < 90
+- Block merge if performance score < 90
+- Block merge if any test fails
+
+### TDD Process
+
+1. Write failing test for new feature
+2. Implement minimal code to pass test
+3. Refactor with tests as safety net
+4. Repeat for all requirements
+
+### Test Data
+
+- Use factories to generate test data
+- Never use production data
+- Reset database between tests
+- Use realistic but anonymized data
+
+### CI/CD Pipeline
+
+1. Run linters and type checkers
+2. Run unit and integration tests
+3. Generate test coverage report
+4. Run security scans
+5. Run accessibility tests
+6. Run performance tests
+7. Deploy to staging
+8. Run E2E tests
+9. Manual QA (if required)
+10. Deploy to production
+
+### Production Monitoring
+
+- Log all errors with context
+- Monitor API response times
+- Track error rates
+- Set up alerts for critical failures
+- Capture user feedback on issues
+
+### Test Documentation
+
+- Document test strategy
+- Document test environment setup
+- Document test data generation
+- Document test execution process
+- Document test results and metrics
+
+### Continuous Testing
+
+- Run fast tests on every commit
+- Run full test suite on every PR
+- Run performance tests on staging
+- Run security scans on dependencies
+- Run accessibility tests on UI changes
 
 ## Usage
 
