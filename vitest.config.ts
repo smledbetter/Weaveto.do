@@ -8,7 +8,7 @@ export default defineConfig({
     environment: "jsdom",
     coverage: {
       provider: "v8",
-      include: ["src/lib/tasks/**"],
+      include: ["src/lib/tasks/**", "src/lib/agents/**"],
       thresholds: { lines: 80, functions: 80, branches: 80 },
     },
   },
