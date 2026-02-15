@@ -172,6 +172,48 @@ export function buildHostImports(
       return writeBytesToMemory(memory, buf_ptr, buf_len, context.pendingEvent);
     },
 
+    // Binary helper for simple agents that can't parse JSON (e.g. hand-written WAT).
+    // Returns compact binary: [u32 unassignedCount][u32 memberCount][task records][member records]
+    host_get_assignment_data:
+      has("read_tasks") && has("read_members")
+        ? (buf_ptr: number, buf_len: number) => {
+            const data = buildAssignmentData(context.tasks, context.members);
+            return writeBytesToMemory(memory, buf_ptr, buf_len, data);
+          }
+        : () => 0,
+
+    // High-level assignment helper: agent passes taskId + assignee pointers, host builds JSON event.
+    // Avoids JSON string construction in WAT. Agent still decides *who* gets *which* task.
+    host_emit_assignment:
+      has("emit_events") && has("read_tasks")
+        ? (
+            task_id_ptr: number,
+            task_id_len: number,
+            assignee_ptr: number,
+            assignee_len: number,
+          ) => {
+            const taskId = readStringFromMemory(
+              memory,
+              task_id_ptr,
+              task_id_len,
+            );
+            const assignee = readStringFromMemory(
+              memory,
+              assignee_ptr,
+              assignee_len,
+            );
+            if (!taskId || !assignee) return;
+            const event: TaskEvent = {
+              type: "task_assigned",
+              taskId,
+              task: { assignee },
+              timestamp: Date.now(),
+              actorId: `agent:${context.moduleId}`,
+            };
+            context.onEmitEvent(event);
+          }
+        : () => {},
+
     host_log: (ptr: number, len: number) => {
       const msg = readStringFromMemory(memory, ptr, len);
       console.log(`[agent:${context.moduleId}]`, msg);
@@ -203,6 +245,101 @@ function validateEmittedEvent(event: TaskEvent, moduleId: string): void {
   // Force agent actorId prefix
   event.actorId = `agent:${moduleId}`;
   event.timestamp = Date.now();
+}
+
+// --- Assignment Data Builder ---
+
+/** Size of a task record in the binary format: 36-byte taskId + 1 isBlocked flag. */
+export const TASK_ID_SIZE = 36;
+export const TASK_RECORD_SIZE = TASK_ID_SIZE + 1; // 37 bytes
+/** Size of a member record: 36-byte identityKey + u32 load + u32 lastActive. */
+export const MEMBER_KEY_SIZE = 36;
+export const MEMBER_RECORD_SIZE = MEMBER_KEY_SIZE + 4 + 4; // 44 bytes
+
+/**
+ * Build compact binary format for simple agents (e.g. hand-written WAT).
+ *
+ * Format:
+ *   [u32: unassignedPendingTaskCount] (little-endian)
+ *   [u32: memberCount]               (little-endian)
+ *   For each unassigned pending task:
+ *     [TASK_ID_SIZE bytes: taskId UTF-8, zero-padded]
+ *     [u8: isBlocked (0=assignable, 1=blocked)]
+ *   For each member:
+ *     [MEMBER_KEY_SIZE bytes: identityKey UTF-8, zero-padded]
+ *     [u32: pendingTaskCount]   (little-endian)
+ *     [u32: lastActiveTimestamp] (little-endian, seconds since epoch, 0 if unknown)
+ */
+export function buildAssignmentData(
+  tasks: Task[],
+  members: Map<string, RoomMember>,
+): Uint8Array {
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+
+  // Filter unassigned pending tasks
+  const unassignedPending = tasks.filter(
+    (t) => t.status === "pending" && !t.assignee,
+  );
+
+  // Pre-compute blocked status for each
+  const isBlocked = (task: Task): boolean =>
+    task.blockedBy?.some((depId) => {
+      const dep = taskMap.get(depId);
+      return dep && dep.status !== "completed";
+    }) ?? false;
+
+  const allMemberKeys = Array.from(members.keys());
+
+  // Count non-completed tasks per member
+  const loads = new Map<string, number>();
+  for (const key of allMemberKeys) {
+    loads.set(
+      key,
+      tasks.filter((t) => t.assignee === key && t.status !== "completed")
+        .length,
+    );
+  }
+
+  // Calculate buffer size
+  const headerSize = 8; // 2 * u32
+  const totalSize =
+    headerSize +
+    unassignedPending.length * TASK_RECORD_SIZE +
+    allMemberKeys.length * MEMBER_RECORD_SIZE;
+
+  const buffer = new Uint8Array(totalSize);
+  const view = new DataView(buffer.buffer);
+
+  let offset = 0;
+
+  // Header
+  view.setUint32(offset, unassignedPending.length, true);
+  offset += 4;
+  view.setUint32(offset, allMemberKeys.length, true);
+  offset += 4;
+
+  // Task records
+  for (const task of unassignedPending) {
+    const idBytes = encoder.encode(task.id.slice(0, TASK_ID_SIZE));
+    buffer.set(idBytes, offset);
+    offset += TASK_ID_SIZE;
+    buffer[offset] = isBlocked(task) ? 1 : 0;
+    offset += 1;
+  }
+
+  // Member records
+  for (const key of allMemberKeys) {
+    const keyBytes = encoder.encode(key.slice(0, MEMBER_KEY_SIZE));
+    buffer.set(keyBytes, offset);
+    offset += MEMBER_KEY_SIZE;
+    view.setUint32(offset, loads.get(key) ?? 0, true);
+    offset += 4;
+    // lastActive: 0 for now (executor can update context with real timestamps later)
+    view.setUint32(offset, 0, true);
+    offset += 4;
+  }
+
+  return buffer;
 }
 
 // --- Timeout Wrapper ---

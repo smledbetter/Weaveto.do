@@ -28,6 +28,7 @@ export class AgentExecutor {
   private instances = new Map<string, AgentInstance>();
   private contexts = new Map<string, HostContext>();
   private tickFailures = new Map<string, number>();
+  private lastRunTimes = new Map<string, number>();
   private roomId: string;
   private prfSeed: Uint8Array | null;
   private onEmitEvent: (event: TaskEvent) => void;
@@ -96,6 +97,7 @@ export class AgentExecutor {
         await callWithTimeout(() => exports.on_tick(), CALL_TIMEOUT_MS);
         await flushAgentState(context);
         this.tickFailures.set(module.id, 0); // Reset on success
+        this.lastRunTimes.set(module.id, Date.now());
       } catch (e) {
         const failures = (this.tickFailures.get(module.id) ?? 0) + 1;
         this.tickFailures.set(module.id, failures);
@@ -144,6 +146,7 @@ export class AgentExecutor {
     this.instances.delete(moduleId);
     this.contexts.delete(moduleId);
     this.tickFailures.delete(moduleId);
+    this.lastRunTimes.delete(moduleId);
   }
 
   /**
@@ -217,5 +220,13 @@ export class AgentExecutor {
    */
   isActive(moduleId: string): boolean {
     return this.instances.has(moduleId);
+  }
+
+  /**
+   * Get the last successful tick time for an agent.
+   * Returns undefined if the agent hasn't ticked yet.
+   */
+  getLastRunTime(moduleId: string): number | undefined {
+    return this.lastRunTimes.get(moduleId);
   }
 }

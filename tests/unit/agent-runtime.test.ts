@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   buildHostImports,
+  buildAssignmentData,
   callWithTimeout,
+  TASK_ID_SIZE,
+  TASK_RECORD_SIZE,
+  MEMBER_KEY_SIZE,
+  MEMBER_RECORD_SIZE,
   type HostContext,
 } from "../../src/lib/agents/runtime";
 import type { Task } from "../../src/lib/tasks/types";
@@ -429,5 +434,233 @@ describe("Host Imports: host_set_state MAX_STATE_SIZE (M-1)", () => {
     expect(ctx.stateDirty).toBe(false);
     expect(ctx.stateCache).toBeNull();
     consoleSpy.mockRestore();
+  });
+});
+
+// --- M3.5: Assignment Data Builder ---
+
+describe("buildAssignmentData", () => {
+  it("returns header-only buffer for empty tasks/members", () => {
+    const data = buildAssignmentData([], new Map());
+    expect(data.length).toBe(8); // 2 x u32
+    const view = new DataView(data.buffer);
+    expect(view.getUint32(0, true)).toBe(0); // taskCount
+    expect(view.getUint32(4, true)).toBe(0); // memberCount
+  });
+
+  it("includes only unassigned pending tasks", () => {
+    const tasks: Task[] = [
+      {
+        id: "t1".padEnd(36, "0"),
+        title: "A",
+        status: "pending",
+        createdBy: "u",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      {
+        id: "t2".padEnd(36, "0"),
+        title: "B",
+        status: "pending",
+        assignee: "someone",
+        createdBy: "u",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      {
+        id: "t3".padEnd(36, "0"),
+        title: "C",
+        status: "completed",
+        createdBy: "u",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ];
+    const data = buildAssignmentData(tasks, new Map());
+    const view = new DataView(data.buffer);
+    expect(view.getUint32(0, true)).toBe(1); // Only t1
+  });
+
+  it("marks blocked tasks correctly", () => {
+    const tasks: Task[] = [
+      {
+        id: "t1".padEnd(36, "0"),
+        title: "Dep",
+        status: "pending",
+        createdBy: "u",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      {
+        id: "t2".padEnd(36, "0"),
+        title: "Blocked",
+        status: "pending",
+        createdBy: "u",
+        createdAt: 0,
+        updatedAt: 0,
+        blockedBy: ["t1".padEnd(36, "0")],
+      },
+    ];
+    const data = buildAssignmentData(tasks, new Map());
+    const view = new DataView(data.buffer);
+    expect(view.getUint32(0, true)).toBe(2); // Both unassigned pending
+
+    // First task: not blocked
+    expect(data[8 + TASK_ID_SIZE]).toBe(0);
+    // Second task: blocked (t1 is pending, not completed)
+    expect(data[8 + TASK_RECORD_SIZE + TASK_ID_SIZE]).toBe(1);
+  });
+
+  it("includes member load counts", () => {
+    const tasks: Task[] = [
+      {
+        id: "t1".padEnd(36, "0"),
+        title: "A",
+        status: "pending",
+        assignee: "key1".padEnd(36, "0"),
+        createdBy: "u",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      {
+        id: "t2".padEnd(36, "0"),
+        title: "B",
+        status: "pending",
+        assignee: "key1".padEnd(36, "0"),
+        createdBy: "u",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      {
+        id: "t3".padEnd(36, "0"),
+        title: "C",
+        status: "completed",
+        assignee: "key1".padEnd(36, "0"),
+        createdBy: "u",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ];
+    const members = new Map([
+      [
+        "key1".padEnd(36, "0"),
+        { identityKey: "key1".padEnd(36, "0"), displayName: "Alice" },
+      ],
+      [
+        "key2".padEnd(36, "0"),
+        { identityKey: "key2".padEnd(36, "0"), displayName: "Bob" },
+      ],
+    ]);
+    const data = buildAssignmentData(tasks, members);
+    const view = new DataView(data.buffer);
+
+    expect(view.getUint32(0, true)).toBe(0); // No unassigned pending
+    expect(view.getUint32(4, true)).toBe(2); // 2 members
+
+    // Member 1 (key1): load = 2 (t1 and t2 are pending, t3 is completed)
+    const m1LoadOffset = 8 + MEMBER_KEY_SIZE;
+    expect(view.getUint32(m1LoadOffset, true)).toBe(2);
+
+    // Member 2 (key2): load = 0
+    const m2LoadOffset = 8 + MEMBER_RECORD_SIZE + MEMBER_KEY_SIZE;
+    expect(view.getUint32(m2LoadOffset, true)).toBe(0);
+  });
+});
+
+describe("Host Imports: host_get_assignment_data", () => {
+  it("writes binary assignment data to agent memory", () => {
+    const tasks: Task[] = [
+      {
+        id: "task-1".padEnd(36, "0"),
+        title: "A",
+        status: "pending",
+        createdBy: "u",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ];
+    const members = new Map([
+      [
+        "mem-1".padEnd(36, "0"),
+        { identityKey: "mem-1".padEnd(36, "0"), displayName: "Alice" },
+      ],
+    ]);
+    const ctx = makeContext({ tasks, members });
+    const memory = makeMemory();
+    const imports = buildHostImports(memory, ALL_PERMS, ctx);
+
+    const written = (imports.host_get_assignment_data as Function)(0, 4096);
+    expect(written).toBeGreaterThan(8);
+
+    const view = new DataView(memory.buffer, 0, written);
+    expect(view.getUint32(0, true)).toBe(1); // 1 unassigned task
+    expect(view.getUint32(4, true)).toBe(1); // 1 member
+  });
+
+  it("returns 0 without read_tasks permission", () => {
+    const ctx = makeContext();
+    const memory = makeMemory();
+    const imports = buildHostImports(memory, ["read_members"], ctx);
+
+    const written = (imports.host_get_assignment_data as Function)(0, 4096);
+    expect(written).toBe(0);
+  });
+
+  it("returns 0 without read_members permission", () => {
+    const ctx = makeContext();
+    const memory = makeMemory();
+    const imports = buildHostImports(memory, ["read_tasks"], ctx);
+
+    const written = (imports.host_get_assignment_data as Function)(0, 4096);
+    expect(written).toBe(0);
+  });
+});
+
+describe("Host Imports: host_emit_assignment", () => {
+  it("emits a task_assigned event from taskId and assignee pointers", () => {
+    const onEmitEvent = vi.fn();
+    const ctx = makeContext({ onEmitEvent, moduleId: "auto-balance" });
+    const memory = makeMemory();
+    const imports = buildHostImports(memory, ALL_PERMS, ctx);
+
+    const taskId = "task-abc-123";
+    const assignee = "user-xyz-456";
+    const taskIdLen = writeString(memory, 0, taskId);
+    const assigneeLen = writeString(memory, 100, assignee);
+
+    (imports.host_emit_assignment as Function)(0, taskIdLen, 100, assigneeLen);
+
+    expect(onEmitEvent).toHaveBeenCalledOnce();
+    const emitted = onEmitEvent.mock.calls[0][0];
+    expect(emitted.type).toBe("task_assigned");
+    expect(emitted.taskId).toBe(taskId);
+    expect(emitted.task.assignee).toBe(assignee);
+    expect(emitted.actorId).toBe("agent:auto-balance");
+  });
+
+  it("does nothing with empty taskId", () => {
+    const onEmitEvent = vi.fn();
+    const ctx = makeContext({ onEmitEvent });
+    const memory = makeMemory();
+    const imports = buildHostImports(memory, ALL_PERMS, ctx);
+
+    (imports.host_emit_assignment as Function)(0, 0, 0, 0);
+    expect(onEmitEvent).not.toHaveBeenCalled();
+  });
+
+  it("does nothing without emit_events permission", () => {
+    const onEmitEvent = vi.fn();
+    const ctx = makeContext({ onEmitEvent });
+    const memory = makeMemory();
+    const imports = buildHostImports(
+      memory,
+      ["read_tasks", "read_members"],
+      ctx,
+    );
+
+    const len = writeString(memory, 0, "task1");
+    const aLen = writeString(memory, 100, "user1");
+    (imports.host_emit_assignment as Function)(0, len, 100, aLen);
+    expect(onEmitEvent).not.toHaveBeenCalled();
   });
 });

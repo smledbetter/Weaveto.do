@@ -23,6 +23,7 @@
 		deleteModule,
 		setModuleActive,
 	} from '$lib/agents/loader';
+	import { getBuiltInAgents, isBuiltIn } from '$lib/agents/builtin';
 
 	let roomId = $derived($page.params.id ?? '');
 	let isCreator = $derived($page.url.searchParams.has('create'));
@@ -57,6 +58,7 @@
 	let agentExecutor: AgentExecutor | null = $state(null);
 	let activeAgentIds = $state<string[]>([]);
 	let agentPrfSeed: Uint8Array | undefined = undefined;
+	let agentToast = $state('');
 
 	// Reminder scheduler — fires 5 min before due, in-tab only
 	const reminderScheduler = new ReminderScheduler((task) => {
@@ -196,6 +198,19 @@
 		});
 		await refreshAgentModules();
 
+		// Load built-in agents and merge with user-uploaded
+		const builtIns = await getBuiltInAgents(roomId);
+		for (const builtin of builtIns) {
+			// Check localStorage for explicit disable; default is active
+			const key = `weave-agent-disabled:${builtin.id}`;
+			const disabled = browser && localStorage.getItem(key) === 'true';
+			builtin.active = !disabled;
+			// Add to modules list if not already present
+			if (!agentModules.some((m) => m.id === builtin.id)) {
+				agentModules = [...agentModules, builtin];
+			}
+		}
+
 		// Auto-activate previously active agents
 		for (const mod of agentModules) {
 			if (mod.active) {
@@ -207,6 +222,16 @@
 			}
 		}
 		activeAgentIds = agentExecutor.getActiveAgents();
+
+		// First-run toast: show once per browser when built-in agent activates
+		if (browser && builtIns.length > 0 && activeAgentIds.some((id) => isBuiltIn(id))) {
+			const toastKey = 'weave-agent-first-run-shown';
+			if (!localStorage.getItem(toastKey)) {
+				localStorage.setItem(toastKey, 'true');
+				agentToast = 'Auto-balance agent is active. It assigns unassigned tasks to the least-busy member every 30s. You can disable it in the Agents panel.';
+				setTimeout(() => { agentToast = ''; }, 10000);
+			}
+		}
 	}
 
 	async function handleAgentUpload(manifest: AgentManifest, wasmBytes: ArrayBuffer) {
@@ -238,9 +263,14 @@
 
 		try {
 			await agentExecutor.activate(mod);
-			const db = await openModuleDB();
-			await setModuleActive(db, moduleId, true);
-			db.close();
+			if (isBuiltIn(moduleId)) {
+				// Built-ins: remove disable flag from localStorage
+				localStorage.removeItem(`weave-agent-disabled:${moduleId}`);
+			} else {
+				const db = await openModuleDB();
+				await setModuleActive(db, moduleId, true);
+				db.close();
+			}
 			activeAgentIds = agentExecutor.getActiveAgents();
 		} catch (e) {
 			error = `Failed to activate agent: ${e instanceof Error ? e.message : String(e)}`;
@@ -251,13 +281,21 @@
 		if (!agentExecutor) return;
 
 		await agentExecutor.deactivate(moduleId);
-		const db = await openModuleDB();
-		await setModuleActive(db, moduleId, false);
-		db.close();
+		if (isBuiltIn(moduleId)) {
+			// Built-ins: set disable flag in localStorage
+			localStorage.setItem(`weave-agent-disabled:${moduleId}`, 'true');
+		} else {
+			const db = await openModuleDB();
+			await setModuleActive(db, moduleId, false);
+			db.close();
+		}
 		activeAgentIds = agentExecutor.getActiveAgents();
 	}
 
 	async function handleAgentDelete(moduleId: string) {
+		// Built-in agents cannot be deleted
+		if (isBuiltIn(moduleId)) return;
+
 		// Deactivate first if active
 		if (agentExecutor?.isActive(moduleId)) {
 			await agentExecutor.deactivate(moduleId);
@@ -472,6 +510,13 @@
 			<div class="reminder-toast" role="alert">
 				<span>{reminderNotice}</span>
 				<button onclick={() => { reminderNotice = ''; }} aria-label="Dismiss reminder">&times;</button>
+			</div>
+		{/if}
+
+		{#if agentToast}
+			<div class="agent-toast" role="status">
+				<span>{agentToast}</span>
+				<button onclick={() => { agentToast = ''; }} aria-label="Dismiss">&times;</button>
 			</div>
 		{/if}
 
@@ -1055,6 +1100,37 @@
 		font-size: 1.1rem;
 		line-height: 1;
 		padding: 0;
+	}
+
+	/* Agent first-run toast */
+	.agent-toast {
+		position: fixed;
+		bottom: 1rem;
+		left: 50%;
+		transform: translateX(-50%);
+		background: var(--accent-muted);
+		border: 1px solid var(--accent-border);
+		color: var(--text-primary);
+		padding: 0.6rem 1rem;
+		border-radius: 6px;
+		font-size: 0.85rem;
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		z-index: 300;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+		max-width: 500px;
+	}
+
+	.agent-toast button {
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		font-size: 1.1rem;
+		line-height: 1;
+		padding: 0;
+		flex-shrink: 0;
 	}
 
 	/* Shortcuts help modal */

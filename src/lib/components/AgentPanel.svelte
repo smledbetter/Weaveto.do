@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { AgentManifest, AgentPermission, StoredAgentModule } from '$lib/agents/types';
 	import { ALL_PERMISSIONS } from '$lib/agents/types';
+	import { isBuiltIn } from '$lib/agents/builtin';
 
 	interface Props {
 		modules: StoredAgentModule[];
@@ -23,6 +24,7 @@
 	}: Props = $props();
 
 	// Upload form state
+	let showUploadToggle = $state(false);
 	let showUploadForm = $state(false);
 	let uploadFile = $state<File | null>(null);
 	let uploadName = $state('');
@@ -177,7 +179,17 @@
 	</div>
 
 	<div class="panel-body" aria-live="polite">
-		{#if !showUploadForm}
+		{#if !showUploadForm && !showUploadToggle}
+			<button
+				class="upload-toggle-link"
+				onclick={() => { showUploadToggle = true; }}
+				aria-label="Show upload option"
+			>
+				Advanced: upload custom agent
+			</button>
+		{/if}
+
+		{#if showUploadToggle && !showUploadForm}
 			<button
 				class="upload-btn"
 				onclick={handleUploadClick}
@@ -277,7 +289,8 @@
 			<ul class="module-list" role="list">
 				{#each modules as module (module.id)}
 					{@const isActive = activeAgents.includes(module.id)}
-					<li class="module-item">
+					{@const builtin = isBuiltIn(module.id)}
+					<li class="module-item" class:builtin>
 						<div class="module-header">
 							<div class="module-title-section">
 								<div class="status-badge" class:active={isActive} title={isActive ? 'Active' : 'Inactive'}>
@@ -287,8 +300,12 @@
 									<h4 class="module-name">{module.manifest.name}</h4>
 									<div class="module-meta">
 										<span class="version">v{module.manifest.version}</span>
-										<span class="author">{module.manifest.author}</span>
-										<span class="uploaded">Uploaded {formatDate(module.uploadedAt)}</span>
+										{#if builtin}
+											<span class="builtin-badge">Built-in</span>
+										{:else}
+											<span class="author">{module.manifest.author}</span>
+											<span class="uploaded">Uploaded {formatDate(module.uploadedAt)}</span>
+										{/if}
 									</div>
 								</div>
 							</div>
@@ -302,14 +319,16 @@
 								>
 									{isActive ? 'Deactivate' : 'Activate'}
 								</button>
-								<button
-									class="delete-btn"
-									onclick={() => initiateDelete(module.id)}
-									aria-label="Delete agent module"
-									title="Delete"
-								>
-									&#128465;
-								</button>
+								{#if !builtin}
+									<button
+										class="delete-btn"
+										onclick={() => initiateDelete(module.id)}
+										aria-label="Delete agent module"
+										title="Delete"
+									>
+										&#128465;
+									</button>
+								{/if}
 							</div>
 						</div>
 
@@ -400,6 +419,22 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
+	}
+
+	/* Upload toggle link */
+	.upload-toggle-link {
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		font-size: 0.75rem;
+		text-decoration: underline;
+		padding: 0.25rem 0;
+		text-align: left;
+	}
+
+	.upload-toggle-link:hover {
+		color: var(--text-secondary);
 	}
 
 	/* Upload button */
@@ -625,6 +660,23 @@
 
 	.version::before {
 		content: '';
+	}
+
+	.builtin-badge {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.1rem 0.4rem;
+		background: var(--accent-muted);
+		color: var(--accent-default);
+		border-radius: 3px;
+		font-size: 0.7rem;
+		font-weight: 500;
+		border: 1px solid var(--accent-border);
+	}
+
+	.builtin-badge::before {
+		content: '•';
+		margin: 0 0.35rem;
 	}
 
 	.author::before,
