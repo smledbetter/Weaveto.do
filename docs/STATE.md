@@ -2,7 +2,7 @@
 
 Last updated: 2026-02-15
 
-## Current Milestone: M5 — Burn-After-Use
+## Current Milestone: M6 — Offline & Sync
 
 ### What's Done
 
@@ -70,14 +70,26 @@ Last updated: 2026-02-15
 - 235 unit tests, 22 new E2E tests, 0 regressions
 - See: `docs/milestones/M4-task-polish/`
 
-### What's Next (M5 — Burn-After-Use)
+**M5 — Burn-After-Use** (Complete)
+- Auto-deletion: 24h grace period after all tasks complete (cancellable countdown banner)
+- Manual burn: `/burn` command with type-to-confirm "DELETE" friction (creator-only)
+- Ephemeral mode: checkbox on room creation, flame indicator, zero persistence, auto-purge on last disconnect
+- Relay purge endpoint: creator identity verification, broadcast `room_destroyed`, delayed connection close
+- Client cleanup orchestrator: 6 storage layers (session, sessionStorage, 3× IndexedDB, service worker)
+- Session purge flow: `purgeInitiated` flag prevents double-processing of self-initiated purge
+- Deleted room notices on homepage (auto-dismiss after 5s)
+- 243 unit tests, 75 E2E tests (13 new burn tests), 0 regressions
+- Ship-readiness audit: 10/10 security principles, 0 vulnerabilities
+- See: `docs/milestones/M5-burn-after-use/`
 
-Rooms and tasks auto-delete on completion, with manual burn for sensitive coordination.
-- Auto-deletion on room completion
-- Manual burn command (immediate room data destruction)
-- Ephemeral mode (in-memory only, no persistence)
+### What's Next (M6 — Offline & Sync)
 
-See: `docs/milestones/M5-burn-after-use/`
+Offline-first task management with encrypted local storage and conflict-free sync.
+- Encrypted local task cache (IndexedDB + AES-GCM)
+- Offline task creation and editing
+- Conflict-free sync on reconnect (CRDT-based merge)
+
+See: `docs/milestones/M6-offline-sync/` (planned)
 
 ### Known Issues
 
@@ -95,7 +107,9 @@ See: `docs/milestones/M5-burn-after-use/`
 | M3 | Agent Infrastructure | Complete |
 | M3.5 | Built-In Agent | Complete |
 | M4 | Task Polish | Complete |
-| M5 | Burn-After-Use | Not Started |
+| M5 | Burn-After-Use | Complete |
+| M6 | Offline & Sync | Not Started |
+| M7 | Multi-Device | Not Started |
 
 #### M3.5 — Built-In Agent (Release Goal)
 Users get automatic task distribution out of the box, with no setup required.

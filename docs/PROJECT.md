@@ -29,7 +29,7 @@ No accounts, no tracking, no persistence beyond what's necessary.
 | M3 | Agent Infrastructure | Complete | WASM agent sandboxing, persistent encrypted state, agent module upload, security hardening |
 | M3.5 | Built-In Agent | Complete | Auto-balance WAT agent (default-on), first-run toast, built-in badge, binary host helpers |
 | M4 | Task Polish | Complete | Task descriptions, due date sorting, quick-pick dates, urgent flag, room search |
-| M5 | Burn-After-Use | Not Started | Auto-deletion, ephemeral mode, manual burn commands |
+| M5 | Burn-After-Use | Complete | Auto-deletion (24h grace period), manual `/burn` (creator-only), ephemeral mode, 6-layer cleanup |
 
 See `docs/milestones/M{N}-{name}/` for per-milestone plans, acceptance criteria, and lessons learned.
 

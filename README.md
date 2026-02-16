@@ -91,13 +91,14 @@ Describe, sort, and triage tasks more effectively.
 - Urgent flag (binary toggle, text badge, sorts urgent-first)
 - Room-scoped task search (real-time filter on title + description)
 
-### M5: Burn-After-Use — current
+### M5: Burn-After-Use ✓
 
 Automatic data destruction after task completion.
 
-- Rooms auto-delete after all tasks complete (with grace period)
-- Manual `/burn` command for immediate destruction
-- Ephemeral mode (in-memory only, no persistence)
+- Auto-deletion: 24h grace period after all tasks complete (cancellable countdown banner)
+- Manual `/burn` command with type-to-confirm friction (creator-only)
+- Ephemeral mode: zero persistence, flame indicator, auto-purge on last disconnect
+- 6-layer client cleanup orchestrator (session, sessionStorage, 3× IndexedDB, service worker)
 
 ### M6: Agent Hardening
 
