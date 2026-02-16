@@ -99,6 +99,24 @@ Automatic data destruction after task completion.
 - Manual `/burn` command for immediate destruction
 - Ephemeral mode (in-memory only, no persistence)
 
+### M6: Agent Hardening
+
+Harden the agent infrastructure with true preemption, module signatures, and runtime improvements.
+
+- Web Worker preemption for WASM execution (replace main-thread timeout)
+- Ed25519 module signature verification
+- Agent event validation against known taskIds
+
+### M7: Penetration Testing
+
+Security penetration testing across all shipped milestones.
+
+- E2EE protocol audit
+- WebAuthn PRF identity testing
+- WASM sandbox escape testing
+- Relay server hardening
+- Client-side crypto review
+
 ## Development
 
 ```sh
