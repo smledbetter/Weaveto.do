@@ -1,8 +1,8 @@
 # Project State
 
-Last updated: 2026-02-15
+Last updated: 2026-02-16
 
-## Current Milestone: M6 — Offline & Sync
+## Current Milestone: M6 — Session Security
 
 ### What's Done
 
@@ -82,14 +82,49 @@ Last updated: 2026-02-15
 - Ship-readiness audit: 10/10 security principles, 0 vulnerabilities
 - See: `docs/milestones/M5-burn-after-use/`
 
-### What's Next (M6 — Offline & Sync)
+**Invite Modal with QR Code** (Complete, post-M5)
+- Zero-dependency QR code SVG encoder (byte mode, EC level L, versions 1-6, Reed-Solomon GF(256))
+- InviteModal: QR code + copyable URL + member list + privacy footer
+- SoloMemberBanner: persistent prompt when alone in room (dismissible, sessionStorage)
+- Accent-styled Invite button replaces old Copy Link
+- 23 new unit tests, 13 new E2E tests, 0 regressions
 
-Offline-first task management with encrypted local storage and conflict-free sync.
-- Encrypted local task cache (IndexedDB + AES-GCM)
-- Offline task creation and editing
-- Conflict-free sync on reconnect (CRDT-based merge)
+**M5.5 — UX Polish** (Complete)
+- Deterministic 2-word room names from room ID hash (display-only, no server state)
+- Homepage radio buttons: Standard vs Ephemeral with use-case descriptions
+- Room name in header, page title, join page heading, invite modal
+- Friendly onboarding copy for invited users ("You've been invited to a private, encrypted room")
+- User's display name visible in room header ("You: Alice")
+- Agent panel explainer text (what agents are, developer-only upload note)
+- 299 unit tests (33 new), 102 E2E tests (14 new), 0 regressions
+- See: `docs/milestones/M5.5-ux-polish/`
 
-See: `docs/milestones/M6-offline-sync/` (planned)
+### What's Next (M6 — Session Security)
+
+PIN-based endpoint compromise containment. If one member's device is compromised, the PIN prevents the attacker from accessing future room content after key rotation.
+
+**Wave 1: PIN Setup & Key Derivation**
+- Optional 6-digit PIN during room join (creator can make mandatory)
+- PIN → PBKDF2-SHA256 (600K iterations, random salt) → 256-bit PIN key
+- PIN key stored encrypted under PRF-derived key in IndexedDB
+- Creator policy: "Require PIN for all members" (encrypted room metadata)
+- PIN entry UI (numeric keypad, accessible, large tap targets)
+
+**Wave 2: Session Gating**
+- PIN required on reconnect (after disconnect, browser restart, or inactivity timeout)
+- Configurable inactivity timeout (5/15/30 min) clears Megolm keys from memory
+- Lock overlay with blurred room content and PIN entry
+- Rate limiting: 3 failures → 30s wait, exponential backoff, 10 failures → session cleared
+- Tab visibility change triggers shorter grace period
+
+**Wave 3: Megolm Key Rotation with PIN Gating**
+- Megolm session key rotation (periodic or on-demand)
+- New session keys encrypted under each member's PIN-derived key
+- Creator-forced rotation ("Rotate keys now" when compromise suspected)
+- Members without valid PIN can't decrypt new session keys (effectively locked out)
+- Shield indicators for PIN-protected rooms
+
+See: `docs/milestones/M6-session-security/` (planned)
 
 ### Known Issues
 
@@ -108,8 +143,12 @@ See: `docs/milestones/M6-offline-sync/` (planned)
 | M3.5 | Built-In Agent | Complete |
 | M4 | Task Polish | Complete |
 | M5 | Burn-After-Use | Complete |
-| M6 | Offline & Sync | Not Started |
-| M7 | Multi-Device | Not Started |
+| M5.5 | UX Polish | Complete |
+| M6 | Session Security | Not Started |
+| M7 | Agent Hardening | Not Started |
+| M8 | Penetration Testing | Not Started |
+| M9 | Encrypted Notifications | Not Started |
+| M10 | Offline & Sync | Not Started |
 
 #### M3.5 — Built-In Agent (Release Goal)
 Users get automatic task distribution out of the box, with no setup required.
@@ -132,6 +171,53 @@ Rooms and tasks auto-delete on completion, with manual burn for sensitive coordi
 - Auto-deletion on room completion
 - Manual burn command (immediate room data destruction)
 - Ephemeral mode (in-memory only, no persistence)
+
+#### M5.5 — UX Polish (Release Goal)
+New users can understand and navigate the app without prior context.
+- Memorable 2-word room names derived from hash (deterministic, no server state)
+- Shortened room URLs (verbal-shareability)
+- Named room modes with use-case guidance (Standard vs Ephemeral)
+- Better onboarding copy for invited users landing on Join page
+- User's own display name visible in room header
+- Agent panel explainer text (what agents are, custom agent guidance, roadmap teaser)
+
+#### M6 — Session Security (Release Goal)
+If one member's device is compromised, the attacker can't access future room content after key rotation.
+- Optional 6-digit PIN (creator can require for all members)
+- PIN → PBKDF2-SHA256 → key derivation (zero new dependencies)
+- Session lock with configurable inactivity timeout (clears Megolm keys from memory)
+- PIN re-entry gate on reconnect with rate limiting and exponential backoff
+- Megolm key rotation gated by PIN-derived keys (forward secrecy from compromise point)
+- Creator-forced key rotation for suspected compromise
+- Forget PIN → rejoin as new identity (no recovery codes, preserves no-account model)
+
+#### M7 — Agent Hardening (Release Goal)
+Harden the agent infrastructure with true preemption, module signatures, and runtime improvements.
+- Web Worker preemption for WASM execution (replace main-thread timeout)
+- Ed25519 module signature verification
+- Agent event validation against known taskIds
+
+#### M8 — Penetration Testing (Release Goal)
+Security penetration testing across all shipped milestones.
+- E2EE protocol audit
+- WebAuthn PRF identity testing
+- WASM sandbox escape testing
+- Relay server hardening
+- Client-side crypto review
+
+#### M9 — Encrypted Notifications (Release Goal)
+Members get notified of task assignments and due dates even when the tab is closed, with zero plaintext in notification payloads.
+- Expanded service worker notifications (assignment, status change, grouping)
+- Local notification rules (per-room toggle, urgency filter, do-not-disturb)
+- Web Push API integration (VAPID, encrypted push via relay, subscription management)
+- All notification payloads generic ("You have a new task in [room-name]") — no task content
+- Push subscription cleanup on room destruction (burn/auto-delete/ephemeral purge)
+
+#### M10 — Offline & Sync (Release Goal)
+Work offline and sync when reconnected.
+- IndexedDB-backed offline task store
+- Conflict resolution on reconnect
+- Optimistic UI updates
 
 ### Tech Stack
 

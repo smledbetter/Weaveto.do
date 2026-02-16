@@ -100,7 +100,44 @@ Automatic data destruction after task completion.
 - Ephemeral mode: zero persistence, flame indicator, auto-purge on last disconnect
 - 6-layer client cleanup orchestrator (session, sessionStorage, 3× IndexedDB, service worker)
 
-### M6: Agent Hardening
+### M5.5: UX Polish
+
+Onboarding clarity, room identity, and mode explanations so new users can understand and navigate the app without prior context.
+
+**Wave 1: First Impressions**
+- Named room modes: "Standard" vs "Ephemeral" with radio buttons and use-case guidance
+- Better onboarding copy on Join Room page (context for invited users, friendlier auth language)
+- Agent panel explainer text (what agents are, where to find custom agents, more defaults coming)
+
+**Wave 2: Room Identity**
+- Memorable 2-word room names derived from hash (e.g. "swift-falcon")
+- Shortened URLs (`/swift-falcon` instead of `/room/[hex hash]`)
+- Show user's own display name in room header
+- Join page shows room name instead of generic "Join Room"
+
+### M6: Session Security
+
+PIN-based endpoint compromise containment. If one member's device is compromised, the attacker can't access future room content after key rotation.
+
+**Wave 1: PIN Setup & Key Derivation**
+- Optional 6-digit PIN during room join (creator can require for all members)
+- PIN → PBKDF2-SHA256 (600K iterations) → 256-bit PIN key (zero new dependencies)
+- PIN key stored encrypted under PRF-derived key in IndexedDB
+- Creator policy: "Require PIN for all members" (encrypted room metadata)
+
+**Wave 2: Session Gating**
+- PIN required on reconnect (after disconnect, browser restart, or inactivity timeout)
+- Configurable inactivity timeout (5/15/30 min) clears Megolm keys from memory
+- Lock overlay with blurred room content and PIN entry
+- Rate limiting: 3 failures → 30s wait, exponential backoff, 10 failures → session cleared
+
+**Wave 3: Megolm Key Rotation with PIN Gating**
+- New session keys encrypted under each member's PIN-derived key
+- Creator-forced rotation ("Rotate keys now" when compromise suspected)
+- Members without valid PIN can't decrypt new session keys
+- Forget PIN → rejoin as new identity (no recovery codes, preserves no-account model)
+
+### M7: Agent Hardening
 
 Harden the agent infrastructure with true preemption, module signatures, and runtime improvements.
 
@@ -108,7 +145,7 @@ Harden the agent infrastructure with true preemption, module signatures, and run
 - Ed25519 module signature verification
 - Agent event validation against known taskIds
 
-### M7: Penetration Testing
+### M8: Penetration Testing
 
 Security penetration testing across all shipped milestones.
 
@@ -117,6 +154,37 @@ Security penetration testing across all shipped milestones.
 - WASM sandbox escape testing
 - Relay server hardening
 - Client-side crypto review
+
+### M9: Encrypted Notifications
+
+Privacy-preserving notifications so members know when tasks are assigned or due, even with the browser closed. Zero plaintext in any notification payload.
+
+**Wave 1: Expanded Service Worker Notifications**
+- Notify on task assignment ("You have a new task in [room-name]")
+- Notify on task status changes for owned tasks
+- Notification grouping (batch multiple events into one)
+- All payloads generic — no task titles, member names, or content
+
+**Wave 2: Local Notification Rules**
+- Per-room notification toggle (enable/disable)
+- Urgency filter (only notify for urgent tasks)
+- Do Not Disturb mode (1h / until tomorrow / custom)
+- Moon icon in room header when DND active
+
+**Wave 3: Web Push API (Encrypted)**
+- Web Push API with VAPID (RFC 8291 — browser-standard encrypted push)
+- Relay sends encrypted push on room events (ciphertext only)
+- Push subscription stored locally, endpoint registered with relay
+- Subscription cleanup on room destruction (burn/auto-delete/ephemeral purge)
+- Just-in-time permission prompt (no nagging if denied)
+
+### M10: Offline & Sync
+
+Work offline and sync when reconnected.
+
+- IndexedDB-backed offline task store
+- Conflict resolution on reconnect
+- Optimistic UI updates
 
 ## Development
 
