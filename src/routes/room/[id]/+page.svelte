@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { onMount, onDestroy } from 'svelte';
+	import { getRoomName } from '$lib/room/names';
 	import { browser } from '$app/environment';
 	import { RoomSession, type DecryptedMessage, type RoomMember } from '$lib/room/session';
 	import { createCredential, assertWithPrf, getStoredCredentialId, WebAuthnUnsupportedError } from '$lib/webauthn/prf';
@@ -27,11 +28,14 @@
 	import BurnConfirmModal from '$lib/components/BurnConfirmModal.svelte';
 	import AutoDeleteBanner from '$lib/components/AutoDeleteBanner.svelte';
 	import EphemeralIndicator from '$lib/components/EphemeralIndicator.svelte';
+	import InviteModal from '$lib/components/InviteModal.svelte';
+	import SoloMemberBanner from '$lib/components/SoloMemberBanner.svelte';
 	import { cleanupRoom } from '$lib/room/cleanup';
 	import { autoDeleteKey } from '$lib/room/types';
 	import type { AutoDeleteState } from '$lib/room/types';
 
 	let roomId = $derived($page.params.id ?? '');
+	let roomName = $derived(roomId ? getRoomName(roomId) : '');
 	let isCreator = $derived($page.url.searchParams.has('create'));
 	let isEphemeral = $derived($page.url.searchParams.has('ephemeral'));
 	let session: RoomSession | null = $state(null);
@@ -44,7 +48,6 @@
 	let error = $state('');
 	let showKeyWarning = $state(false);
 	let roomUrl = $derived(browser ? `${window.location.origin}/room/${roomId}` : '');
-	let copied = $state(false);
 
 	// Task management
 	const taskStore = createTaskStore();
@@ -66,6 +69,11 @@
 	let activeAgentIds = $state<string[]>([]);
 	let agentPrfSeed: Uint8Array | undefined = undefined;
 	let agentToast = $state('');
+
+	// Invite modal
+	let showInviteModal = $state(false);
+	let inviteBannerDismissed = $state(false);
+	let isSoloMember = $derived(members.size === 0);
 
 	// M5 burn features
 	let showBurnModal = $state(false);
@@ -326,6 +334,12 @@
 			showKeyWarning = true;
 		}
 
+		// Restore invite banner dismissed state
+		if (browser) {
+			const dismissed = sessionStorage.getItem(`weave-invite-dismissed:${roomId}`);
+			if (dismissed === 'true') inviteBannerDismissed = true;
+		}
+
 		// Check for existing auto-delete state
 		if (browser) {
 			const stored = sessionStorage.getItem(autoDeleteKey(roomId));
@@ -489,16 +503,6 @@
 		}
 	}
 
-	async function copyRoomUrl() {
-		try {
-			await navigator.clipboard.writeText(roomUrl);
-			copied = true;
-			setTimeout(() => { copied = false; }, 2000);
-		} catch {
-			// Fallback
-		}
-	}
-
 	function formatTime(ts: number): string {
 		return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 	}
@@ -558,7 +562,7 @@
 </script>
 
 <svelte:head>
-	<title>Room — weaveto.do</title>
+	<title>{roomName || 'Room'} — weaveto.do</title>
 </svelte:head>
 
 <main>
@@ -571,19 +575,19 @@
 
 	{#if phase === 'name'}
 		<div class="center-card">
-			<h2>Join Room</h2>
-			<p class="subtitle">Choose a display name for this session. It's not an account — just a label.</p>
+			<h2>Join {roomName || 'Room'}</h2>
+			<p class="subtitle">You've been invited to a private, encrypted room. Pick a name so others know who you are.</p>
 			<input
 				type="text"
 				bind:value={displayName}
-				placeholder="Your name"
+				placeholder="What should we call you?"
 				maxlength="32"
 				onkeydown={(e) => e.key === 'Enter' && joinRoom()}
 			/>
 			<button onclick={joinRoom} disabled={!displayName.trim()} class="primary-btn">
 				Join Securely
 			</button>
-			<p class="auth-note">You'll use your fingerprint or security key to create a secure identity.</p>
+			<p class="auth-note">Your fingerprint creates a temporary identity for this session. Nothing is stored.</p>
 		</div>
 
 	{:else if phase === 'auth'}
@@ -651,7 +655,7 @@
 		<div class="room" class:panel-open={showTaskPanel}>
 			<header>
 				<div class="room-info">
-					<h2>Room</h2>
+					<h2>{roomName || 'Room'}</h2>
 					<span class="encryption-badge">&#128274; End-to-end encrypted</span>
 					{#if session?.getEphemeralMode()}
 						<EphemeralIndicator memberCount={members.size + 1} />
@@ -676,10 +680,11 @@
 					>
 						Agents{#if activeAgentIds.length > 0} ({activeAgentIds.length}){/if}
 					</button>
-					<button class="copy-link" onclick={copyRoomUrl}>
-						{copied ? 'Copied!' : 'Copy Link'}
+					<button class="invite-btn" onclick={() => { showInviteModal = true; }}>
+						Invite
 					</button>
 					<span class="member-count">{members.size + 1} {members.size + 1 === 1 ? 'member' : 'members'}</span>
+					{#if displayName}<span class="display-name-tag">You: {displayName}</span>{/if}
 					<span
 					class="connection-dot"
 					class:online={connected}
@@ -732,11 +737,25 @@
 				</div>
 			{/if}
 
+			{#if isSoloMember && !inviteBannerDismissed}
+				<div class="invite-banner-container">
+					<SoloMemberBanner
+						onInvite={() => { showInviteModal = true; }}
+						onDismiss={() => {
+							inviteBannerDismissed = true;
+							if (browser) {
+								sessionStorage.setItem(`weave-invite-dismissed:${roomId}`, 'true');
+							}
+						}}
+					/>
+				</div>
+			{/if}
+
 			<div class="room-body">
 				<div class="messages-col" class:mobile-hidden={(showTaskPanel && mobileTab === 'tasks') || (showAgentPanel && mobileTab === 'agents')}>
 					<div class="messages">
 						{#if messages.length === 0}
-							<p class="empty-hint">Share the link above to invite others. Only people with the link can join.</p>
+							<p class="empty-hint">This room is end-to-end encrypted. Click Invite to share it.</p>
 						{/if}
 
 						{#each messages as msg}
@@ -798,6 +817,16 @@
 
 		{#if showBurnModal}
 			<BurnConfirmModal onConfirm={handleBurnConfirm} onCancel={() => { showBurnModal = false; }} />
+		{/if}
+
+		{#if showInviteModal}
+			<InviteModal
+				{roomUrl}
+				{members}
+				myIdentityKey={session?.getIdentityKey() ?? ''}
+				{displayName}
+				onClose={() => { showInviteModal = false; }}
+			/>
 		{/if}
 
 		{#if roomDeleted}
@@ -996,19 +1025,25 @@
 	.agents-toggle:hover { border-color: var(--border-strong); color: var(--btn-secondary-hover-text); }
 	.agents-toggle.active { border-color: var(--accent-default); color: var(--accent-default); background: var(--accent-muted); }
 
-	.copy-link {
-		background: none;
-		border: 1px solid var(--border-default);
-		color: var(--btn-secondary-text);
+	.invite-btn {
+		background: var(--accent-default);
+		border: none;
+		color: var(--text-inverse);
 		padding: 0.3rem 0.75rem;
 		border-radius: 4px;
 		cursor: pointer;
 		font-size: 0.8rem;
+		font-weight: 500;
 	}
 
-	.copy-link:hover { border-color: var(--border-strong); color: var(--btn-secondary-hover-text); }
+	.invite-btn:hover { background: var(--accent-strong); }
 
 	.member-count {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.display-name-tag {
 		font-size: 0.8rem;
 		color: var(--text-secondary);
 	}
@@ -1373,6 +1408,12 @@
 
 	/* Auto-delete banner container */
 	.auto-delete-container {
+		padding: 0 1rem;
+		flex-shrink: 0;
+	}
+
+	/* Invite banner container */
+	.invite-banner-container {
 		padding: 0 1rem;
 		flex-shrink: 0;
 	}

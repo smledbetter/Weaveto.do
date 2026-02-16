@@ -72,12 +72,36 @@
 				{creating ? 'Creating...' : 'New Room'}
 			</button>
 
-			<div class="ephemeral-option">
-				<label>
-					<input type="checkbox" bind:checked={ephemeralMode} />
-					<span>Ephemeral mode (no persistence)</span>
-				</label>
-				<p class="ephemeral-help">Messages and tasks exist only while tabs are open. Closing all tabs deletes the room.</p>
+			<div class="room-mode-group" role="radiogroup" aria-label="Room mode">
+				<div class="room-mode-option">
+					<input
+						type="radio"
+						id="mode-standard"
+						name="roomMode"
+						value="standard"
+						checked={!ephemeralMode}
+						onchange={() => (ephemeralMode = false)}
+					/>
+					<label for="mode-standard" class="mode-label">
+						<span class="mode-title">Standard</span>
+						<span class="mode-description">Tasks persist until completed or deleted. Best for ongoing projects.</span>
+					</label>
+				</div>
+
+				<div class="room-mode-option">
+					<input
+						type="radio"
+						id="mode-ephemeral"
+						name="roomMode"
+						value="ephemeral"
+						checked={ephemeralMode}
+						onchange={() => (ephemeralMode = true)}
+					/>
+					<label for="mode-ephemeral" class="mode-label">
+						<span class="mode-title">Ephemeral</span>
+						<span class="mode-description">Nothing saved. Room disappears when everyone leaves. Best for one-time coordination.</span>
+					</label>
+				</div>
 			</div>
 
 			<p class="hint">Create a private, encrypted space to coordinate with your team. No account needed.</p>
@@ -157,39 +181,76 @@
 		cursor: not-allowed;
 	}
 
-	.ephemeral-option {
+	.room-mode-group {
 		margin-top: 1.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.room-mode-option {
+		position: relative;
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
 		padding: 1rem;
 		background: var(--bg-surface);
-		border: 1px solid var(--border-default);
+		border: 2px solid var(--border-default);
 		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.15s;
 	}
 
-	.ephemeral-option label {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
+	.room-mode-option input[type='radio'] {
 		cursor: pointer;
-		margin: 0;
-	}
-
-	.ephemeral-option input[type='checkbox'] {
-		cursor: pointer;
-		width: 1.125rem;
-		height: 1.125rem;
+		width: 1.25rem;
+		height: 1.25rem;
+		margin-top: 0.125rem;
+		flex-shrink: 0;
 		accent-color: var(--accent-default);
 	}
 
-	.ephemeral-option span {
-		font-weight: 500;
+	.room-mode-option input[type='radio']:checked ~ .mode-label {
 		color: var(--text-primary);
 	}
 
-	.ephemeral-help {
-		margin: 0.5rem 0 0;
-		font-size: 0.75rem;
+	.room-mode-option input[type='radio']:checked {
+		accent-color: var(--accent-default);
+	}
+
+	.room-mode-option:has(input[type='radio']:checked) {
+		border-color: var(--accent-default);
+		background: var(--bg-surface);
+	}
+
+	.room-mode-option:hover {
+		border-color: var(--border-active);
+	}
+
+	.room-mode-option:focus-within {
+		outline: 2px solid var(--accent-default);
+		outline-offset: 0;
+	}
+
+	.mode-label {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		cursor: pointer;
+		margin: 0;
+		flex: 1;
+	}
+
+	.mode-title {
+		font-weight: 600;
+		color: var(--text-primary);
+		font-size: 0.95rem;
+	}
+
+	.mode-description {
+		font-size: 0.8rem;
 		color: var(--text-muted);
-		margin-left: 1.625rem;
+		line-height: 1.4;
 	}
 
 	.hint {

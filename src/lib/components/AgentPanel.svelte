@@ -179,14 +179,26 @@
 	</div>
 
 	<div class="panel-body" aria-live="polite">
+		<div class="explainer-card">
+			<p class="explainer-primary">
+				Agents run small automations inside your room. They can read tasks and assign them, but never see your messages.
+			</p>
+			<p class="explainer-secondary">
+				The auto-balance agent distributes unassigned tasks evenly. More agents coming soon.
+			</p>
+		</div>
+
 		{#if !showUploadForm && !showUploadToggle}
-			<button
-				class="upload-toggle-link"
-				onclick={() => { showUploadToggle = true; }}
-				aria-label="Show upload option"
-			>
-				Advanced: upload custom agent
-			</button>
+			<div class="upload-section">
+				<button
+					class="upload-toggle-link"
+					onclick={() => { showUploadToggle = true; }}
+					aria-label="Show upload option"
+				>
+					Advanced: upload custom agent
+				</button>
+				<p class="upload-note">Upload a custom WASM agent. For developers only.</p>
+			</div>
 		{/if}
 
 		{#if showUploadToggle && !showUploadForm}
@@ -421,6 +433,36 @@
 		gap: 0.75rem;
 	}
 
+	/* Explainer card */
+	.explainer-card {
+		background: var(--bg-surface);
+		border: 1px solid var(--border-subtle);
+		border-radius: 6px;
+		padding: 0.75rem;
+		margin-bottom: 0.25rem;
+	}
+
+	.explainer-primary {
+		margin: 0 0 0.5rem;
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		line-height: 1.4;
+	}
+
+	.explainer-secondary {
+		margin: 0;
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		line-height: 1.4;
+	}
+
+	/* Upload section */
+	.upload-section {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
 	/* Upload toggle link */
 	.upload-toggle-link {
 		background: none;
@@ -435,6 +477,14 @@
 
 	.upload-toggle-link:hover {
 		color: var(--text-secondary);
+	}
+
+	/* Upload note */
+	.upload-note {
+		margin: 0;
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		font-style: italic;
 	}
 
 	/* Upload button */
