@@ -18,14 +18,15 @@ npm run test:e2e     # Playwright E2E tests (Chromium)
 - Node managed via fnm: `/Users/stevo/.local/share/fnm/aliases/default/bin`
 - When running commands in scripts/CI, ensure PATH includes the fnm bin directory
 
-## TDD Process
+## Testing Process
 
-Each feature follows test-driven development:
+Tests are written alongside or immediately after implementation, typically in a dedicated test wave.
 
-1. **Write failing tests** for the new module
-2. **Implement minimal code** to pass
-3. **Refactor** with tests as safety net
-4. **Verify coverage** meets 80%+ threshold before moving on
+- **Pure logic modules** (parsers, derivation, store): write tests in the same wave as implementation
+- **UI components**: tested via E2E (Playwright), not unit tests
+- **Crypto modules**: include known-answer test vectors (e.g., RFC 6070) in agent prompts
+- **Dedicated test wave**: after all code waves, a test agent writes unit + E2E tests for the full milestone
+- **Coverage verified** at the ship-readiness gate, not per-module
 
 ### Quality Gates
 
@@ -44,6 +45,8 @@ A sprint = one milestone delivery. Every sprint follows 3 phases.
 ### Phase 1: Consensus + Plan
 
 A single agent loads all three skill perspectives (`product-manager`, `ux-designer`, `weave-architect`) and produces all planning artifacts in one pass. This avoids 3 separate agents independently reading the same milestone docs and codebase.
+
+**Before creating new docs, check if plan docs already exist.** The user may have assessed and planned the feature in a prior session. If `acceptance.md` and `implementation.md` already exist in `docs/milestones/M{N}-{name}/`, validate them against the current codebase and update rather than recreate.
 
 **The agent must:**
 1. Read the milestone plan, STATE.md, and relevant code
@@ -66,23 +69,20 @@ Run plans in dependency-aware waves, then verify.
 **Execution rules:**
 - Each subagent gets a **fresh context** with file path references (not embedded content)
 - **2-3 tasks max** per subagent to stay in quality range
-- **Atomic commit** after every completed task: `feat(M{N}): description`
+- **Atomic commit per wave** (not per task): `feat(M{N}): description`. Group related changes.
 - Orchestrator stays at **30-40% context** — delegates, doesn't accumulate
 - Load **research artifacts** (`docs/research/*.md`) once, not re-discover
 - **Crypto waves stay serial** — no parallelism on waves that modify key management chains
 - **E2E agents must grep all test files** for old strings/selectors before finishing
 - **Include known-answer test vectors** (e.g., RFC 6070 for PBKDF2) in crypto agent prompts
 - **Plan session breaks** for milestones >100K tokens — commit at natural split points
+- **Visual check after each UI wave** — don't wait until the end. Catch layout/copy issues before they compound across waves
 
 **Wave execution:**
 1. Analyze file dependencies between tasks
 2. Group independent tasks into waves
 3. Run same-wave tasks in parallel (spawn subagents)
 4. Wait for wave completion before starting next wave
-
-**Visual QA (before gate, after all code waves):**
-
-The orchestrator opens key pages and reviews visually before running the automated gate. This catches layout bugs, redundant copy, confusing UX that automated tests miss. Costs almost nothing; prevents post-ship fix churn.
 
 **Final wave — ship-readiness gate:**
 
@@ -96,24 +96,20 @@ A single agent loads both `production-engineer` and `security-auditor` skills an
 
 ### Phase 3: Ship
 
-The orchestrator handles this directly — no subagents needed.
+The orchestrator handles this directly. Steps 1-3 are parallelizable.
 
-1. Push all commits to main
-2. Update `docs/STATE.md` — mark milestone complete, set next milestone
-3. Update `docs/PROJECT.md` — milestone table
-4. Sync GitHub via `gh` CLI:
-   - Close completed milestone and all its issues
-   - Create/update next milestone with release goal
-   - Create issues for next milestone features (user stories + Gherkin acceptance criteria from Phase 1)
-5. Write retrospective — append to `.local/session-retrospective.md`:
-   - What was built (deliverables, test counts)
-   - What worked (efficiency wins)
-   - What was inefficient (missed opportunities)
-   - Patterns established
-   - Cost observations (model selection, context usage)
-   - Update cross-milestone tables (process evolution, cumulative quality, top lessons)
-   - **Never skip** (M2 was missed — don't repeat)
-6. Review all accumulated lessons and recommend process changes for the next milestone:
+1. **Push** all commits to main
+2. **In parallel:**
+   - **a) Doc updates** (haiku agent or orchestrator): Update `docs/STATE.md` (mark milestone complete, set next), update `docs/PROJECT.md` (milestone table), sync GitHub via `gh` CLI (close milestone/issues, create next milestone + issues)
+   - **b) Retrospective** (orchestrator): Append to `.local/session-retrospective.md`:
+     - What was built (deliverables, test counts)
+     - What worked (efficiency wins)
+     - What was inefficient (missed opportunities)
+     - Patterns established
+     - Cost observations (model selection, context usage)
+     - Update cross-milestone tables (process evolution, cumulative quality, top lessons)
+     - **Never skip** (M2 was missed — don't repeat)
+3. **Review lessons and recommend process changes** for the next milestone:
    - Read the full retro history (`.local/session-retrospective.md`)
    - Identify recurring failures, new patterns, and efficiency gains
    - Produce concrete recommendations (what to keep, what to change, what to add)
