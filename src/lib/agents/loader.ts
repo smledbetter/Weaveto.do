@@ -58,6 +58,11 @@ export function validateManifest(manifest: unknown): string | null {
     }
   }
 
+  // Optional signature field must be a string if present
+  if (m.signature !== undefined && typeof m.signature !== "string") {
+    return "Manifest.signature must be a string if provided";
+  }
+
   return null;
 }
 

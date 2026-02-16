@@ -15,6 +15,8 @@ export interface AgentManifest {
   wasmHash: string;
   /** Requested capabilities. Host may refuse if not granted. */
   permissions: AgentPermission[];
+  /** Optional Ed25519 signature of wasmHash (base64-encoded). Verified against trusted public key. */
+  signature?: string;
 }
 
 export type AgentPermission =
