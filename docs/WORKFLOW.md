@@ -39,34 +39,29 @@ Each feature follows test-driven development:
 
 ## Sprint Workflow
 
-A sprint = one milestone delivery. Every sprint follows 5 phases in order.
+A sprint = one milestone delivery. Every sprint follows 3 phases.
 
-### Phase 1: Consensus
+### Phase 1: Consensus + Plan
 
-PM, UX designer, and architect discuss and agree on features for the next milestone.
+A single agent loads all three skill perspectives (`product-manager`, `ux-designer`, `weave-architect`) and produces all planning artifacts in one pass. This avoids 3 separate agents independently reading the same milestone docs and codebase.
 
-**Artifacts produced:**
-- `docs/milestones/M{N}-{name}/plan.md` — updated with agreed features
-- `docs/milestones/M{N}-{name}/acceptance.md` — Gherkin acceptance criteria
-- GitHub milestone + issues created/updated
+**The agent must:**
+1. Read the milestone plan, STATE.md, and relevant code
+2. Write acceptance criteria (PM perspective): `docs/milestones/M{N}-{name}/acceptance.md`
+3. Validate UX flows and accessibility (UX perspective)
+4. Create the implementation plan (Architect perspective): `docs/milestones/M{N}-{name}/implementation.md`
 
-### Phase 2: Plan
-
-Architect creates an implementation plan optimized for token efficiency.
-
-**Use the plan template**: `docs/templates/PLAN-TEMPLATE.md`
+**Plan template**: `docs/templates/PLAN-TEMPLATE.md`
 
 **Plan must include:**
 - `must_haves` — truths (observable outcomes), artifacts (files), key_links (cascading dependencies)
 - Waves — dependency-grouped tasks with `depends_on` metadata
 - Task types — `auto`, `checkpoint:human-verify`, `checkpoint:decision`
 - Agent strategy — model selection per wave (haiku for mechanics, sonnet for logic, opus for crypto)
-- Commit strategy — atomic commits per task
-- Verification — automated + manual checks
 
-### Phase 3: Execute
+### Phase 2: Execute + Gate
 
-Run plans in dependency-aware waves.
+Run plans in dependency-aware waves, then verify.
 
 **Execution rules:**
 - Each subagent gets a **fresh context** with file path references (not embedded content)
@@ -81,41 +76,33 @@ Run plans in dependency-aware waves.
 3. Run same-wave tasks in parallel (spawn subagents)
 4. Wait for wave completion before starting next wave
 
-**After final wave — run quality gates (parallel):**
+**Final wave — ship-readiness gate:**
 
-1. **Production engineer** (`production-engineer` skill) — runs all quality gates:
-   - `npm run test:unit` — 80%+ coverage on new code
-   - `npm run test:e2e` — 0 regressions
-   - `npm run check` — 0 type errors
-   - Verify TDD conventions (test organization, state isolation, appropriate mocking)
+A single agent loads both `production-engineer` and `security-auditor` skills and runs all checks in one pass:
 
-2. **Security auditor** (`security-auditor` skill) — 10-principle audit on all changed files:
-   - Reviews code against all 10 security principles
-   - Runs OWASP ASI Top 10 threat analysis
-   - Must PASS all 10 principles before shipping
+- **Quality gates**: `npm run test:unit` (80%+ coverage), `npm run test:e2e` (0 regressions), `npm run check` (0 errors), TDD conventions
+- **Security audit**: 10-principle review on all changed files, OWASP ASI Top 10 threat analysis
+- Must produce a combined pass/fail report
+- **Must pass before proceeding to Phase 3.** Fix any issues found, then re-run.
 
-**Both must pass before proceeding to Phase 4.** Fix any issues found, then re-run the failing gate.
+### Phase 3: Ship
 
-### Phase 4: Ship
+The orchestrator handles this directly — no subagents needed.
 
-- Push all commits to main
-- Update `docs/STATE.md` — mark milestone complete, set next milestone
-- Update `docs/PROJECT.md` — milestone table
-- **Consult product manager** (`product-manager` skill) to sync GitHub:
-  - Close completed milestone and all its issues
-  - Create/update next milestone with release goal
-  - Create issues for next milestone features (user stories + Gherkin acceptance criteria)
-  - Verify all GitHub milestones/issues match `docs/STATE.md`
-
-### Phase 5: Retro
-
-- Update `.local/session-retrospective.md` with:
-  - What was built (deliverables, test counts)
-  - What worked (efficiency wins)
-  - What was inefficient (missed opportunities)
-  - Patterns established
-  - Cost observations (model selection, context usage)
-- **Never skip** (M2 was missed — don't repeat)
+1. Push all commits to main
+2. Update `docs/STATE.md` — mark milestone complete, set next milestone
+3. Update `docs/PROJECT.md` — milestone table
+4. Sync GitHub via `gh` CLI:
+   - Close completed milestone and all its issues
+   - Create/update next milestone with release goal
+   - Create issues for next milestone features (user stories + Gherkin acceptance criteria from Phase 1)
+5. Write retrospective to `docs/milestones/M{N}-{name}/retrospective.md`:
+   - What was built (deliverables, test counts)
+   - What worked (efficiency wins)
+   - What was inefficient (missed opportunities)
+   - Patterns established
+   - Cost observations (model selection, context usage)
+   - **Never skip** (M2 was missed — don't repeat)
 
 **To start a sprint**: say "sprint" or "start sprint for M{N}"
 

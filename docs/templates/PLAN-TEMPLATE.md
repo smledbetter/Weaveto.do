@@ -73,20 +73,14 @@
 - **Verify**: `npm run test:unit && npm run test:e2e`
 - **Done**: {Coverage targets met, 0 regressions}
 
-### Wave 5: Quality Gates
-> Depends on: Wave 4. Both tasks run in parallel. Must pass before shipping.
+### Final Wave: Ship-Readiness Gate
+> Depends on: all prior waves. Must pass before shipping.
 
-**Task 5.1: Production Engineer Review** (type: checkpoint:gate)
-- **Skill**: `production-engineer`
-- **Action**: Run all quality gates — unit tests with coverage, E2E tests, type check, TDD conventions
-- **Verify**: All gates pass. Fix any failures, re-run until green.
-- **Done**: 0 test failures, 80%+ coverage on new code, 0 type errors
-
-**Task 5.2: Security Audit** (type: checkpoint:gate)
-- **Skill**: `security-auditor`
-- **Action**: 10-principle audit on all changed/new source files. OWASP ASI Top 10 threat analysis.
-- **Verify**: All 10 principles PASS. Fix any violations, re-audit until clean.
-- **Done**: 10/10 principles pass, 0 vulnerabilities
+**Ship-Readiness Review** (type: checkpoint:gate)
+- **Skills**: `production-engineer` + `security-auditor` (single agent, one pass)
+- **Action**: Run quality gates (unit tests with coverage, E2E, type check, TDD conventions) AND 10-principle security audit with OWASP ASI Top 10 threat analysis on all changed files
+- **Verify**: All gates pass, all 10 security principles pass. Fix any failures, re-run until clean.
+- **Done**: 0 test failures, 80%+ coverage on new code, 0 type errors, 10/10 security principles, 0 vulnerabilities
 
 ## Agent Strategy
 
@@ -97,30 +91,4 @@
 | 2 | Worker B | haiku | 2.2 |
 | 3 | Lead | sonnet | 3.1, 3.2 |
 | 4 | Solo | sonnet | 4.1 |
-| 5 | Prod Engineer | sonnet | 5.1 (quality gates) |
-| 5 | Security Auditor | sonnet | 5.2 (10-principle audit) |
-
-## Commit Strategy
-
-```
-feat(M{N}): {task 1.1 description}
-feat(M{N}): {task 1.2 description}
-feat(M{N}): {task 2.1 description}
-feat(M{N}): {task 2.2 description}
-feat(M{N}): {task 3.1 description}
-test(M{N}): {task 4.1 description}
-```
-
-## Verification
-
-### Automated
-```bash
-npm run test:unit    # 80%+ coverage on new modules
-npm run test:e2e     # 0 regressions
-npm run check        # svelte-check passes
-```
-
-### Manual
-1. {Smoke test step 1}
-2. {Smoke test step 2}
-3. {Smoke test step 3}
+| Final | Ship-Readiness | sonnet | Quality gates + security audit |

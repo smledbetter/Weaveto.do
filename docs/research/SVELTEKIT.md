@@ -13,6 +13,7 @@ Last updated: 2026-02-15
 - `$bindable()` — two-way bindable props
 - Component events: use callback props (`onEvent`), not `createEventDispatcher`
 - Snippets replace slots: `{#snippet name()}...{/snippet}` + `{@render name()}`
+- `$derived` values are proxied — **never mutate in-place** (e.g., `.sort()` on a derived array). Always spread first: `[...derivedArray].sort(...)` or use `.filter()` which creates a new array. Calling `.sort()` directly on a `$derived` proxy silently fails to reorder.
 
 ## vodozemac WASM Quirks
 
