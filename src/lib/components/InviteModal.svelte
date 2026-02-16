@@ -59,10 +59,6 @@
 			<button class="close-btn" onclick={onClose} aria-label="Close">&times;</button>
 		</div>
 
-		{#if roomName}
-			<div class="room-name-badge">{roomName}</div>
-		{/if}
-
 		<div class="qr-container">
 			{@html qrCode}
 		</div>
@@ -147,14 +143,6 @@
 		color: var(--text-primary);
 	}
 
-	.room-name-badge {
-		text-align: center;
-		font-size: 1.1rem;
-		font-weight: 500;
-		color: var(--text-heading);
-		margin-bottom: 0.75rem;
-		letter-spacing: 0.02em;
-	}
 
 	.qr-container {
 		display: flex;
