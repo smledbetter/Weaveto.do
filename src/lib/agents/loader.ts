@@ -6,6 +6,7 @@
 
 import type { AgentManifest, StoredAgentModule } from "./types";
 import { MAX_WASM_SIZE, REQUIRED_EXPORTS } from "./types";
+import { verifyModuleSignature } from "./signature";
 
 const DB_NAME = "weave-agent-modules";
 const STORE_NAME = "modules";
@@ -115,6 +116,45 @@ export async function validateWasmBinary(
     }
   } catch (err) {
     return `Failed to inspect WASM exports: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  return null;
+}
+
+// --- Signature Verification ---
+
+/**
+ * Verify the Ed25519 signature on a manifest, if present.
+ *
+ * @param manifest - The agent manifest (may or may not have a signature field)
+ * @param trustedPublicKey - Base64-encoded Ed25519 public key. Null to skip verification.
+ * @param requireSignature - If true, reject unsigned modules. Default false.
+ * @returns null if valid (or verification skipped), error message if invalid.
+ */
+export async function verifyManifestSignature(
+  manifest: AgentManifest,
+  trustedPublicKey: string | null,
+  requireSignature: boolean = false,
+): Promise<string | null> {
+  // No trusted key configured — skip verification
+  if (!trustedPublicKey) return null;
+
+  // No signature on manifest
+  if (!manifest.signature) {
+    return requireSignature
+      ? "Module signature required but not provided"
+      : null;
+  }
+
+  // Verify signature against trusted public key
+  const valid = await verifyModuleSignature(
+    manifest.wasmHash,
+    manifest.signature,
+    trustedPublicKey,
+  );
+
+  if (!valid) {
+    return "Invalid module signature";
   }
 
   return null;
