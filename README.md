@@ -100,20 +100,16 @@ Automatic data destruction after task completion.
 - Ephemeral mode: zero persistence, flame indicator, auto-purge on last disconnect
 - 6-layer client cleanup orchestrator (session, sessionStorage, 3× IndexedDB, service worker)
 
-### M5.5: UX Polish
+### M5.5: UX Polish ✓
 
 Onboarding clarity, room identity, and mode explanations so new users can understand and navigate the app without prior context.
 
-**Wave 1: First Impressions**
 - Named room modes: "Standard" vs "Ephemeral" with radio buttons and use-case guidance
+- Memorable 2-word room names derived from room ID (e.g. "swift-falcon"), shown in header, title, join page, and invite modal
 - Better onboarding copy on Join Room page (context for invited users, friendlier auth language)
-- Agent panel explainer text (what agents are, where to find custom agents, more defaults coming)
-
-**Wave 2: Room Identity**
-- Memorable 2-word room names derived from hash (e.g. "swift-falcon")
-- Shortened URLs (`/swift-falcon` instead of `/room/[hex hash]`)
 - Show user's own display name in room header
-- Join page shows room name instead of generic "Join Room"
+- Agent panel explainer text (what agents are, where to find custom agents, more defaults coming)
+- Invite modal with zero-dependency QR code SVG encoder, copyable URL, and member list
 
 ### M6: Session Security
 
