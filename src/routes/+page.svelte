@@ -110,10 +110,8 @@
 				</div>
 			</div>
 
-			<p class="hint">Create a private, encrypted space to coordinate with your team. No account needed.</p>
-
 			<details class="advanced-toggle">
-				<summary>Advanced</summary>
+				<summary>Advanced settings</summary>
 				<div class="advanced-content">
 					<PinPolicyToggle
 						policy={pinPolicy}
@@ -121,6 +119,8 @@
 					/>
 				</div>
 			</details>
+
+			<p class="hint">Create a private, encrypted space to coordinate with your team. No account needed.</p>
 		{:else}
 			<div class="unsupported">
 				<p>Your browser does not support WebAuthn, which is required for secure identity.</p>
@@ -282,22 +282,37 @@
 
 	.advanced-toggle summary {
 		font-size: 0.8rem;
-		color: var(--text-muted);
+		color: var(--text-secondary);
 		cursor: pointer;
 		text-align: center;
 		list-style: none;
+		padding: 0.5rem 1rem;
+		border: 1px solid var(--border-default);
+		border-radius: 6px;
+		transition: border-color 0.15s, color 0.15s;
+	}
+
+	.advanced-toggle summary:hover {
+		border-color: var(--border-strong);
+		color: var(--text-primary);
 	}
 
 	.advanced-toggle summary::-webkit-details-marker {
 		display: none;
 	}
 
-	.advanced-toggle summary::before {
-		content: '\25B8 ';
+	.advanced-toggle summary::after {
+		content: ' \25BE';
+		font-size: 0.7rem;
 	}
 
-	.advanced-toggle[open] summary::before {
-		content: '\25BE ';
+	.advanced-toggle[open] summary {
+		border-color: var(--border-strong);
+		color: var(--text-primary);
+	}
+
+	.advanced-toggle[open] summary::after {
+		content: ' \25B4';
 	}
 
 	.advanced-content {
