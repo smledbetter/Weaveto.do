@@ -6,8 +6,17 @@ Weave.us — privacy-first, E2E encrypted task coordination. See `docs/` for ful
 
 - `docs/PROJECT.md` — vision, milestones, success metrics
 - `docs/STATE.md` — current project state, what's done, what's next
-- `docs/WORKFLOW.md` — dev workflow, TDD process, quality gates
+- `docs/WORKFLOW.md` — sprint workflow, TDD process, quality gates, agent strategy
 - `docs/milestones/M{N}-{name}/` — per-milestone plans, acceptance criteria, lessons
+- `docs/templates/PLAN-TEMPLATE.md` — implementation plan template (must_haves, waves)
+
+## Research Artifacts
+
+Cached knowledge — load once per session instead of re-discovering:
+
+- `docs/research/SVELTEKIT.md` — Svelte 5 runes, vodozemac quirks, test patterns, build conventions
+- `docs/research/CRYPTO.md` — Olm/Megolm flow, HKDF patterns, AES-GCM usage, WebAuthn PRF
+- `docs/research/WORKFLOW-PATTERNS.md` — GSD-derived efficiency patterns (waves, atomic commits, context budgets)
 
 ## Build & Dev Commands
 

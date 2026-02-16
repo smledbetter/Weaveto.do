@@ -35,31 +35,78 @@ Each feature follows test-driven development:
 - Zero plaintext data on relay server
 - `npm run check` passes (svelte-check + TypeScript)
 
-## Milestone Workflow
+---
 
-Each milestone follows this lifecycle:
+## Sprint Workflow
 
-### 1. Plan
-- Confer with advisors (architect, PM, UX, security) as needed
-- Write `docs/milestones/M{N}-{name}/plan.md` with scope, design decisions, file changes
-- Write `docs/milestones/M{N}-{name}/acceptance.md` with Gherkin scenarios
+A sprint = one milestone delivery. Every sprint follows 5 phases in order.
 
-### 2. Implement
-- Follow TDD process per module
-- Update `docs/STATE.md` as work progresses
-- Phase-gate: each phase has its own quality gate before proceeding
+### Phase 1: Consensus
 
-### 3. Ship
-- All quality gates pass
-- Write `docs/milestones/M{N}-{name}/lessons.md` capturing what was learned
-- Update `docs/STATE.md` to reflect completion
-- Update `docs/PROJECT.md` milestone table
+PM, UX designer, and architect discuss and agree on features for the next milestone.
+
+**Artifacts produced:**
+- `docs/milestones/M{N}-{name}/plan.md` — updated with agreed features
+- `docs/milestones/M{N}-{name}/acceptance.md` — Gherkin acceptance criteria
+- GitHub milestone + issues created/updated
+
+### Phase 2: Plan
+
+Architect creates an implementation plan optimized for token efficiency.
+
+**Use the plan template**: `docs/templates/PLAN-TEMPLATE.md`
+
+**Plan must include:**
+- `must_haves` — truths (observable outcomes), artifacts (files), key_links (cascading dependencies)
+- Waves — dependency-grouped tasks with `depends_on` metadata
+- Task types — `auto`, `checkpoint:human-verify`, `checkpoint:decision`
+- Agent strategy — model selection per wave (haiku for mechanics, sonnet for logic, opus for crypto)
+- Commit strategy — atomic commits per task
+- Verification — automated + manual checks
+
+### Phase 3: Execute
+
+Run plans in dependency-aware waves.
+
+**Execution rules:**
+- Each subagent gets a **fresh context** with file path references (not embedded content)
+- **2-3 tasks max** per subagent to stay in quality range
+- **Atomic commit** after every completed task: `feat(M{N}): description`
+- Orchestrator stays at **30-40% context** — delegates, doesn't accumulate
+- Load **research artifacts** (`docs/research/*.md`) once, not re-discover
+
+**Wave execution:**
+1. Analyze file dependencies between tasks
+2. Group independent tasks into waves
+3. Run same-wave tasks in parallel (spawn subagents)
+4. Wait for wave completion before starting next wave
+
+### Phase 4: Ship
+
+- Push all commits to main
+- Update `docs/STATE.md` — mark milestone complete, set next milestone
+- Update `docs/PROJECT.md` — milestone table
+- Close GitHub milestone
+
+### Phase 5: Retro
+
+- Update `.local/session-retrospective.md` with:
+  - What was built (deliverables, test counts)
+  - What worked (efficiency wins)
+  - What was inefficient (missed opportunities)
+  - Patterns established
+  - Cost observations (model selection, context usage)
+- **Never skip** (M2 was missed — don't repeat)
+
+**To start a sprint**: say "sprint" or "start sprint for M{N}"
+
+---
 
 ## Agent Team Strategy
 
-See `memory/agent-teams.md` for when/how to use Claude Code agent teams.
+See `docs/research/WORKFLOW-PATTERNS.md` for detailed efficiency patterns.
 
-Quick heuristic: 3+ parallel work streams in a DAG -> use a team. Default to solo sonnet, spawn team if parallelism identified.
+Quick heuristic: **3+ parallel work streams in a DAG -> use a team.** Default to solo sonnet, spawn team if parallelism identified.
 
 | Scenario | Approach |
 |----------|----------|
@@ -69,12 +116,34 @@ Quick heuristic: 3+ parallel work streams in a DAG -> use a team. Default to sol
 | Cross-cutting feature | Team: sonnet lead + 2 sonnet + 2 haiku |
 | Security-critical crypto | Team: opus lead + 2 sonnet + haiku |
 
+### Context Budget
+
+| Orchestrator Usage | Quality | Action |
+|-------------------|---------|--------|
+| 0-30% | Peak | Optimal |
+| 30-40% | Good | Normal range |
+| 50-60% | Warning | Split remaining work |
+| 60%+ | Poor | Commit, start fresh |
+
+---
+
+## Research Artifacts
+
+Cached knowledge in `docs/research/` — load once per session, don't re-discover:
+
+| File | Content | When to Load |
+|------|---------|-------------|
+| `SVELTEKIT.md` | Svelte 5 runes, vodozemac quirks, test patterns | Every session |
+| `CRYPTO.md` | Olm/Megolm, HKDF, AES-GCM, WebAuthn PRF | Crypto work |
+| `WORKFLOW-PATTERNS.md` | GSD-derived efficiency patterns | Sprint planning |
+
+---
+
 ## Architecture Docs
 
 Deep-dive architecture docs live in `docs/architecture/`:
 - `crypto.md` — Olm/Megolm key management, HKDF derivation, pickle lifecycle
 - `agents.md` — Agent sandboxing, WASM execution model, capability constraints
-- Future: `federation.md` — cross-node sync protocol
 
 ## Key Conventions
 
