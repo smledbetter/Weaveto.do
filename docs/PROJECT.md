@@ -1,10 +1,10 @@
-# Weave.us
+# weaveto.do
 
 Privacy-first, agent-augmented task coordination for decentralized teams. End-to-end encrypted rooms with zero accounts, powered by WebAuthn PRF identity and vodozemac (Olm/Megolm) cryptography.
 
 ## Vision
 
-Weave.us enables trusted groups — caregiving collectives, event organizers, volunteer networks — to coordinate tasks securely and efficiently without relying on centralized services.
+weaveto.do enables trusted groups — caregiving collectives, event organizers, volunteer networks — to coordinate tasks securely and efficiently without relying on centralized services.
 
 All communication and task data remain private by default: end-to-end encryption, minimal metadata, ephemeral state. Automation is handled by lightweight, sandboxed agent teams that act on behalf of users without ever accessing plaintext.
 
@@ -28,7 +28,7 @@ No accounts, no tracking, no persistence beyond what's necessary.
 | M2 | Task Intelligence | Complete | Natural language dates, task dependencies, progress visibility, service worker reminders, keyboard shortcuts, inline editing |
 | M3 | Agent Infrastructure | Complete | WASM agent sandboxing, persistent encrypted state, agent module upload, security hardening |
 | M3.5 | Built-In Agent | Complete | Auto-balance WAT agent (default-on), first-run toast, built-in badge, binary host helpers |
-| M4 | Task Polish | Not Started | Task descriptions, due date sorting, quick-pick dates, urgent flag, room search |
+| M4 | Task Polish | Complete | Task descriptions, due date sorting, quick-pick dates, urgent flag, room search |
 | M5 | Burn-After-Use | Not Started | Auto-deletion, ephemeral mode, manual burn commands |
 
 See `docs/milestones/M{N}-{name}/` for per-milestone plans, acceptance criteria, and lessons learned.

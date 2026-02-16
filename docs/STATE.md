@@ -2,7 +2,7 @@
 
 Last updated: 2026-02-15
 
-## Current Milestone: M4 — Task Polish
+## Current Milestone: M5 — Burn-After-Use
 
 ### What's Done
 
@@ -58,16 +58,26 @@ Last updated: 2026-02-15
 - 221 unit tests, 40 E2E tests, 0 regressions
 - See: `docs/milestones/M3.5-built-in-agent/`
 
-### What's Next (M4 — Task Polish)
+**M4 — Task Polish** (Complete)
+- Task descriptions (plain text, encrypted, displayed below titles)
+- Due date sorting (3-state toggle: creation → due-asc → due-desc)
+- Quick-pick date buttons (Today / Tomorrow / Next Week) in create modal
+- Urgent flag (binary toggle, text badge, sorts urgent-first)
+- Room-scoped task search (real-time filter on title + description)
+- `task_updated` event type for field updates on existing tasks
+- Parser: `| urgent` and `| desc:` directives in `/task` command
+- WCAG 2.1 AA: text badge (not color-only), aria-live search results, keyboard navigation
+- 235 unit tests, 22 new E2E tests, 0 regressions
+- See: `docs/milestones/M4-task-polish/`
 
-Users can describe, sort, and triage tasks more effectively within ephemeral rooms.
-- Task descriptions (rich text or plain)
-- Due date sorting (single toggle)
-- Quick-pick date buttons (Today / Tomorrow / Next Week)
-- Urgent flag (binary, not P1-P4)
-- Room-scoped task search
+### What's Next (M5 — Burn-After-Use)
 
-See: `docs/milestones/M4-task-polish/`
+Rooms and tasks auto-delete on completion, with manual burn for sensitive coordination.
+- Auto-deletion on room completion
+- Manual burn command (immediate room data destruction)
+- Ephemeral mode (in-memory only, no persistence)
+
+See: `docs/milestones/M5-burn-after-use/`
 
 ### Known Issues
 
@@ -84,7 +94,7 @@ See: `docs/milestones/M4-task-polish/`
 | M2 | Task Intelligence | Complete |
 | M3 | Agent Infrastructure | Complete |
 | M3.5 | Built-In Agent | Complete |
-| M4 | Task Polish | Not Started |
+| M4 | Task Polish | Complete |
 | M5 | Burn-After-Use | Not Started |
 
 #### M3.5 — Built-In Agent (Release Goal)

@@ -1,6 +1,6 @@
 # Crypto Patterns & Conventions
 
-Verified cryptographic patterns for Weave.us. Load this once per session.
+Verified cryptographic patterns for weaveto.do. Load this once per session.
 
 Last updated: 2026-02-15
 

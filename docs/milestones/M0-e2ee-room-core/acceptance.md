@@ -4,17 +4,17 @@ Status: **All passing**
 
 ```gherkin
 Scenario: Create an E2EE room
-  Given I am on the Weave.us homepage
+  Given I am on the weaveto.do homepage
   When I click "New Room"
   Then a new cryptographic identity is generated using WebAuthn
-  And a unique room ID is displayed (e.g., weave.us/r/abc123)
+  And a unique room ID is displayed (e.g., weaveto.do/r/abc123)
   And the room is configured for end-to-end encryption using Megolm
   And no personal information is stored locally or on any server
 ```
 
 ```gherkin
 Scenario: Join an E2EE room
-  Given I have a valid room ID (weave.us/r/abc123)
+  Given I have a valid room ID (weaveto.do/r/abc123)
   When I navigate to the URL
   Then I am prompted to authenticate using WebAuthn
   And my device establishes a secure session with existing members

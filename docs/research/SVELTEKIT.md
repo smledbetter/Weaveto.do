@@ -1,6 +1,6 @@
 # SvelteKit Patterns & Pitfalls
 
-Verified patterns for Weave.us. Load this once per session instead of re-discovering.
+Verified patterns for weaveto.do. Load this once per session instead of re-discovering.
 
 Last updated: 2026-02-15
 

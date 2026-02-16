@@ -1,6 +1,6 @@
 # Workflow Patterns (GSD-Derived)
 
-Token efficiency patterns derived from the GSD framework, adapted for Weave.us.
+Token efficiency patterns derived from the GSD framework, adapted for weaveto.do.
 
 ## Thin Orchestrator Pattern
 

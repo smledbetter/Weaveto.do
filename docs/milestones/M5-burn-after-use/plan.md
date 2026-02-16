@@ -4,7 +4,7 @@ Status: **Not Started**
 
 ## Release Goal
 
-Rooms and tasks auto-delete on completion, with manual burn commands for sensitive coordination. Positions Weave.us as the anti-Asana: privacy over persistence.
+Rooms and tasks auto-delete on completion, with manual burn commands for sensitive coordination. Positions weaveto.do as the anti-Asana: privacy over persistence.
 
 ## Features
 
