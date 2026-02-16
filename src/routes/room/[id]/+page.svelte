@@ -588,14 +588,14 @@
 			<button onclick={joinRoom} disabled={!displayName.trim()} class="primary-btn">
 				Join Securely
 			</button>
-			<p class="auth-note">Your fingerprint creates a temporary identity for this session. Nothing is stored.</p>
+			<p class="auth-note">We'll use your device to generate an encryption key. No account, no password, nothing stored.</p>
 		</div>
 
 	{:else if phase === 'auth'}
 		<div class="center-card">
 			<div class="spinner"></div>
-			<p>Use your fingerprint to join securely</p>
-			<p class="auth-note">Your identity is generated on this device. Nothing is sent to our servers.</p>
+			<p>Confirm with your device to join securely</p>
+			<p class="auth-note">This generates your encryption key. Nothing leaves your device.</p>
 		</div>
 
 	{:else if phase === 'connecting'}
