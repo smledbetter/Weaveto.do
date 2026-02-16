@@ -417,6 +417,7 @@
 			pinKey = key;
 			pinState = { status: 'set' };
 			pinFailedAttempts = 0;
+			session?.unlockSession();
 			sessionGate?.unlock();
 		} else {
 			pinFailedAttempts += 1;
@@ -436,8 +437,7 @@
 		sessionGate = new SessionGate(pinTimeout, {
 			onLock: () => {
 				pinState = { status: 'locked', failedAttempts: 0 };
-				// Clear Megolm keys from memory (session lock)
-				// For now, we mark as locked. Wave 4 will add actual key clearing.
+				session?.lockSession();
 			},
 			onLockout: () => {
 				handlePinLockout();
