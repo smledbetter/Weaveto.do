@@ -301,4 +301,68 @@ describe("SessionGate", () => {
     vi.advanceTimersByTime(30_000);
     expect(onLock).toHaveBeenCalledTimes(2); // Second lock after timeout
   });
+
+  it("does not handle visibility change when inactive", () => {
+    const onLock = vi.fn();
+    const onLockout = vi.fn();
+    const gate = new SessionGate(15, { onLock, onLockout });
+
+    // Don't start the gate
+    // Simulate tab hidden
+    Object.defineProperty(document, "hidden", {
+      writable: true,
+      configurable: true,
+      value: true,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    // Advance past grace period
+    vi.advanceTimersByTime(TAB_GRACE_MS + 1000);
+
+    // Tab becomes visible again
+    Object.defineProperty(document, "hidden", {
+      writable: true,
+      configurable: true,
+      value: false,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    // Should NOT have locked (gate was never started)
+    expect(onLock).not.toHaveBeenCalled();
+  });
+
+  it("handles visibility change when visibilityHiddenAt is null", () => {
+    const onLock = vi.fn();
+    const onLockout = vi.fn();
+    const gate = new SessionGate(15, { onLock, onLockout });
+
+    gate.start();
+
+    // Simulate tab becoming visible without ever being hidden (visibilityHiddenAt = null)
+    Object.defineProperty(document, "hidden", {
+      writable: true,
+      configurable: true,
+      value: false,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    // Should not crash or lock
+    expect(onLock).not.toHaveBeenCalled();
+    expect(gate.isLocked()).toBe(false);
+  });
+
+  it("handles user activity when inactive and does not reset timer", () => {
+    const onLock = vi.fn();
+    const onLockout = vi.fn();
+    const gate = new SessionGate(1, { onLock, onLockout });
+
+    // Don't start the gate
+    // Simulate user activity
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
+    document.dispatchEvent(new MouseEvent("mousedown"));
+
+    // Advance time — should not cause any locks
+    vi.advanceTimersByTime(120_000);
+    expect(onLock).not.toHaveBeenCalled();
+  });
 });
