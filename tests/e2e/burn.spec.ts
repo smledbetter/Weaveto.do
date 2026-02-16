@@ -7,12 +7,16 @@ async function createAndJoinRoom(page: Page, name = "Alice") {
   const btn = page.locator("button", { hasText: "New Room" });
   await expect(btn).toBeEnabled();
   await btn.click();
-  await expect(page.locator('input[placeholder="Your name"]')).toBeVisible({
+  await expect(
+    page.locator('input[placeholder="What should we call you?"]'),
+  ).toBeVisible({
     timeout: 10_000,
   });
-  await page.locator('input[placeholder="Your name"]').fill(name);
+  await page
+    .locator('input[placeholder="What should we call you?"]')
+    .fill(name);
   await page.locator("button", { hasText: "Join Securely" }).click();
-  await expect(page.locator("header .room-info h2")).toHaveText("Room", {
+  await expect(page.locator("header .room-info h2")).not.toBeEmpty({
     timeout: 15_000,
   });
 }
@@ -152,31 +156,33 @@ test.describe("Burn Command", () => {
 });
 
 test.describe("Ephemeral Mode", () => {
-  test("ephemeral checkbox appears on homepage", async ({ page }) => {
+  test("ephemeral radio button appears on homepage", async ({ page }) => {
     await page.goto("/", { waitUntil: "networkidle" });
 
-    const ephemeralCheckbox = page.locator(
-      '.ephemeral-option input[type="checkbox"]',
+    const ephemeralRadio = page.locator(
+      'input[type="radio"][value="ephemeral"]',
     );
-    await expect(ephemeralCheckbox).toBeVisible();
-    await expect(page.locator(".ephemeral-option")).toContainText("Ephemeral");
+    await expect(ephemeralRadio).toBeVisible();
+    await expect(page.locator("label", { hasText: "Ephemeral" })).toBeVisible();
   });
 
-  test("checking ephemeral adds parameter to room URL", async ({ page }) => {
+  test("selecting ephemeral adds parameter to room URL", async ({ page }) => {
     await page.goto("/", { waitUntil: "networkidle" });
 
-    // Check ephemeral checkbox
-    const ephemeralCheckbox = page.locator(
-      '.ephemeral-option input[type="checkbox"]',
+    // Select ephemeral radio button
+    const ephemeralRadio = page.locator(
+      'input[type="radio"][value="ephemeral"]',
     );
-    await ephemeralCheckbox.check();
+    await ephemeralRadio.check();
 
     // Create room
     const btn = page.locator("button", { hasText: "New Room" });
     await btn.click();
 
     // URL should contain ephemeral param
-    await expect(page.locator('input[placeholder="Your name"]')).toBeVisible({
+    await expect(
+      page.locator('input[placeholder="What should we call you?"]'),
+    ).toBeVisible({
       timeout: 10_000,
     });
     expect(page.url()).toContain("ephemeral=true");
@@ -187,22 +193,26 @@ test.describe("Ephemeral Mode", () => {
   }) => {
     await page.goto("/", { waitUntil: "networkidle" });
 
-    // Check ephemeral checkbox
-    const ephemeralCheckbox = page.locator(
-      '.ephemeral-option input[type="checkbox"]',
+    // Select ephemeral radio button
+    const ephemeralRadio = page.locator(
+      'input[type="radio"][value="ephemeral"]',
     );
-    await ephemeralCheckbox.check();
+    await ephemeralRadio.check();
 
     // Create and join room
     await page.locator("button", { hasText: "New Room" }).click();
-    await expect(page.locator('input[placeholder="Your name"]')).toBeVisible({
+    await expect(
+      page.locator('input[placeholder="What should we call you?"]'),
+    ).toBeVisible({
       timeout: 10_000,
     });
-    await page.locator('input[placeholder="Your name"]').fill("Alice");
+    await page
+      .locator('input[placeholder="What should we call you?"]')
+      .fill("Alice");
     await page.locator("button", { hasText: "Join Securely" }).click();
 
     // Wait for room to load
-    await expect(page.locator("header .room-info h2")).toHaveText("Room", {
+    await expect(page.locator("header .room-info h2")).not.toBeEmpty({
       timeout: 15_000,
     });
 

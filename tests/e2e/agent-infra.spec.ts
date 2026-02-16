@@ -5,15 +5,19 @@ import { trackErrors } from "./utils/test-helpers";
 async function createAndJoinRoom(page: Page, name = "Alice") {
   await page.goto("/", { waitUntil: "networkidle" });
   await page.locator("button", { hasText: "New Room" }).click();
-  await expect(page.locator('input[placeholder="Your name"]')).toBeVisible({
+  await expect(
+    page.locator('input[placeholder="What should we call you?"]'),
+  ).toBeVisible({
     timeout: 10_000,
   });
 
-  await page.locator('input[placeholder="Your name"]').fill(name);
+  await page
+    .locator('input[placeholder="What should we call you?"]')
+    .fill(name);
   await page.locator("button", { hasText: "Join Securely" }).click();
 
   // Wait for connected state
-  await expect(page.locator("header .room-info h2")).toHaveText("Room", {
+  await expect(page.locator("header .room-info h2")).not.toBeEmpty({
     timeout: 15_000,
   });
 }
