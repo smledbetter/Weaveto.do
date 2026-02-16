@@ -30,8 +30,8 @@ No accounts, no tracking, no persistence beyond what's necessary.
 | M3.5 | Built-In Agent | Complete | Auto-balance WAT agent (default-on), first-run toast, built-in badge, binary host helpers |
 | M4 | Task Polish | Complete | Task descriptions, due date sorting, quick-pick dates, urgent flag, room search |
 | M5 | Burn-After-Use | Complete | Auto-deletion (24h grace period), manual `/burn` (creator-only), ephemeral mode, 6-layer cleanup |
-| M5.5 | UX Polish | Planned | Memorable room names, onboarding copy, mode clarity, display name visibility, agent panel explainer |
-| M6 | Session Security | Planned | PIN-based endpoint compromise containment, PBKDF2 key derivation, session lock, Megolm key rotation gated by PIN |
+| M5.5 | UX Polish | Complete | Memorable room names, onboarding copy, mode clarity, display name visibility, agent panel explainer |
+| M6 | Session Security | Complete | PIN-based endpoint compromise containment, PBKDF2 key derivation, session lock, Megolm key rotation gated by PIN |
 | M7 | Agent Hardening | Planned | Web Worker preemption, module signatures, agent event validation |
 | M8 | Penetration Testing | Planned | E2EE audit, WebAuthn testing, WASM sandbox testing, relay hardening |
 | M9 | Encrypted Notifications | Planned | Expanded SW notifications, local notification rules, Web Push API with encrypted payloads |

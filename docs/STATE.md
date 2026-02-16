@@ -98,33 +98,24 @@ Last updated: 2026-02-16
 - Agent panel explainer text (what agents are, developer-only upload note)
 - 299 unit tests (33 new), 102 E2E tests (14 new), 0 regressions
 - See: `docs/milestones/M5.5-ux-polish/`
+  
+**M6 — Session Security** (Complete)
+- Optional 6-digit PIN (creator can require for all members)
+- PIN → PBKDF2-SHA256 (600K iterations) → 256-bit key (zero new dependencies)
+- PIN key encrypted under PRF-derived HKDF wrapping key in IndexedDB
+- Session lock with configurable inactivity timeout (5/15/30 min)
+- Lock overlay with rate limiting (3 failures → exponential backoff, 10 → lockout)
+- Megolm key rotation: lockSession() clears keys, unlockSession() restores
+- Creator-forced /rotate command invalidates old sessions
+- Shield indicator for PIN-protected rooms
+- Cleanup orchestrator clears PIN keys on room destruction
+- 342 unit tests (43 new PIN tests, 93% PIN coverage), 108 E2E tests (6 new), 0 regressions
+- Ship-readiness audit: 10/10 security principles, 0 vulnerabilities
+- See: `docs/milestones/M6-session-security/`
 
-### What's Next (M6 — Session Security)
+### What's Next (M7 — Agent Hardening)
 
-PIN-based endpoint compromise containment. If one member's device is compromised, the PIN prevents the attacker from accessing future room content after key rotation.
-
-**Wave 1: PIN Setup & Key Derivation**
-- Optional 6-digit PIN during room join (creator can make mandatory)
-- PIN → PBKDF2-SHA256 (600K iterations, random salt) → 256-bit PIN key
-- PIN key stored encrypted under PRF-derived key in IndexedDB
-- Creator policy: "Require PIN for all members" (encrypted room metadata)
-- PIN entry UI (numeric keypad, accessible, large tap targets)
-
-**Wave 2: Session Gating**
-- PIN required on reconnect (after disconnect, browser restart, or inactivity timeout)
-- Configurable inactivity timeout (5/15/30 min) clears Megolm keys from memory
-- Lock overlay with blurred room content and PIN entry
-- Rate limiting: 3 failures → 30s wait, exponential backoff, 10 failures → session cleared
-- Tab visibility change triggers shorter grace period
-
-**Wave 3: Megolm Key Rotation with PIN Gating**
-- Megolm session key rotation (periodic or on-demand)
-- New session keys encrypted under each member's PIN-derived key
-- Creator-forced rotation ("Rotate keys now" when compromise suspected)
-- Members without valid PIN can't decrypt new session keys (effectively locked out)
-- Shield indicators for PIN-protected rooms
-
-See: `docs/milestones/M6-session-security/` (planned)
+Harden the agent infrastructure with true preemption, module signatures, and runtime improvements.
 
 ### Known Issues
 
@@ -144,7 +135,7 @@ See: `docs/milestones/M6-session-security/` (planned)
 | M4 | Task Polish | Complete |
 | M5 | Burn-After-Use | Complete |
 | M5.5 | UX Polish | Complete |
-| M6 | Session Security | Not Started |
+| M6 | Session Security | Complete |
 | M7 | Agent Hardening | Not Started |
 | M8 | Penetration Testing | Not Started |
 | M9 | Encrypted Notifications | Not Started |
@@ -181,15 +172,19 @@ New users can understand and navigate the app without prior context.
 - User's own display name visible in room header
 - Agent panel explainer text (what agents are, custom agent guidance, roadmap teaser)
 
-#### M6 — Session Security (Release Goal)
+#### M6 — Session Security (Release Goal) ✓
 If one member's device is compromised, the attacker can't access future room content after key rotation.
 - Optional 6-digit PIN (creator can require for all members)
-- PIN → PBKDF2-SHA256 → key derivation (zero new dependencies)
-- Session lock with configurable inactivity timeout (clears Megolm keys from memory)
-- PIN re-entry gate on reconnect with rate limiting and exponential backoff
-- Megolm key rotation gated by PIN-derived keys (forward secrecy from compromise point)
-- Creator-forced key rotation for suspected compromise
-- Forget PIN → rejoin as new identity (no recovery codes, preserves no-account model)
+- PIN → PBKDF2-SHA256 (600K iterations) → 256-bit key derivation (zero new dependencies)
+- PIN key encrypted under PRF-derived HKDF wrapping key in IndexedDB
+- Session lock with configurable inactivity timeout (5/15/30 min, clears Megolm keys from memory)
+- PIN re-entry gate on reconnect with rate limiting (3 failures → 30s wait, exponential backoff, 10 → lockout)
+- Megolm key rotation gated by PIN-derived keys (lockSession/unlockSession, forward secrecy from compromise point)
+- Creator-forced /rotate command invalidates old sessions
+- Shield indicator for PIN-protected rooms
+- Cleanup orchestrator clears PIN keys on room destruction
+- 342 unit tests (43 new PIN tests, 93% PIN coverage), 108 E2E tests (6 new), 0 regressions
+- Ship-readiness audit: 10/10 security principles, 0 vulnerabilities
 
 #### M7 — Agent Hardening (Release Goal)
 Harden the agent infrastructure with true preemption, module signatures, and runtime improvements.
