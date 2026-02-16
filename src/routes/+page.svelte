@@ -278,6 +278,17 @@
 	.advanced-toggle {
 		margin-top: 1rem;
 		width: 100%;
+		border: 1px solid var(--border-default);
+		border-radius: 6px;
+		transition: border-color 0.15s;
+	}
+
+	.advanced-toggle:hover {
+		border-color: var(--border-strong);
+	}
+
+	.advanced-toggle[open] {
+		border-color: var(--border-strong);
 	}
 
 	.advanced-toggle summary {
@@ -287,13 +298,10 @@
 		text-align: center;
 		list-style: none;
 		padding: 0.5rem 1rem;
-		border: 1px solid var(--border-default);
-		border-radius: 6px;
-		transition: border-color 0.15s, color 0.15s;
+		transition: color 0.15s;
 	}
 
 	.advanced-toggle summary:hover {
-		border-color: var(--border-strong);
 		color: var(--text-primary);
 	}
 
@@ -307,8 +315,9 @@
 	}
 
 	.advanced-toggle[open] summary {
-		border-color: var(--border-strong);
 		color: var(--text-primary);
+		border-bottom: 1px solid var(--border-default);
+		padding-bottom: 0.5rem;
 	}
 
 	.advanced-toggle[open] summary::after {
@@ -316,7 +325,7 @@
 	}
 
 	.advanced-content {
-		margin-top: 0.75rem;
+		padding: 0.75rem 1rem;
 	}
 
 	.unsupported {
