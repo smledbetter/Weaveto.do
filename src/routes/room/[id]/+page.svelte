@@ -24,6 +24,12 @@
 		setModuleActive,
 	} from '$lib/agents/loader';
 	import { getBuiltInAgents, isBuiltIn } from '$lib/agents/builtin';
+	import BurnConfirmModal from '$lib/components/BurnConfirmModal.svelte';
+	import AutoDeleteBanner from '$lib/components/AutoDeleteBanner.svelte';
+	import EphemeralIndicator from '$lib/components/EphemeralIndicator.svelte';
+	import { cleanupRoom } from '$lib/room/cleanup';
+	import { autoDeleteKey } from '$lib/room/types';
+	import type { AutoDeleteState } from '$lib/room/types';
 
 	let roomId = $derived($page.params.id ?? '');
 	let isCreator = $derived($page.url.searchParams.has('create'));
@@ -60,6 +66,12 @@
 	let agentPrfSeed: Uint8Array | undefined = undefined;
 	let agentToast = $state('');
 
+	// M5 burn features
+	let showBurnModal = $state(false);
+	let autoDeleteExpiresAt = $state<number | null>(null);
+	let burnError = $state('');
+	let roomDeleted = $state(false);
+
 	// Reminder scheduler — fires 5 min before due, in-tab only
 	const reminderScheduler = new ReminderScheduler((task) => {
 		reminderNotice = `Reminder: "${task.title}" is due soon`;
@@ -71,7 +83,9 @@
 		setTimeout(() => { if (reminderNotice) reminderNotice = ''; }, 8000);
 	});
 
-	// Register service worker for persistent reminders
+	// Register service worker for persistent reminders (skip for ephemeral rooms)
+	// Note: this runs early in mount, session may not be set yet
+	// We check ephemeral mode later when scheduling reminders
 	onMount(() => {
 		if (browser && 'serviceWorker' in navigator) {
 			navigator.serviceWorker.register('/service-worker.js').catch(() => {
@@ -148,18 +162,20 @@
 		// Dispatch to active agents (they may react to task changes)
 		agentExecutor?.dispatchTaskEvent(event);
 
-		// Schedule/cancel reminders based on event
-		if (event.type === 'task_created' || event.type === 'subtask_created') {
-			const task = taskStore.getTask(event.taskId);
-			if (task?.dueAt) {
-				reminderScheduler.scheduleReminder(task);
-				// Request notification permission on first task with due date
-				if (browser && 'Notification' in window && Notification.permission === 'default') {
-					Notification.requestPermission();
+		// Schedule/cancel reminders based on event (skip for ephemeral rooms)
+		if (!session?.getEphemeralMode()) {
+			if (event.type === 'task_created' || event.type === 'subtask_created') {
+				const task = taskStore.getTask(event.taskId);
+				if (task?.dueAt) {
+					reminderScheduler.scheduleReminder(task);
+					// Request notification permission on first task with due date
+					if (browser && 'Notification' in window && Notification.permission === 'default') {
+						Notification.requestPermission();
+					}
 				}
+			} else if (event.type === 'task_status_changed' && event.task?.status === 'completed') {
+				reminderScheduler.cancelReminder(event.taskId);
 			}
-		} else if (event.type === 'task_status_changed' && event.task?.status === 'completed') {
-			reminderScheduler.cancelReminder(event.taskId);
 		}
 	}
 
@@ -314,6 +330,29 @@
 		if (!warned) {
 			showKeyWarning = true;
 		}
+
+		// Check for existing auto-delete state
+		if (browser) {
+			const stored = sessionStorage.getItem(autoDeleteKey(roomId));
+			if (stored) {
+				try {
+					const state: AutoDeleteState = JSON.parse(stored);
+					if (!state.cancelled) {
+						if (state.expiresAt < Date.now()) {
+							// Expired while away — trigger cleanup
+							if (session) {
+								cleanupRoom(roomId, session);
+							}
+							window.location.href = '/?deleted=auto';
+						} else {
+							autoDeleteExpiresAt = state.expiresAt;
+						}
+					}
+				} catch {
+					// ignore invalid stored state
+				}
+			}
+		}
 	});
 
 	onDestroy(() => {
@@ -378,6 +417,12 @@
 			});
 
 			roomSession.setErrorHandler((err) => {
+				if (err === 'This room has been deleted.') {
+					roomDeleted = true;
+					cleanupRoom(roomId, roomSession);
+					setTimeout(() => { window.location.href = '/?deleted=true'; }, 3000);
+					return;
+				}
 				error = err;
 				phase = 'error';
 			});
@@ -409,6 +454,13 @@
 
 	function sendMessage() {
 		if (!messageInput.trim() || !session || !connected) return;
+
+		// Intercept /burn command
+		if (messageInput.trim() === '/burn') {
+			showBurnModal = true;
+			messageInput = '';
+			return;
+		}
 
 		// Intercept /task commands
 		const parsed = parseTaskCommand(messageInput.trim(), session.getIdentityKey());
@@ -454,6 +506,57 @@
 	function formatTime(ts: number): string {
 		return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 	}
+
+	async function handleBurnConfirm() {
+		showBurnModal = false;
+		burnError = '';
+		try {
+			if (session) {
+				await session.sendPurgeRequest();
+				await cleanupRoom(roomId, session);
+			}
+			window.location.href = '/?deleted=true';
+		} catch (e: unknown) {
+			burnError = e instanceof Error ? e.message : 'Failed to delete room';
+		}
+	}
+
+	function handleKeepRoom() {
+		autoDeleteExpiresAt = null;
+		if (browser) {
+			sessionStorage.setItem(autoDeleteKey(roomId), JSON.stringify({ expiresAt: 0, cancelled: true }));
+		}
+	}
+
+	async function handleDeleteNow() {
+		burnError = '';
+		try {
+			if (session) {
+				await session.sendPurgeRequest();
+				await cleanupRoom(roomId, session);
+			}
+			window.location.href = '/?deleted=auto';
+		} catch (e: unknown) {
+			burnError = e instanceof Error ? e.message : 'Failed to delete room';
+		}
+	}
+
+	// Auto-delete detection: when all tasks are complete, start 24h countdown
+	$effect(() => {
+		if (!browser || taskList.length === 0) return;
+		const allComplete = taskList.every(t => t.status === 'completed');
+
+		if (allComplete && !autoDeleteExpiresAt) {
+			// Start 24h countdown
+			const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+			autoDeleteExpiresAt = expiresAt;
+			sessionStorage.setItem(autoDeleteKey(roomId), JSON.stringify({ expiresAt, cancelled: false }));
+		} else if (!allComplete && autoDeleteExpiresAt) {
+			// Tasks were un-completed, cancel auto-delete
+			autoDeleteExpiresAt = null;
+			sessionStorage.removeItem(autoDeleteKey(roomId));
+		}
+	});
 </script>
 
 <svelte:head>
@@ -552,6 +655,9 @@
 				<div class="room-info">
 					<h2>Room</h2>
 					<span class="encryption-badge">&#128274; End-to-end encrypted</span>
+					{#if session?.getEphemeralMode()}
+						<EphemeralIndicator memberCount={members.size + 1} />
+					{/if}
 				</div>
 				<div class="room-meta">
 					<button
@@ -614,6 +720,17 @@
 							onclick={() => { mobileTab = 'agents'; }}
 						>Agents</button>
 					{/if}
+				</div>
+			{/if}
+
+			{#if autoDeleteExpiresAt}
+				<div class="auto-delete-container">
+					<AutoDeleteBanner
+						expiresAt={autoDeleteExpiresAt}
+						isCreator={session?.getIsCreator() ?? false}
+						onKeepRoom={handleKeepRoom}
+						onDeleteNow={handleDeleteNow}
+					/>
 				</div>
 			{/if}
 
@@ -680,6 +797,23 @@
 				{/if}
 			</div>
 		</div>
+
+		{#if showBurnModal}
+			<BurnConfirmModal onConfirm={handleBurnConfirm} onCancel={() => { showBurnModal = false; }} />
+		{/if}
+
+		{#if roomDeleted}
+			<div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Room deleted">
+				<div class="modal-content">
+					<h3>Room Deleted</h3>
+					<p>This room has been deleted by the creator. You will be redirected shortly.</p>
+				</div>
+			</div>
+		{/if}
+
+		{#if burnError}
+			<div class="burn-error" role="alert">{burnError}</div>
+		{/if}
 	{/if}
 </main>
 
@@ -1237,5 +1371,60 @@
 		flex: 1;
 		font-size: 0.9rem;
 		color: var(--text-secondary);
+	}
+
+	/* Auto-delete banner container */
+	.auto-delete-container {
+		padding: 0 1rem;
+		flex-shrink: 0;
+	}
+
+	/* Burn error toast */
+	.burn-error {
+		position: fixed;
+		bottom: 1rem;
+		left: 50%;
+		transform: translateX(-50%);
+		background: var(--status-urgent-bg);
+		color: var(--status-urgent);
+		border: 1px solid var(--status-urgent);
+		padding: 0.5rem 1rem;
+		border-radius: 6px;
+		font-size: 0.85rem;
+		z-index: 300;
+	}
+
+	/* Room deleted modal (reusing modal styles from BurnConfirmModal) */
+	.modal-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 200;
+	}
+
+	.modal-content {
+		background: var(--bg-surface);
+		border: 1px solid var(--border-default);
+		border-radius: 8px;
+		padding: 1.5rem;
+		width: 100%;
+		max-width: 420px;
+		text-align: center;
+	}
+
+	.modal-content h3 {
+		margin: 0 0 1rem;
+		font-weight: 500;
+		font-size: 1.1rem;
+		color: var(--text-heading);
+	}
+
+	.modal-content p {
+		margin: 0;
+		color: var(--text-secondary);
+		line-height: 1.4;
 	}
 </style>
