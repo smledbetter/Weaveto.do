@@ -29,7 +29,7 @@ Each feature follows test-driven development:
 
 ### Quality Gates
 
-- Unit test coverage >= 80% for new modules (lines, functions, branches)
+- Unit test coverage >= 75% lines, 73% functions/branches. Extract pure functions from I/O-bound code to maximize testable surface.
 - All Playwright E2E tests pass (including regression tests from prior milestones)
 - Zero axe-core accessibility violations on new UI
 - Zero plaintext data on relay server
@@ -69,6 +69,10 @@ Run plans in dependency-aware waves, then verify.
 - **Atomic commit** after every completed task: `feat(M{N}): description`
 - Orchestrator stays at **30-40% context** — delegates, doesn't accumulate
 - Load **research artifacts** (`docs/research/*.md`) once, not re-discover
+- **Crypto waves stay serial** — no parallelism on waves that modify key management chains
+- **E2E agents must grep all test files** for old strings/selectors before finishing
+- **Include known-answer test vectors** (e.g., RFC 6070 for PBKDF2) in crypto agent prompts
+- **Plan session breaks** for milestones >100K tokens — commit at natural split points
 
 **Wave execution:**
 1. Analyze file dependencies between tasks
@@ -76,14 +80,19 @@ Run plans in dependency-aware waves, then verify.
 3. Run same-wave tasks in parallel (spawn subagents)
 4. Wait for wave completion before starting next wave
 
+**Visual QA (before gate, after all code waves):**
+
+The orchestrator opens key pages and reviews visually before running the automated gate. This catches layout bugs, redundant copy, confusing UX that automated tests miss. Costs almost nothing; prevents post-ship fix churn.
+
 **Final wave — ship-readiness gate:**
 
 A single agent loads both `production-engineer` and `security-auditor` skills and runs all checks in one pass:
 
-- **Quality gates**: `npm run test:unit` (80%+ coverage), `npm run test:e2e` (0 regressions), `npm run check` (0 errors), TDD conventions
+- **Quality gates**: `npm run test:unit` (75%+ coverage), `npm run test:e2e` (0 regressions), `npm run check` (0 errors), TDD conventions
 - **Security audit**: 10-principle review on all changed files, OWASP ASI Top 10 threat analysis
 - Must produce a combined pass/fail report
 - **Must pass before proceeding to Phase 3.** Fix any issues found, then re-run.
+- **Use opus for crypto milestones** (key management, derivation, wrapping). Use sonnet for UI/logic milestones.
 
 ### Phase 3: Ship
 

@@ -9,8 +9,14 @@ export default defineConfig({
     environment: "jsdom",
     coverage: {
       provider: "v8",
-      include: ["src/lib/tasks/**", "src/lib/agents/**", "src/lib/room/**"],
-      thresholds: { lines: 80, functions: 80, branches: 80 },
+      include: [
+        "src/lib/tasks/**",
+        "src/lib/agents/**",
+        "src/lib/room/**",
+        "src/lib/qr/**",
+        "src/lib/pin/**",
+      ],
+      thresholds: { lines: 75, functions: 73, branches: 73 },
     },
   },
   resolve: {

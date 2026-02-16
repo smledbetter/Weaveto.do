@@ -165,7 +165,26 @@ Builds on: `src/lib/crypto/engine.ts` (HKDF, Megolm), `src/lib/webauthn/prf.ts` 
 | 3 | Solo | sonnet | 3.1-3.3 (gate logic + session changes + tests) |
 | 4 | Solo | sonnet | 4.1-4.3 (key rotation — critical crypto, needs focus) |
 | 5 | Solo | sonnet | 5.1, 5.2 (tests) |
-| Final | Ship-Readiness | sonnet | Quality gates + security audit |
+| Visual QA | Orchestrator | — | Manual review of PIN flows before gate |
+| Final | Ship-Readiness | **opus** | Quality gates + security audit (crypto milestone) |
+
+### Process Notes (from M5.5 retro)
+
+1. **Crypto waves stay serial.** Waves 1, 3, 4 modify the key management chain — each wave's output shapes the next wave's API. Only Wave 2 (UI components) runs parallel agents.
+
+2. **Session break after Wave 2.** Waves 1-2 produce a working PIN setup flow. Waves 3-4 add session locking and key rotation. If context gets tight, commit after Wave 2 and continue in a fresh session.
+
+3. **Include PBKDF2 test vectors in agent prompts.** Task 1.2 (derive.ts) must include known-answer vectors from RFC 6070 so the agent can verify correctness, not just "it doesn't crash."
+
+4. **Visual QA before ship-readiness gate.** After Wave 5, orchestrator reviews key pages before running the gate:
+   - PIN setup flow (room creation → join → PIN entry)
+   - Lock overlay appearance and focus trapping
+   - Shield indicator in room header
+   - Rate limiting countdown display
+
+5. **E2E agents must grep all test files.** Any agent modifying UI text or selectors must grep `tests/e2e/` for the old string and fix every occurrence before finishing.
+
+6. **Ship-readiness gate uses opus.** This is the first milestone that modifies cryptographic key management. The security audit portion requires opus-level reasoning about key wrapping correctness, PBKDF2 parameter validation, and rate limiting bypass resistance.
 
 ## Estimated Tokens
 
