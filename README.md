@@ -127,13 +127,16 @@ PIN-based endpoint compromise containment. If one member's device is compromised
 - 342 unit tests (43 new PIN tests, 93% PIN coverage), 108 E2E tests (6 new), 0 regressions
 - Ship-readiness audit: 10/10 security principles, 0 vulnerabilities
 
-### M7: Agent Hardening
+### M7: Agent Hardening ✓
 
-Harden the agent infrastructure with true preemption, module signatures, and runtime improvements.
+Harden the agent infrastructure with true preemption, module signatures, and runtime validation.
 
-- Web Worker preemption for WASM execution (replace main-thread timeout)
-- Ed25519 module signature verification
-- Agent event validation against known taskIds
+- Web Worker agent execution with true preemption via `worker.terminate()`
+- Typed postMessage protocol (InstantiateRequest, CallRequest, TerminateRequest, UpdateContextRequest)
+- Ed25519 module signature verification via WebCrypto API
+- Agent event validation: taskId existence checking against current task store
+- Structured clone safety for Worker postMessage (JSON imports, ArrayBuffer handling)
+- 372 unit tests (30 new), 119 E2E tests, 0 regressions
 
 ### M8: Penetration Testing
 

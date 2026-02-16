@@ -2,7 +2,7 @@
 
 Last updated: 2026-02-16
 
-## Current Milestone: M6 — Session Security
+## Current Milestone: M7 — Agent Hardening
 
 ### What's Done
 
@@ -113,15 +113,29 @@ Last updated: 2026-02-16
 - Ship-readiness audit: 10/10 security principles, 0 vulnerabilities
 - See: `docs/milestones/M6-session-security/`
 
-### What's Next (M7 — Agent Hardening)
+**M7 — Agent Hardening** (Complete)
+- Web Worker agent execution with true preemption via `worker.terminate()`
+- Worker protocol: typed postMessage API (InstantiateRequest, CallRequest, TerminateRequest, UpdateContextRequest)
+- State encryption stays on main thread (CryptoKey not transferable to Workers)
+- Ed25519 module signature verification via WebCrypto API
+- `verifyManifestSignature()` in loader for optional signature checking
+- Agent event validation: taskId existence checking against current task store
+- `CREATES_NEW_TASK` set exempts `task_created`/`subtask_created` from taskId checks
+- Structured clone fix: JSON.parse/stringify for manifest objects (JSON imports have non-clonable prototypes)
+- Removed ArrayBuffer transfer list (prevents detachment on agent reactivation)
+- No console.log/console.warn in agent runtime (security requirement)
+- 372 unit tests (30 new), 119 E2E tests (all agent tests pass), 0 regressions
+- Ship-readiness audit: TypeScript clean, no console violations, Worker isolation verified
+- See: `docs/milestones/M7-agent-hardening/`
 
-Harden the agent infrastructure with true preemption, module signatures, and runtime improvements.
+### What's Next (M8 — Penetration Testing)
+
+Security penetration testing across all shipped milestones.
 
 ### Known Issues
 
-- WASM timeout wrapper can't preempt synchronous execution (Web Worker deferred as C-2)
 - Service worker notifications show generic body (no decrypted task titles)
-- Agent-emitted events not validated against known taskIds (deferred M-4)
+- 24 pre-existing E2E test failures (PIN, task intelligence, task polish — not M7 regressions)
 
 ### Milestone Roadmap
 
@@ -136,7 +150,7 @@ Harden the agent infrastructure with true preemption, module signatures, and run
 | M5 | Burn-After-Use | Complete |
 | M5.5 | UX Polish | Complete |
 | M6 | Session Security | Complete |
-| M7 | Agent Hardening | Not Started |
+| M7 | Agent Hardening | Complete |
 | M8 | Penetration Testing | Not Started |
 | M9 | Encrypted Notifications | Not Started |
 | M10 | Offline & Sync | Not Started |
