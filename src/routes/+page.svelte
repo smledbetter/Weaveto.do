@@ -110,12 +110,17 @@
 				</div>
 			</div>
 
-			<PinPolicyToggle
-				policy={pinPolicy}
-				onchange={(newPolicy) => { pinPolicy = newPolicy; }}
-			/>
-
 			<p class="hint">Create a private, encrypted space to coordinate with your team. No account needed.</p>
+
+			<details class="advanced-toggle">
+				<summary>Advanced</summary>
+				<div class="advanced-content">
+					<PinPolicyToggle
+						policy={pinPolicy}
+						onchange={(newPolicy) => { pinPolicy = newPolicy; }}
+					/>
+				</div>
+			</details>
 		{:else}
 			<div class="unsupported">
 				<p>Your browser does not support WebAuthn, which is required for secure identity.</p>
@@ -268,6 +273,35 @@
 		margin-top: 1rem;
 		font-size: 0.85rem;
 		color: var(--text-muted);
+	}
+
+	.advanced-toggle {
+		margin-top: 1rem;
+		width: 100%;
+	}
+
+	.advanced-toggle summary {
+		font-size: 0.8rem;
+		color: var(--text-muted);
+		cursor: pointer;
+		text-align: center;
+		list-style: none;
+	}
+
+	.advanced-toggle summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.advanced-toggle summary::before {
+		content: '\25B8 ';
+	}
+
+	.advanced-toggle[open] summary::before {
+		content: '\25BE ';
+	}
+
+	.advanced-content {
+		margin-top: 0.75rem;
 	}
 
 	.unsupported {

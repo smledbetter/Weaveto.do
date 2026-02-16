@@ -44,7 +44,7 @@
 			</label>
 		</div>
 		<p class="checkbox-description">
-			Adds a 6-digit PIN on top of device authentication. Protects against endpoint compromise — if a device is lost or stolen, the attacker can't access future messages after key rotation.
+			Members set a 6-digit PIN to lock their session. If a device is lost or stolen, the PIN keeps your room secure.
 		</p>
 	</div>
 
