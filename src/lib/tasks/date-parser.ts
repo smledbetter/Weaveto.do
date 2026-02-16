@@ -25,9 +25,7 @@ function dayIndex(name: string): number {
  * Parse natural language or duration string to absolute timestamp.
  * Returns null if the input cannot be parsed.
  */
-export function parseNaturalDate(
-  input: string,
-): { timestamp: number } | null {
+export function parseNaturalDate(input: string): { timestamp: number } | null {
   const trimmed = input.trim().toLowerCase();
   if (!trimmed) return null;
 
@@ -78,7 +76,18 @@ export function parseNaturalDate(
     return { timestamp: endOfDay.getTime() };
   }
 
-  // 5. "next monday/tue/..." — always next week
+  // 5. "next week" — next Monday
+  if (trimmed === "next week") {
+    const result = new Date(now);
+    const currentDay = result.getDay();
+    // Days until next Monday (1)
+    let daysToAdd = 1 - currentDay;
+    if (daysToAdd <= 0) daysToAdd += 7;
+    result.setDate(result.getDate() + daysToAdd);
+    return { timestamp: result.getTime() };
+  }
+
+  // 6. "next monday/tue/..." — always next week
   const nextDayMatch = trimmed.match(
     /^next\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)$/,
   );

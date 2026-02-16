@@ -57,9 +57,7 @@ test.describe("M4: Task Polish", () => {
       await titleInput.fill("Review pull request");
 
       const descriptionInput = page.locator(".description-input");
-      await descriptionInput.fill(
-        "Check the code quality and test coverage",
-      );
+      await descriptionInput.fill("Check the code quality and test coverage");
 
       // Submit
       await page.locator(".create-btn").click();
@@ -92,13 +90,9 @@ test.describe("M4: Task Polish", () => {
       await page.locator(".create-btn").click();
 
       // Description should be visible immediately
-      const description = page
-        .locator(".task-item .task-description")
-        .first();
+      const description = page.locator(".task-item .task-description").first();
       await expect(description).toBeVisible();
-      await expect(description).toHaveText(
-        "Important context about this task",
-      );
+      await expect(description).toHaveText("Important context about this task");
     });
   });
 
@@ -282,13 +276,10 @@ test.describe("M4: Task Polish", () => {
       const sortToggle = page.locator(".sort-toggle");
       await sortToggle.click();
 
-      // Wait for re-render
-      await page.waitForTimeout(100);
-
       // Task B (tomorrow) should now be first
-      const firstTaskAfter = await taskList.first().innerText();
-      expect(firstTaskAfter).toContain("Task B");
-      expect(firstTaskBefore).not.toBe(firstTaskAfter);
+      await expect(taskList.first()).toContainText("Task B", {
+        timeout: 5_000,
+      });
 
       t.assertNoErrors();
     });
@@ -358,9 +349,7 @@ test.describe("M4: Task Polish", () => {
       await page
         .locator('.modal-content input[placeholder="What needs to be done?"]')
         .fill("Project work");
-      await page
-        .locator(".description-input")
-        .fill("Review documentation");
+      await page.locator(".description-input").fill("Review documentation");
       await page.locator(".create-btn").click();
 
       // Create another task without matching description
@@ -411,9 +400,7 @@ test.describe("M4: Task Polish", () => {
   });
 
   test.describe("Search Empty State", () => {
-    test("no results when searching non-existent keyword", async ({
-      page,
-    }) => {
+    test("no results when searching non-existent keyword", async ({ page }) => {
       const t = trackErrors(page);
       await openTaskPanel(page);
 

@@ -72,6 +72,15 @@ describe("Date Parser", () => {
       });
     });
 
+    describe("next week", () => {
+      it('parses "next week" as next Monday', () => {
+        // Current: Monday Jan 15 → next Monday: Jan 22
+        const result = parseNaturalDate("next week");
+        const expected = new Date("2024-01-22T14:30:00").getTime();
+        expect(result!.timestamp).toBe(expected);
+      });
+    });
+
     describe("next weekday", () => {
       it('parses "next monday" (always next week)', () => {
         // Current: Monday Jan 15 → next Monday: Jan 22

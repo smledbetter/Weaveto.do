@@ -47,13 +47,12 @@
 	// Filtered and sorted task lists
 	let filteredPendingParents = $derived.by(() => {
 		const query = searchQuery.trim().toLowerCase();
-		let list = pendingParents;
-		if (query) {
-			list = list.filter(t =>
+		let list = query
+			? pendingParents.filter(t =>
 				t.title.toLowerCase().includes(query) ||
 				(t.description?.toLowerCase().includes(query))
-			);
-		}
+			)
+			: [...pendingParents];
 		// Sort: urgent first, then by sortMode
 		return list.sort((a, b) => {
 			// Urgent tasks first
