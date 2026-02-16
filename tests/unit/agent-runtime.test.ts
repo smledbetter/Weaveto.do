@@ -305,7 +305,7 @@ describe("Host Imports: host_get_state / host_set_state", () => {
 });
 
 describe("Host Imports: host_log", () => {
-  it("logs message with agent prefix", () => {
+  it("is a no-op (no console logging in production)", () => {
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const ctx = makeContext({ moduleId: "my-agent" });
     const memory = makeMemory();
@@ -315,10 +315,7 @@ describe("Host Imports: host_log", () => {
     const len = writeString(memory, 0, msg);
     (imports.host_log as Function)(0, len);
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      "[agent:my-agent]",
-      "Hello from agent",
-    );
+    expect(consoleSpy).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
   });
 });
@@ -409,15 +406,15 @@ describe("Host Imports: bounds checking (M-2)", () => {
     expect(written).toBe(0);
   });
 
-  it("host_log handles out-of-bounds gracefully", () => {
+  it("host_log handles out-of-bounds gracefully (no-op)", () => {
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const ctx = makeContext();
     const memory = makeMemory(1);
     const imports = buildHostImports(memory, ALL_PERMS, ctx);
 
-    // Read from beyond memory
+    // Should not throw even with out-of-bounds args (no-op)
     (imports.host_log as Function)(65000, 1000);
-    expect(consoleSpy).toHaveBeenCalledWith("[agent:test-agent]", "");
+    expect(consoleSpy).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
   });
 });

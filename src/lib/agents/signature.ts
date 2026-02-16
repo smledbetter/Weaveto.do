@@ -38,7 +38,7 @@ export async function verifyModuleSignature(
 
     const key = await crypto.subtle.importKey(
       "raw",
-      publicKeyBytes,
+      publicKeyBytes.buffer as ArrayBuffer,
       { name: "Ed25519" },
       false,
       ["verify"],
@@ -49,7 +49,7 @@ export async function verifyModuleSignature(
     return await crypto.subtle.verify(
       { name: "Ed25519" },
       key,
-      signatureBytes,
+      signatureBytes.buffer as ArrayBuffer,
       message,
     );
   } catch {
@@ -78,11 +78,7 @@ export async function signModuleHash(
   );
 
   const message = encoder.encode(wasmHash);
-  const signature = await crypto.subtle.sign(
-    { name: "Ed25519" },
-    key,
-    message,
-  );
+  const signature = await crypto.subtle.sign({ name: "Ed25519" }, key, message);
 
   return uint8ToBase64(new Uint8Array(signature));
 }
@@ -95,11 +91,10 @@ export async function generateSigningKeypair(): Promise<{
   publicKeyBase64: string;
   privateKeyPkcs8: ArrayBuffer;
 }> {
-  const keypair = await crypto.subtle.generateKey(
-    { name: "Ed25519" },
-    true,
-    ["sign", "verify"],
-  );
+  const keypair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
+    "sign",
+    "verify",
+  ]);
 
   const publicKeyRaw = await crypto.subtle.exportKey("raw", keypair.publicKey);
   const privateKeyPkcs8 = await crypto.subtle.exportKey(

@@ -136,11 +136,8 @@ export function buildHostImports(
             const event = JSON.parse(json) as TaskEvent;
             validateEmittedEvent(event, context.moduleId, context.tasks);
             context.onEmitEvent(event);
-          } catch (e) {
-            console.warn(
-              `[agent:${context.moduleId}] Invalid emitted event:`,
-              e,
-            );
+          } catch {
+            // Silently drop invalid events (no console in production)
           }
         }
       : () => {},
@@ -219,9 +216,8 @@ export function buildHostImports(
           }
         : () => {},
 
-    host_log: (ptr: number, len: number) => {
-      const msg = readStringFromMemory(memory, ptr, len);
-      console.log(`[agent:${context.moduleId}]`, msg);
+    host_log: (_ptr: number, _len: number) => {
+      // No-op in production (no console logging allowed)
     },
   };
 }
