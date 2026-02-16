@@ -81,6 +81,21 @@ Run plans in dependency-aware waves.
 3. Run same-wave tasks in parallel (spawn subagents)
 4. Wait for wave completion before starting next wave
 
+**After final wave — run quality gates (parallel):**
+
+1. **Production engineer** (`production-engineer` skill) — runs all quality gates:
+   - `npm run test:unit` — 80%+ coverage on new code
+   - `npm run test:e2e` — 0 regressions
+   - `npm run check` — 0 type errors
+   - Verify TDD conventions (test organization, state isolation, appropriate mocking)
+
+2. **Security auditor** (`security-auditor` skill) — 10-principle audit on all changed files:
+   - Reviews code against all 10 security principles
+   - Runs OWASP ASI Top 10 threat analysis
+   - Must PASS all 10 principles before shipping
+
+**Both must pass before proceeding to Phase 4.** Fix any issues found, then re-run the failing gate.
+
 ### Phase 4: Ship
 
 - Push all commits to main

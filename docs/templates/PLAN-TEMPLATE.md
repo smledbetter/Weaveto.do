@@ -73,6 +73,21 @@
 - **Verify**: `npm run test:unit && npm run test:e2e`
 - **Done**: {Coverage targets met, 0 regressions}
 
+### Wave 5: Quality Gates
+> Depends on: Wave 4. Both tasks run in parallel. Must pass before shipping.
+
+**Task 5.1: Production Engineer Review** (type: checkpoint:gate)
+- **Skill**: `production-engineer`
+- **Action**: Run all quality gates — unit tests with coverage, E2E tests, type check, TDD conventions
+- **Verify**: All gates pass. Fix any failures, re-run until green.
+- **Done**: 0 test failures, 80%+ coverage on new code, 0 type errors
+
+**Task 5.2: Security Audit** (type: checkpoint:gate)
+- **Skill**: `security-auditor`
+- **Action**: 10-principle audit on all changed/new source files. OWASP ASI Top 10 threat analysis.
+- **Verify**: All 10 principles PASS. Fix any violations, re-audit until clean.
+- **Done**: 10/10 principles pass, 0 vulnerabilities
+
 ## Agent Strategy
 
 | Wave | Agent | Model | Tasks |
@@ -82,6 +97,8 @@
 | 2 | Worker B | haiku | 2.2 |
 | 3 | Lead | sonnet | 3.1, 3.2 |
 | 4 | Solo | sonnet | 4.1 |
+| 5 | Prod Engineer | sonnet | 5.1 (quality gates) |
+| 5 | Security Auditor | sonnet | 5.2 (10-principle audit) |
 
 ## Commit Strategy
 
