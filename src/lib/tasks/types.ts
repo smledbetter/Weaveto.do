@@ -12,6 +12,8 @@ export interface Task {
   updatedAt: number;
   dueAt?: number;
   blockedBy?: TaskId[]; // tasks that must complete before this one
+  description?: string;
+  urgent?: boolean;
 }
 
 export type TaskEventType =
@@ -19,7 +21,8 @@ export type TaskEventType =
   | "subtask_created"
   | "task_assigned"
   | "task_status_changed"
-  | "task_dependencies_changed";
+  | "task_dependencies_changed"
+  | "task_updated";
 
 export interface TaskEvent {
   type: TaskEventType;

@@ -1,5 +1,5 @@
 /*
- * Weave.us Design Tokens
+ * weaveto.do Design Tokens
  *
  * Single source of truth for all colors. Components reference these
  * via var(--token). Dark mode is the default; light mode is defined
@@ -16,19 +16,19 @@
     /* Text */
     --text-primary: #d8d8dc;
     --text-secondary: #8e8e96;
-    --text-muted: #55555c;
+    --text-muted: #7d7d84;
     --text-inverse: #0c0c0e;
     --text-heading: #ffffff;
 
     /* Borders */
     --border-subtle: #1e1e22;
-    --border-default: #2a2a30;
-    --border-strong: #3a3a42;
+    --border-default: #67676f;
+    --border-strong: #787880;
 
-    /* Accent (muted sage green) */
-    --accent-muted: #2a3a2e;
-    --accent-default: #6b8f72;
-    --accent-strong: #8fb898;
+    /* Accent (saturated green) */
+    --accent-muted: #1e3e24;
+    --accent-default: #4a9856;
+    --accent-strong: #6ab874;
     --accent-border: #2e4a34;
 
     /* Semantic: caution */
@@ -40,6 +40,10 @@
     /* Semantic: error */
     --status-error: #b86868;
     --status-error-bg: #1a1010;
+
+    /* Semantic: urgent */
+    --status-urgent: #d87878;
+    --status-urgent-bg: #1a1014;
 
     /* Semantic: info */
     --status-info: #6888a8;
@@ -59,21 +63,21 @@
     --bg-overlay: #d6d5d2;
 
     --text-primary: #1c1c1e;
-    --text-secondary: #6e6e76;
-    --text-muted: #9e9ea6;
+    --text-secondary: #5a5a66;
+    --text-muted: #696971;
     --text-inverse: #f4f3f1;
     --text-heading: #0c0c0e;
 
     --border-subtle: #e0dfdc;
-    --border-default: #cccbc8;
-    --border-strong: #b0afb0;
+    --border-default: #848381;
+    --border-strong: #7a7a7c;
 
     --accent-muted: #e0ede2;
-    --accent-default: #4a7252;
-    --accent-strong: #3a5e42;
-    --accent-border: #8ab892;
+    --accent-default: #1a7a2e;
+    --accent-strong: #145e22;
+    --accent-border: #699771;
 
-    --status-caution: #8a7a30;
+    --status-caution: #7a6c22;
     --status-caution-bg: #f5f0d8;
     --status-caution-border: #d8d0a0;
     --status-caution-btn-border: #b8b080;
@@ -81,10 +85,13 @@
     --status-error: #a04040;
     --status-error-bg: #f5e0e0;
 
+    --status-urgent: #c03030;
+    --status-urgent-bg: #f5e0e0;
+
     --status-info: #3868a8;
 
     --btn-primary-bg: #1c1c1e;
     --btn-primary-hover: #0c0c0e;
-    --btn-secondary-text: #6e6e76;
+    --btn-secondary-text: #5a5a66;
     --btn-secondary-hover-text: #1c1c1e;
 }
