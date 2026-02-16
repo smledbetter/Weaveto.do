@@ -134,7 +134,7 @@ export function buildHostImports(
           const json = readStringFromMemory(memory, ptr, len);
           try {
             const event = JSON.parse(json) as TaskEvent;
-            validateEmittedEvent(event, context.moduleId);
+            validateEmittedEvent(event, context.moduleId, context.tasks);
             context.onEmitEvent(event);
           } catch (e) {
             console.warn(
@@ -236,17 +236,36 @@ const ALLOWED_EVENT_TYPES = new Set([
   "task_dependencies_changed",
 ]);
 
+/** Event types that create new tasks (taskId won't exist yet). */
+const CREATES_NEW_TASK = new Set(["task_created", "subtask_created"]);
+
 /**
  * Validate an event emitted by an agent before sending.
- * Ensures agents can only emit known event types and have proper actorId.
+ * Ensures agents can only emit known event types, have proper actorId,
+ * and reference existing tasks (except for task creation events).
  */
-function validateEmittedEvent(event: TaskEvent, moduleId: string): void {
+export function validateEmittedEvent(
+  event: TaskEvent,
+  moduleId: string,
+  currentTasks: Task[] = [],
+): void {
   if (!event.type || !ALLOWED_EVENT_TYPES.has(event.type)) {
     throw new Error(`Disallowed event type: ${event.type}`);
   }
   if (!event.taskId) {
     throw new Error("Event missing taskId");
   }
+
+  // Validate taskId exists for non-creation events
+  if (!CREATES_NEW_TASK.has(event.type) && currentTasks.length > 0) {
+    const taskExists = currentTasks.some((t) => t.id === event.taskId);
+    if (!taskExists) {
+      throw new Error(
+        `Agent emitted event for unknown taskId: ${event.taskId}`,
+      );
+    }
+  }
+
   // Force agent actorId prefix
   event.actorId = `agent:${moduleId}`;
   event.timestamp = Date.now();
