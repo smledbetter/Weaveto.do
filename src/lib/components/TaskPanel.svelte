@@ -29,6 +29,8 @@
 	let showCompleted = $state(false);
 	let assignDropdownTask = $state<TaskId | null>(null);
 	let autoAssignPreview = $state<TaskEvent[] | null>(null);
+	let sortMode: 'creation' | 'due-asc' | 'due-desc' = $state('creation');
+	let searchQuery = $state('');
 
 	// Inline editing state
 	let editingTask = $state<string | null>(null);
@@ -41,6 +43,45 @@
 	let pendingParents = $derived(parentTasks.filter((t) => t.status !== 'completed'));
 	let completedParents = $derived(parentTasks.filter((t) => t.status === 'completed'));
 	let pendingCount = $derived(tasks.filter((t) => t.status !== 'completed').length);
+
+	// Filtered and sorted task lists
+	let filteredPendingParents = $derived.by(() => {
+		const query = searchQuery.trim().toLowerCase();
+		let list = pendingParents;
+		if (query) {
+			list = list.filter(t =>
+				t.title.toLowerCase().includes(query) ||
+				(t.description?.toLowerCase().includes(query))
+			);
+		}
+		// Sort: urgent first, then by sortMode
+		return list.sort((a, b) => {
+			// Urgent tasks first
+			if (a.urgent && !b.urgent) return -1;
+			if (!a.urgent && b.urgent) return 1;
+			// Then by sort mode
+			if (sortMode === 'due-asc') {
+				if (!a.dueAt) return 1;
+				if (!b.dueAt) return -1;
+				return a.dueAt - b.dueAt;
+			}
+			if (sortMode === 'due-desc') {
+				if (!a.dueAt) return 1;
+				if (!b.dueAt) return -1;
+				return b.dueAt - a.dueAt;
+			}
+			return 0; // creation order
+		});
+	});
+
+	let filteredCompletedParents = $derived.by(() => {
+		const query = searchQuery.trim().toLowerCase();
+		if (!query) return completedParents;
+		return completedParents.filter(t =>
+			t.title.toLowerCase().includes(query) ||
+			(t.description?.toLowerCase().includes(query))
+		);
+	});
 
 	// Listen for open-task-create-modal event from keyboard shortcut
 	onMount(() => {
@@ -184,7 +225,7 @@
 		assignDropdownTask = null;
 	}
 
-	function handleCreateTask(title: string, assignee?: string, dueAt?: number, subtasks?: string[], blockedBy?: string[]) {
+	function handleCreateTask(title: string, assignee?: string, dueAt?: number, subtasks?: string[], blockedBy?: string[], description?: string, urgent?: boolean) {
 		const now = Date.now();
 		const parentId = crypto.randomUUID();
 
@@ -198,6 +239,8 @@
 				...(assignee && { assignee }),
 				...(dueAt !== undefined && { dueAt }),
 				...(blockedBy && blockedBy.length > 0 && { blockedBy }),
+				...(description && { description }),
+				...(urgent && { urgent }),
 			},
 			timestamp: now,
 			actorId: myIdentityKey,
@@ -260,12 +303,47 @@
 			(t) => t.assignee === identityKey && t.status !== 'completed'
 		).length;
 	}
+
+	function cycleSortMode() {
+		const current = sortMode;
+		if (current === 'creation') sortMode = 'due-asc';
+		else if (current === 'due-asc') sortMode = 'due-desc';
+		else sortMode = 'creation';
+	}
+
+	let sortLabel = $derived.by(() => {
+		if (sortMode === 'due-asc') return 'Sorted by due date (earliest first)';
+		if (sortMode === 'due-desc') return 'Sorted by due date (latest first)';
+		return 'Sort by due date';
+	});
+
+	let sortIcon = $derived.by(() => {
+		if (sortMode === 'due-asc') return '↑';
+		if (sortMode === 'due-desc') return '↓';
+		return '⇅';
+	});
+
+	function toggleUrgent(task: Task) {
+		onTaskEvent({
+			type: 'task_updated',
+			taskId: task.id,
+			task: { urgent: !task.urgent },
+			timestamp: Date.now(),
+			actorId: myIdentityKey,
+		});
+	}
 </script>
 
 <aside class="task-panel" role="complementary" aria-label="Task panel">
 	<div class="panel-header">
 		<h3>Tasks</h3>
 		<div class="panel-actions">
+			<button
+				class="sort-toggle"
+				onclick={cycleSortMode}
+				aria-label="Sort tasks"
+				title={sortLabel}
+			>{sortIcon}</button>
 			<button
 				class="new-task-btn"
 				onclick={() => { showCreateModal = true; }}
@@ -278,6 +356,22 @@
 			>&times;</button>
 		</div>
 	</div>
+
+	<div class="search-bar">
+		<input
+			type="search"
+			class="search-input"
+			placeholder="Search tasks..."
+			bind:value={searchQuery}
+			aria-label="Search tasks by title or description"
+		/>
+	</div>
+
+	{#if searchQuery.trim()}
+		<div class="sr-only" aria-live="polite" aria-atomic="true">
+			{filteredPendingParents.length + filteredCompletedParents.length} tasks match your search
+		</div>
+	{/if}
 
 	<div class="panel-body" aria-live="polite">
 		{#if tasks.length === 0}
@@ -316,7 +410,7 @@
 			{/if}
 
 			<ul class="task-list" role="list">
-				{#each pendingParents as task (task.id)}
+				{#each filteredPendingParents as task (task.id)}
 					{@const subtasks = getSubtasks(task.id)}
 					{@const blocked = isTaskBlocked(task)}
 					{@const blockingTasks = getBlockingTasks(task)}
@@ -333,6 +427,9 @@
 							</button>
 							<div class="task-info">
 								<div class="task-header">
+									{#if task.urgent}
+										<span class="urgent-badge" role="status" aria-label="Urgent">Urgent</span>
+									{/if}
 									{#if editingTask === task.id && editingField === 'title'}
 										<input
 											type="text"
@@ -356,6 +453,9 @@
 										<span class="blocked-indicator">Blocked</span>
 									{/if}
 								</div>
+								{#if task.description}
+									<p class="task-description">{task.description}</p>
+								{/if}
 								{#if task.dueAt}
 									{#if editingTask === task.id && editingField === 'due'}
 										<input
@@ -380,6 +480,14 @@
 								{/if}
 							</div>
 							<div class="task-meta">
+								<button
+									class="urgent-toggle-btn"
+									onclick={() => toggleUrgent(task)}
+									aria-label={task.urgent ? 'Remove urgent flag' : 'Mark as urgent'}
+									title={task.urgent ? 'Remove urgent' : 'Mark urgent'}
+								>
+									{task.urgent ? '⚑' : '⚐'}
+								</button>
 								<button
 									class="assignee-btn"
 									onclick={() => { assignDropdownTask = assignDropdownTask === task.id ? null : task.id; }}
@@ -455,7 +563,7 @@
 
 				{#if showCompleted}
 					<ul class="task-list completed-list" role="list">
-						{#each completedParents as task (task.id)}
+						{#each filteredCompletedParents as task (task.id)}
 							<li class="task-item">
 								<div class="task-row">
 									<button
@@ -621,6 +729,99 @@
 
 	.close-panel-btn:hover {
 		color: var(--text-primary);
+	}
+
+	.sort-toggle {
+		background: none;
+		border: 1px solid var(--border-default);
+		color: var(--text-secondary);
+		width: 1.75rem;
+		height: 1.75rem;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.85rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.sort-toggle:hover {
+		border-color: var(--border-strong);
+		color: var(--text-primary);
+	}
+
+	.sort-toggle:focus-visible {
+		outline: 2px solid var(--accent-default);
+		outline-offset: 2px;
+	}
+
+	.search-bar {
+		padding: 0 0.75rem 0.5rem;
+	}
+
+	.search-input {
+		width: 100%;
+		padding: 0.4rem 0.6rem;
+		border: 1px solid var(--border-default);
+		border-radius: 4px;
+		background: var(--bg-base);
+		color: var(--text-primary);
+		font-size: 0.8rem;
+	}
+
+	.search-input:focus {
+		border-color: var(--accent-default);
+		outline: none;
+	}
+
+	.search-input::placeholder {
+		color: var(--text-muted);
+	}
+
+	.urgent-badge {
+		font-size: 0.65rem;
+		font-weight: 600;
+		color: var(--status-urgent);
+		background: var(--status-urgent-bg);
+		padding: 0.1rem 0.35rem;
+		border-radius: 3px;
+		white-space: nowrap;
+		flex-shrink: 0;
+	}
+
+	.urgent-toggle-btn {
+		background: none;
+		border: none;
+		cursor: pointer;
+		font-size: 0.8rem;
+		color: var(--text-muted);
+		padding: 0.1rem 0.2rem;
+	}
+
+	.urgent-toggle-btn:hover {
+		color: var(--status-urgent);
+	}
+
+	.task-description {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		margin: 0.15rem 0 0;
+		max-height: 4em;
+		overflow-y: auto;
+		white-space: pre-wrap;
+		word-break: break-word;
+		line-height: 1.4;
+	}
+
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		border: 0;
 	}
 
 	.panel-body {

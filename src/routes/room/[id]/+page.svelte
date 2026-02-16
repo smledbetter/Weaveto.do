@@ -457,7 +457,7 @@
 </script>
 
 <svelte:head>
-	<title>Room — Weave.us</title>
+	<title>Room — weaveto.do</title>
 </svelte:head>
 
 <main>
@@ -576,7 +576,13 @@
 						{copied ? 'Copied!' : 'Copy Link'}
 					</button>
 					<span class="member-count">{members.size + 1} {members.size + 1 === 1 ? 'member' : 'members'}</span>
-					<span class="connection-dot" class:online={connected}></span>
+					<span
+					class="connection-dot"
+					class:online={connected}
+					role="status"
+					aria-label={connected ? 'Connected' : 'Disconnected'}
+					title={connected ? 'Connected' : 'Disconnected'}
+				></span>
 					<button class="theme-toggle-btn" onclick={toggleTheme} aria-label="Toggle light/dark mode" title="Toggle light/dark mode">
 						{isDark() ? '\u2600' : '\u263E'}
 					</button>
@@ -879,10 +885,21 @@
 		width: 8px;
 		height: 8px;
 		border-radius: 50%;
-		background: var(--text-muted);
+		background: transparent;
+		border: 2px solid var(--text-muted);
+		box-sizing: border-box;
 	}
 
-	.connection-dot.online { background: var(--accent-default); }
+	.connection-dot.online {
+		background: var(--accent-default);
+		border-color: var(--accent-default);
+		animation: pulse 2s ease-in-out infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.5; }
+	}
 
 	.theme-toggle-btn {
 		background: none;
