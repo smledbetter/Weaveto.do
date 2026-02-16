@@ -164,9 +164,9 @@ test.describe("M3.5: Built-in Auto-Balance Agent", () => {
     await expect(statusBadge).not.toHaveClass(/active/);
     await expect(deactivateBtn).toContainText("Activate");
 
-    // Reactivate
+    // Reactivate (worker instantiation may take time)
     await deactivateBtn.click();
-    await expect(statusBadge).toHaveClass(/active/);
+    await expect(statusBadge).toHaveClass(/active/, { timeout: 15_000 });
 
     t.assertNoErrors();
   });

@@ -122,11 +122,12 @@ export class AgentExecutor {
     );
 
     // Send InstantiateRequest
+    // Spread manifest to create a plain object (JSON module imports may have non-clonable prototypes)
     const instantiateRequest: InstantiateRequest = {
       type: "instantiate",
       id: workerState.requestIdCounter++,
       wasmBytes: module.wasmBytes,
-      manifest: module.manifest,
+      manifest: JSON.parse(JSON.stringify(module.manifest)),
       moduleId: module.id,
       roomId: this.roomId,
       stateCache,
@@ -354,12 +355,7 @@ export class AgentExecutor {
 
       workerState.worker.addEventListener("message", handler);
 
-      // Use transfer list for wasmBytes to avoid copying
-      if ("wasmBytes" in request && request.wasmBytes) {
-        workerState.worker.postMessage(request, [request.wasmBytes]);
-      } else {
-        workerState.worker.postMessage(request);
-      }
+      workerState.worker.postMessage(request);
     });
   }
 
