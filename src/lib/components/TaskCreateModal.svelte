@@ -7,15 +7,17 @@
 		members: Map<string, RoomMember>;
 		myIdentityKey: string;
 		tasks?: Task[];
-		onCreateTask: (title: string, assignee?: string, dueAt?: number, subtasks?: string[], blockedBy?: string[]) => void;
+		onCreateTask: (title: string, assignee?: string, dueAt?: number, subtasks?: string[], blockedBy?: string[], description?: string, urgent?: boolean) => void;
 		onClose: () => void;
 	}
 
 	let { members, myIdentityKey, tasks = [], onCreateTask, onClose }: Props = $props();
 
 	let title = $state('');
+	let description = $state('');
 	let assignee = $state('');
 	let dueInput = $state('');
+	let urgent = $state(false);
 	let subtaskInputs = $state<string[]>([]);
 	let blockedBy = $state<string[]>([]);
 	let blockedBySelect = $state('');
@@ -90,7 +92,25 @@
 			dueAt,
 			subtasks.length > 0 ? subtasks : undefined,
 			blockedBy.length > 0 ? blockedBy : undefined,
+			description.trim() || undefined,
+			urgent || undefined,
 		);
+	}
+
+	function handleReset() {
+		title = '';
+		description = '';
+		assignee = '';
+		dueInput = '';
+		urgent = false;
+		subtaskInputs = [];
+		blockedBy = [];
+		blockedBySelect = '';
+		error = '';
+	}
+
+	function setQuickDate(dateString: string) {
+		dueInput = dateString;
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -132,6 +152,11 @@
 		</label>
 
 		<label class="field">
+			<span>Description</span>
+			<textarea class="description-input" bind:value={description} rows="3" placeholder="Add details (optional)"></textarea>
+		</label>
+
+		<label class="field">
 			<span>Assign to</span>
 			<select bind:value={assignee}>
 				<option value="">Unassigned</option>
@@ -143,16 +168,24 @@
 		</label>
 
 		<div class="field">
-			<label>
-				<span>Due</span>
-				<input type="text" bind:value={dueInput} placeholder="e.g. tomorrow, next friday, in 3 hours, 30m" />
-			</label>
+			<span>Due</span>
+			<div class="quick-picks">
+				<button type="button" onclick={() => setQuickDate('today')}>Today</button>
+				<button type="button" onclick={() => setQuickDate('tomorrow')}>Tomorrow</button>
+				<button type="button" onclick={() => setQuickDate('next week')}>Next Week</button>
+			</div>
+			<input type="text" bind:value={dueInput} placeholder="e.g. tomorrow, next friday, in 3 hours, 30m" />
 			{#if duePreview}
 				<span class="due-preview" class:invalid={duePreview === 'Invalid format'}>
 					{duePreview === 'Invalid format' ? 'Invalid format' : duePreview}
 				</span>
 			{/if}
 		</div>
+
+		<label class="urgent-toggle field">
+			<input type="checkbox" bind:checked={urgent} />
+			<span>Mark as urgent</span>
+		</label>
 
 		{#if availableDeps.length > 0 || blockedBy.length > 0}
 			<div class="field">
@@ -284,6 +317,22 @@
 		outline: none;
 	}
 
+	.description-input {
+		padding: 0.5rem 0.6rem;
+		background: var(--bg-base);
+		border: 1px solid var(--border-default);
+		border-radius: 4px;
+		color: var(--text-primary);
+		font-size: 0.9rem;
+		outline: none;
+		resize: vertical;
+		font-family: inherit;
+	}
+
+	.description-input:focus {
+		border-color: var(--border-strong);
+	}
+
 	.field select {
 		padding-right: 2rem;
 		appearance: none;
@@ -295,6 +344,45 @@
 	.field input:focus,
 	.field select:focus {
 		border-color: var(--border-strong);
+	}
+
+	.quick-picks {
+		display: flex;
+		gap: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.quick-picks button {
+		padding: 0.25rem 0.6rem;
+		background: none;
+		border: 1px solid var(--border-default);
+		border-radius: 12px;
+		color: var(--text-secondary);
+		cursor: pointer;
+		font-size: 0.75rem;
+		white-space: nowrap;
+	}
+
+	.quick-picks button:hover {
+		border-color: var(--border-strong);
+		color: var(--text-primary);
+	}
+
+	.urgent-toggle {
+		flex-direction: row;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+	}
+
+	.urgent-toggle input[type="checkbox"] {
+		cursor: pointer;
+		accent-color: var(--status-urgent);
+	}
+
+	.urgent-toggle span {
+		color: var(--text-primary);
+		font-size: 0.9rem;
 	}
 
 	.subtask-row {
