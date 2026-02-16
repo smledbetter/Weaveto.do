@@ -566,7 +566,7 @@
 </svelte:head>
 
 <main>
-	{#if showKeyWarning}
+	{#if showKeyWarning && phase !== 'connected' && phase !== 'error'}
 		<div class="warning-banner" role="alert">
 			<p>Your encryption keys live only in this tab. If you close it, you'll need to rejoin.</p>
 			<button onclick={dismissKeyWarning}>Got it</button>
@@ -654,6 +654,12 @@
 		{/if}
 
 		<div class="room" class:panel-open={showTaskPanel}>
+			{#if showKeyWarning}
+				<div class="warning-banner" role="alert">
+					<p>Your encryption keys live only in this tab. If you close it, you'll need to rejoin.</p>
+					<button onclick={dismissKeyWarning}>Got it</button>
+				</div>
+			{/if}
 			<header>
 				<div class="room-info">
 					<h2>{roomName || 'Room'}</h2>
@@ -862,6 +868,7 @@
 		align-items: center;
 		font-size: 0.85rem;
 		color: var(--status-caution);
+		flex-shrink: 0;
 	}
 
 	.warning-banner p { margin: 0; }
