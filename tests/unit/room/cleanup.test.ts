@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { cleanupRoom } from '$lib/room/cleanup';
-import { autoDeleteKey } from '$lib/room/types';
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { cleanupRoom } from "$lib/room/cleanup";
+import { autoDeleteKey } from "$lib/room/types";
 
 // Mock RoomSession
 function mockSession() {
@@ -22,13 +22,17 @@ function setupIndexedDBMock() {
           called = true;
           return {
             key,
-            delete: () => { deletedKeys.push(key); },
+            delete: () => {
+              deletedKeys.push(key);
+            },
             continue: vi.fn(),
           };
         }
         return null;
       },
-      set onsuccess(fn: () => void) { fn(); },
+      set onsuccess(fn: () => void) {
+        fn();
+      },
       set onerror(_fn: () => void) {},
     };
   };
@@ -37,50 +41,66 @@ function setupIndexedDBMock() {
     index: () => ({
       openCursor: () => {
         const req = {
-          get result() { return null; },
-          set onsuccess(fn: () => void) { fn(); },
+          get result() {
+            return null;
+          },
+          set onsuccess(fn: () => void) {
+            fn();
+          },
           set onerror(_fn: () => void) {},
         };
         return req;
       },
     }),
-    openCursor: () => mockCursor('test-room:state1', 'test-room'),
-    clear: () => { clearedStores.push(name); },
+    openCursor: () => mockCursor("test-room:state1", "test-room"),
+    clear: () => {
+      clearedStores.push(name);
+    },
+    delete: (key: string) => {
+      deletedKeys.push(key);
+    },
   });
 
   const mockDB = {
     transaction: (_stores: string[], _mode: string) => ({
       objectStore: (name: string) => mockStore(name),
-      set oncomplete(fn: () => void) { fn(); },
+      set oncomplete(fn: () => void) {
+        fn();
+      },
       set onerror(_fn: () => void) {},
     }),
     close: vi.fn(),
   };
 
   const openRequest = {
-    set onsuccess(fn: () => void) { fn(); },
+    set onsuccess(fn: () => void) {
+      fn();
+    },
     set onerror(_fn: () => void) {},
     result: mockDB,
   };
 
-  vi.stubGlobal('indexedDB', {
+  vi.stubGlobal("indexedDB", {
     open: () => openRequest,
   });
 
   return { deletedKeys, clearedStores, mockDB };
 }
 
-describe('cleanupRoom', () => {
+describe("cleanupRoom", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     // Set up sessionStorage with keys to clear
-    sessionStorage.setItem('weave-olm-pickle', 'test-pickle');
-    sessionStorage.setItem('weave-key-warning-shown', 'true');
-    sessionStorage.setItem('weave-task-panel-open', 'true');
-    sessionStorage.setItem(autoDeleteKey('test-room'), JSON.stringify({ expiresAt: 999, cancelled: false }));
+    sessionStorage.setItem("weave-olm-pickle", "test-pickle");
+    sessionStorage.setItem("weave-key-warning-shown", "true");
+    sessionStorage.setItem("weave-task-panel-open", "true");
+    sessionStorage.setItem(
+      autoDeleteKey("test-room"),
+      JSON.stringify({ expiresAt: 999, cancelled: false }),
+    );
 
     // Mock navigator.serviceWorker
-    vi.stubGlobal('navigator', {
+    vi.stubGlobal("navigator", {
       ...navigator,
       serviceWorker: {
         controller: {
@@ -90,62 +110,68 @@ describe('cleanupRoom', () => {
     });
   });
 
-  it('disconnects the session', async () => {
+  it("disconnects the session", async () => {
     setupIndexedDBMock();
     const session = mockSession();
-    await cleanupRoom('test-room', session);
+    await cleanupRoom("test-room", session);
     expect(session.disconnect).toHaveBeenCalledOnce();
   });
 
-  it('handles null session gracefully', async () => {
+  it("handles null session gracefully", async () => {
     setupIndexedDBMock();
-    await expect(cleanupRoom('test-room', null)).resolves.toBeUndefined();
+    await expect(cleanupRoom("test-room", null)).resolves.toBeUndefined();
   });
 
-  it('clears sessionStorage keys', async () => {
+  it("clears sessionStorage keys", async () => {
     setupIndexedDBMock();
-    await cleanupRoom('test-room', mockSession());
+    await cleanupRoom("test-room", mockSession());
 
-    expect(sessionStorage.getItem('weave-olm-pickle')).toBeNull();
-    expect(sessionStorage.getItem('weave-key-warning-shown')).toBeNull();
-    expect(sessionStorage.getItem('weave-task-panel-open')).toBeNull();
-    expect(sessionStorage.getItem(autoDeleteKey('test-room'))).toBeNull();
+    expect(sessionStorage.getItem("weave-olm-pickle")).toBeNull();
+    expect(sessionStorage.getItem("weave-key-warning-shown")).toBeNull();
+    expect(sessionStorage.getItem("weave-task-panel-open")).toBeNull();
+    expect(sessionStorage.getItem(autoDeleteKey("test-room"))).toBeNull();
   });
 
-  it('posts clear-room-reminders message to service worker', async () => {
+  it("posts clear-room-reminders message to service worker", async () => {
     setupIndexedDBMock();
-    await cleanupRoom('test-room', mockSession());
+    await cleanupRoom("test-room", mockSession());
 
-    expect(navigator.serviceWorker.controller!.postMessage).toHaveBeenCalledWith({
-      type: 'clear-room-reminders',
-      roomId: 'test-room',
+    expect(
+      navigator.serviceWorker.controller!.postMessage,
+    ).toHaveBeenCalledWith({
+      type: "clear-room-reminders",
+      roomId: "test-room",
     });
   });
 
-  it('handles missing service worker gracefully', async () => {
+  it("handles missing service worker gracefully", async () => {
     setupIndexedDBMock();
-    vi.stubGlobal('navigator', {
+    vi.stubGlobal("navigator", {
       ...navigator,
       serviceWorker: undefined,
     });
 
-    await expect(cleanupRoom('test-room', mockSession())).resolves.toBeUndefined();
+    await expect(
+      cleanupRoom("test-room", mockSession()),
+    ).resolves.toBeUndefined();
   });
 
-  it('handles IndexedDB errors gracefully', async () => {
-    vi.stubGlobal('indexedDB', {
+  it("handles IndexedDB errors gracefully", async () => {
+    vi.stubGlobal("indexedDB", {
       open: () => {
-        throw new Error('IndexedDB not available');
+        throw new Error("IndexedDB not available");
       },
     });
 
     // Should not throw even if IndexedDB fails
-    await expect(cleanupRoom('test-room', mockSession())).resolves.toBeUndefined();
+    await expect(
+      cleanupRoom("test-room", mockSession()),
+    ).resolves.toBeUndefined();
   });
 });
 
-describe('autoDeleteKey', () => {
-  it('generates correct key format', () => {
-    expect(autoDeleteKey('abc123')).toBe('weave-auto-delete:abc123');
+describe("autoDeleteKey", () => {
+  it("generates correct key format", () => {
+    expect(autoDeleteKey("abc123")).toBe("weave-auto-delete:abc123");
   });
 });

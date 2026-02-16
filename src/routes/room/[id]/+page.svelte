@@ -568,6 +568,27 @@
 	function sendMessage() {
 		if (!messageInput.trim() || !session || !connected) return;
 
+		// Intercept /rotate command (creator-only, PIN-protected rooms)
+		if (messageInput.trim() === '/rotate') {
+			if (!session?.getIsCreator()) {
+				error = 'Only the room creator can rotate encryption keys.';
+				messageInput = '';
+				return;
+			}
+			if (!pinRequired) {
+				error = 'Key rotation is only available in PIN-protected rooms.';
+				messageInput = '';
+				return;
+			}
+			try {
+				session.rotateGroupSession();
+				messageInput = '';
+			} catch {
+				error = 'Failed to rotate encryption keys.';
+			}
+			return;
+		}
+
 		// Intercept /burn command
 		if (messageInput.trim() === '/burn') {
 			showBurnModal = true;

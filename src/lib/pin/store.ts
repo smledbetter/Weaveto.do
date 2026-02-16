@@ -157,19 +157,23 @@ export async function loadPinKey(
  * Clear PIN key for a room from IndexedDB.
  */
 export async function clearPinKey(roomId: string): Promise<void> {
-  const db = await openPinDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    tx.objectStore(STORE_NAME).delete(roomId);
-    tx.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(new Error("Failed to clear PIN key"));
-    };
-  });
+  try {
+    const db = await openPinDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readwrite");
+      tx.objectStore(STORE_NAME).delete(roomId);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(new Error("Failed to clear PIN key"));
+      };
+    });
+  } catch {
+    // IndexedDB not available or error opening — ignore silently
+  }
 }
 
 /**

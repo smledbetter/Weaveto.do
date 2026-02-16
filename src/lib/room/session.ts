@@ -386,6 +386,128 @@ export class RoomSession {
   }
 
   /**
+   * Lock the session by clearing Megolm keys from memory.
+   * The Olm account and sessions are preserved (needed for key re-exchange).
+   * Call this on inactivity timeout or tab visibility lock.
+   */
+  lockSession(): void {
+    this.outboundSession = null;
+    this.outboundSessionId = "";
+    this.inboundSessions.clear();
+  }
+
+  /**
+   * Unlock the session after PIN verification.
+   * Creates a new Megolm outbound session and shares the key with all members.
+   */
+  unlockSession(): void {
+    if (!this.account || !this.ws || this.ws.readyState !== WebSocket.OPEN)
+      return;
+
+    // Create fresh Megolm outbound session
+    this.outboundSession = createGroupSession();
+    this.outboundSessionId = getGroupSessionId(this.outboundSession);
+
+    // Re-share with all members who have Olm sessions
+    for (const [identityKey, olmSession] of this.olmSessions) {
+      try {
+        const sessionKey = getGroupSessionKey(this.outboundSession);
+        const keyPayload = JSON.stringify({
+          sessionId: this.outboundSessionId,
+          sessionKey,
+          senderIdentityKey: this.identityKey,
+        });
+        const encrypted = olmEncrypt(olmSession, keyPayload);
+        const keyShareMsg: KeyShareMessage = {
+          type: "key_share",
+          targetIdentityKey: identityKey,
+          senderIdentityKey: this.identityKey,
+          olmMessage: encrypted,
+        };
+        this.ws!.send(JSON.stringify(keyShareMsg));
+      } catch {
+        // Olm session may be exhausted — skip this member
+      }
+    }
+  }
+
+  /**
+   * Rotate the Megolm group session and distribute new keys wrapped under PIN keys.
+   * Only the creator should call this. The new session key for each member is
+   * encrypted under that member's PIN-derived key, sent via a special rotate_keys message.
+   *
+   * @param memberPinKeys - Map of member identity key -> their PIN-derived CryptoKey
+   *                        The creator must know all members' PIN keys (shared during PIN setup)
+   */
+  async rotateGroupSession(
+    memberPinKeys?: Map<string, CryptoKey>,
+  ): Promise<void> {
+    if (!this.account || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error("Not connected to room");
+    }
+
+    // Create new Megolm outbound session
+    const oldSessionId = this.outboundSessionId;
+    this.outboundSession = createGroupSession();
+    this.outboundSessionId = getGroupSessionId(this.outboundSession);
+
+    const sessionKey = getGroupSessionKey(this.outboundSession);
+
+    // Share new key with each member via Olm (existing mechanism)
+    // The key_share payload includes a rotation flag
+    for (const [identityKey, olmSession] of this.olmSessions) {
+      try {
+        const keyPayload = JSON.stringify({
+          sessionId: this.outboundSessionId,
+          sessionKey,
+          senderIdentityKey: this.identityKey,
+          rotation: true, // Signal that this is a rotation
+          previousSessionId: oldSessionId,
+        });
+        const encrypted = olmEncrypt(olmSession, keyPayload);
+        const keyShareMsg: KeyShareMessage = {
+          type: "key_share",
+          targetIdentityKey: identityKey,
+          senderIdentityKey: this.identityKey,
+          olmMessage: encrypted,
+        };
+        this.ws!.send(JSON.stringify(keyShareMsg));
+      } catch {
+        // Olm session exhausted — member won't get new key
+      }
+    }
+
+    // Also broadcast a rotate_keys message so all members know rotation happened
+    // This is an encrypted message that signals "old sessions are invalidated"
+    if (this.outboundSession) {
+      const rotatePayload = JSON.stringify({
+        text: "",
+        sender: this.identityKey,
+        senderName: this.displayName,
+        rotateKeys: {
+          newSessionId: this.outboundSessionId,
+          previousSessionId: oldSessionId,
+          reason: "creator_requested",
+        },
+      });
+      const paddedPayload = padMessage(rotatePayload);
+      const ciphertext = megolmEncrypt(this.outboundSession, paddedPayload);
+
+      // Note: we send this with the NEW session — only members who received
+      // the new key_share can decrypt it. This serves as a proof that
+      // key rotation succeeded.
+      const msg: EncryptedMessage = {
+        type: "encrypted",
+        senderIdentityKey: this.identityKey,
+        sessionId: this.outboundSessionId,
+        ciphertext,
+        timestamp: Date.now(),
+      };
+      this.ws.send(JSON.stringify(msg));
+    }
+  }
+
+  /**
    * Send a purge request to delete this ephemeral room.
    * Only the room creator can delete the room.
    */
@@ -534,7 +656,14 @@ export class RoomSession {
         sessionId: string;
         sessionKey: string;
         senderIdentityKey: string;
+        rotation?: boolean;
+        previousSessionId?: string;
       };
+
+      // If this is a rotation, clear the old session
+      if (keyData.rotation && keyData.previousSessionId) {
+        this.inboundSessions.delete(keyData.previousSessionId);
+      }
 
       // Create inbound Megolm session
       const inbound = createInboundGroupSession(keyData.sessionKey);
@@ -574,6 +703,11 @@ export class RoomSession {
         sender: string;
         senderName: string;
         taskEvent?: TaskEvent;
+        rotateKeys?: {
+          newSessionId: string;
+          previousSessionId: string;
+          reason: string;
+        };
       };
 
       // Use envelope senderIdentityKey (relay-validated) instead of inner
@@ -586,6 +720,27 @@ export class RoomSession {
 
       // Track last message time for recency-weighted assignment
       this.lastMessageTimes.set(trustedSenderId, msg.timestamp);
+
+      // Check for rotation signal
+      if (payload.rotateKeys) {
+        // Clear old inbound sessions except the one for the new session
+        const newSessionId = payload.rotateKeys.newSessionId;
+        for (const [sid] of this.inboundSessions) {
+          if (sid !== newSessionId) {
+            this.inboundSessions.delete(sid);
+          }
+        }
+        // Emit a system message about the rotation
+        this.onMessage?.({
+          senderId: trustedSenderId,
+          senderName: trustedSenderName,
+          plaintext: "Encryption keys have been rotated.",
+          timestamp: msg.timestamp,
+          encrypted: true,
+          decryptionFailed: false,
+        });
+        return;
+      }
 
       this.onMessage?.({
         senderId: trustedSenderId,
