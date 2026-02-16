@@ -85,16 +85,9 @@
 		setTimeout(() => { if (reminderNotice) reminderNotice = ''; }, 8000);
 	});
 
-	// Register service worker for persistent reminders (skip for ephemeral rooms)
-	// Note: this runs early in mount, session may not be set yet
-	// We check ephemeral mode later when scheduling reminders
-	onMount(() => {
-		if (browser && 'serviceWorker' in navigator) {
-			navigator.serviceWorker.register('/service-worker.js').catch(() => {
-				// Silent fail — service workers are optional
-			});
-		}
-	});
+	// SvelteKit handles service worker registration automatically in production builds.
+	// No manual registration needed — the SW from src/service-worker.ts is compiled
+	// and served by the framework.
 
 	// Restore panel state from sessionStorage and set up keyboard shortcuts
 	onMount(() => {
