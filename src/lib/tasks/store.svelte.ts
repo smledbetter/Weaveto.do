@@ -34,6 +34,7 @@ class TaskStore {
       case "task_assigned":
       case "task_status_changed":
       case "task_dependencies_changed":
+      case "task_updated":
         this.handleUpdate(event);
         break;
     }
@@ -56,6 +57,10 @@ class TaskStore {
         parentId: event.task.parentId,
       }),
       ...(event.task.dueAt !== undefined && { dueAt: event.task.dueAt }),
+      ...(event.task.description !== undefined && {
+        description: event.task.description,
+      }),
+      ...(event.task.urgent !== undefined && { urgent: event.task.urgent }),
     };
 
     // Validate blockedBy on create

@@ -40,6 +40,8 @@ export function parseTaskCommand(
   const now = Date.now();
   let dueAt: number | undefined;
   let subtaskTitles: string[] | undefined;
+  let description: string | undefined;
+  let urgent = false;
 
   // Parse directives
   for (let i = 1; i < parts.length; i++) {
@@ -69,6 +71,19 @@ export function parseTaskCommand(
       dueAt = parsed.timestamp;
       continue;
     }
+
+    // desc: description text
+    const descMatch = directive.match(/^desc:\s*(.+)$/i);
+    if (descMatch) {
+      description = descMatch[1];
+      continue;
+    }
+
+    // urgent
+    if (directive.match(/^urgent$/i)) {
+      urgent = true;
+      continue;
+    }
   }
 
   const events: TaskEvent[] = [];
@@ -83,6 +98,8 @@ export function parseTaskCommand(
       status: "pending",
       createdBy: actorId,
       ...(dueAt !== undefined && { dueAt }),
+      ...(description && { description }),
+      ...(urgent && { urgent }),
     },
     timestamp: now,
     actorId,

@@ -428,4 +428,187 @@ describe("TaskStore", () => {
       expect(store.getTaskCount()).toBe(2);
     });
   });
+
+  describe("description and urgent fields", () => {
+    it("creates task with description", () => {
+      store.applyEvent(
+        makeEvent({
+          taskId: "t1",
+          type: "task_created",
+          task: {
+            title: "Task with description",
+            status: "pending",
+            createdBy: "actor-aaa",
+            description: "This is a detailed description",
+          },
+        }),
+      );
+
+      const task = store.getTask("t1");
+      expect(task).toBeDefined();
+      expect(task!.description).toBe("This is a detailed description");
+    });
+
+    it("creates task with urgent flag", () => {
+      store.applyEvent(
+        makeEvent({
+          taskId: "t1",
+          type: "task_created",
+          task: {
+            title: "Urgent task",
+            status: "pending",
+            createdBy: "actor-aaa",
+            urgent: true,
+          },
+        }),
+      );
+
+      const task = store.getTask("t1");
+      expect(task).toBeDefined();
+      expect(task!.urgent).toBe(true);
+    });
+
+    it("creates task without optional fields", () => {
+      store.applyEvent(
+        makeEvent({
+          taskId: "t1",
+          type: "task_created",
+          task: {
+            title: "Basic task",
+            status: "pending",
+            createdBy: "actor-aaa",
+          },
+        }),
+      );
+
+      const task = store.getTask("t1");
+      expect(task).toBeDefined();
+      expect(task!.description).toBeUndefined();
+      expect(task!.urgent).toBeUndefined();
+    });
+
+    it("updates task via task_updated event", () => {
+      const ts = 1700000000000;
+
+      store.applyEvent(
+        makeEvent({
+          taskId: "t1",
+          type: "task_created",
+          timestamp: ts,
+          task: {
+            title: "Original task",
+            status: "pending",
+            createdBy: "actor-aaa",
+          },
+        }),
+      );
+
+      store.applyEvent(
+        makeEvent({
+          taskId: "t1",
+          type: "task_updated",
+          timestamp: ts + 100,
+          task: {
+            description: "new desc",
+          },
+        }),
+      );
+
+      const task = store.getTask("t1");
+      expect(task).toBeDefined();
+      expect(task!.description).toBe("new desc");
+      expect(task!.updatedAt).toBe(ts + 100);
+    });
+
+    it("task_updated respects conflict resolution", () => {
+      const ts = 1700000000000;
+
+      store.applyEvent(
+        makeEvent({
+          taskId: "t1",
+          type: "task_created",
+          timestamp: ts,
+          task: {
+            title: "Task",
+            status: "pending",
+            createdBy: "actor-aaa",
+          },
+        }),
+      );
+
+      // Two updates with same timestamp, different actors
+      store.applyEvent(
+        makeEvent({
+          taskId: "t1",
+          type: "task_updated",
+          timestamp: ts + 100,
+          actorId: "actor-bbb",
+          task: {
+            description: "Description from bbb",
+          },
+        }),
+      );
+
+      store.applyEvent(
+        makeEvent({
+          taskId: "t1",
+          type: "task_updated",
+          timestamp: ts + 100,
+          actorId: "actor-zzz",
+          task: {
+            description: "Description from zzz",
+          },
+        }),
+      );
+
+      // actor-zzz > actor-bbb lexicographically, so it wins
+      const task = store.getTask("t1");
+      expect(task!.description).toBe("Description from zzz");
+    });
+
+    it("task_updated rejects stale events", () => {
+      const ts = 1700000000000;
+
+      store.applyEvent(
+        makeEvent({
+          taskId: "t1",
+          type: "task_created",
+          timestamp: ts,
+          task: {
+            title: "Task",
+            status: "pending",
+            createdBy: "actor-aaa",
+          },
+        }),
+      );
+
+      // Update at ts+100
+      store.applyEvent(
+        makeEvent({
+          taskId: "t1",
+          type: "task_updated",
+          timestamp: ts + 100,
+          task: {
+            description: "Latest description",
+          },
+        }),
+      );
+
+      // Try to update with older timestamp — should be rejected
+      store.applyEvent(
+        makeEvent({
+          taskId: "t1",
+          type: "task_updated",
+          timestamp: ts + 50,
+          task: {
+            description: "Stale description",
+          },
+        }),
+      );
+
+      const task = store.getTask("t1");
+      expect(task!.description).toBe("Latest description");
+      expect(task!.updatedAt).toBe(ts + 100);
+    });
+  });
 });

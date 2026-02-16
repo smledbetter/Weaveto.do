@@ -134,4 +134,92 @@ describe("parseTaskCommand", () => {
       expect(result!.events[0].task?.dueAt).toBeDefined();
     });
   });
+
+  describe("urgent and description directives", () => {
+    it("parses urgent flag", () => {
+      const result = parseTaskCommand("/task Fix bug | urgent", ACTOR_ID);
+      expect(result).not.toBeNull();
+      expect(result!.events).toHaveLength(1);
+      expect(result!.events[0].task?.urgent).toBe(true);
+      expect(result!.events[0].task?.title).toBe("Fix bug");
+    });
+
+    it("parses description", () => {
+      const result = parseTaskCommand(
+        "/task Fix bug | desc: Details here",
+        ACTOR_ID,
+      );
+      expect(result).not.toBeNull();
+      expect(result!.events).toHaveLength(1);
+      expect(result!.events[0].task?.description).toBe("Details here");
+      expect(result!.events[0].task?.title).toBe("Fix bug");
+    });
+
+    it("parses urgent + description + due", () => {
+      const result = parseTaskCommand(
+        "/task Deploy v2 | urgent | due: tomorrow | desc: Production release",
+        ACTOR_ID,
+      );
+      expect(result).not.toBeNull();
+      expect(result!.events).toHaveLength(1);
+      expect(result!.events[0].task?.urgent).toBe(true);
+      expect(result!.events[0].task?.description).toBe("Production release");
+      expect(result!.events[0].task?.dueAt).toBeDefined();
+      expect(result!.events[0].task?.title).toBe("Deploy v2");
+    });
+
+    it("urgent flag is case-insensitive", () => {
+      const result1 = parseTaskCommand("/task Test | Urgent", ACTOR_ID);
+      expect(result1!.events[0].task?.urgent).toBe(true);
+
+      const result2 = parseTaskCommand("/task Test | URGENT", ACTOR_ID);
+      expect(result2!.events[0].task?.urgent).toBe(true);
+
+      const result3 = parseTaskCommand("/task Test | uRgEnT", ACTOR_ID);
+      expect(result3!.events[0].task?.urgent).toBe(true);
+    });
+
+    it("description preserves whitespace", () => {
+      const result = parseTaskCommand(
+        "/task Test | desc: line one   two",
+        ACTOR_ID,
+      );
+      expect(result).not.toBeNull();
+      expect(result!.events[0].task?.description).toBe("line one   two");
+    });
+
+    it("task without directives has no urgent or description", () => {
+      const result = parseTaskCommand("/task Simple task", ACTOR_ID);
+      expect(result).not.toBeNull();
+      expect(result!.events).toHaveLength(1);
+      expect(result!.events[0].task?.urgent).toBeUndefined();
+      expect(result!.events[0].task?.description).toBeUndefined();
+    });
+
+    it("directives can be in any order", () => {
+      const result1 = parseTaskCommand(
+        "/task Test | desc: First | urgent | due: 2h",
+        ACTOR_ID,
+      );
+      expect(result1!.events[0].task?.urgent).toBe(true);
+      expect(result1!.events[0].task?.description).toBe("First");
+      expect(result1!.events[0].task?.dueAt).toBeDefined();
+
+      const result2 = parseTaskCommand(
+        "/task Test | due: 2h | desc: Second | urgent",
+        ACTOR_ID,
+      );
+      expect(result2!.events[0].task?.urgent).toBe(true);
+      expect(result2!.events[0].task?.description).toBe("Second");
+      expect(result2!.events[0].task?.dueAt).toBeDefined();
+    });
+
+    it("description is case-insensitive for directive keyword", () => {
+      const result1 = parseTaskCommand("/task Test | Desc: Info", ACTOR_ID);
+      expect(result1!.events[0].task?.description).toBe("Info");
+
+      const result2 = parseTaskCommand("/task Test | DESC: Info", ACTOR_ID);
+      expect(result2!.events[0].task?.description).toBe("Info");
+    });
+  });
 });
