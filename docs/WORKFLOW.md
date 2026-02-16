@@ -105,13 +105,20 @@ The orchestrator handles this directly — no subagents needed.
    - Close completed milestone and all its issues
    - Create/update next milestone with release goal
    - Create issues for next milestone features (user stories + Gherkin acceptance criteria from Phase 1)
-5. Write retrospective to `docs/milestones/M{N}-{name}/retrospective.md`:
+5. Write retrospective — append to `.local/session-retrospective.md`:
    - What was built (deliverables, test counts)
    - What worked (efficiency wins)
    - What was inefficient (missed opportunities)
    - Patterns established
    - Cost observations (model selection, context usage)
+   - Update cross-milestone tables (process evolution, cumulative quality, top lessons)
    - **Never skip** (M2 was missed — don't repeat)
+6. Review all accumulated lessons and recommend process changes for the next milestone:
+   - Read the full retro history (`.local/session-retrospective.md`)
+   - Identify recurring failures, new patterns, and efficiency gains
+   - Produce concrete recommendations (what to keep, what to change, what to add)
+   - Update all affected files: `MEMORY.md`, `WORKFLOW.md`, next milestone's `implementation.md`, config files
+   - This step ensures lessons are actionable, not just recorded
 
 **To start a sprint**: say "sprint" or "start sprint for M{N}"
 
