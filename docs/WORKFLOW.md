@@ -101,7 +101,11 @@ Run plans in dependency-aware waves.
 - Push all commits to main
 - Update `docs/STATE.md` — mark milestone complete, set next milestone
 - Update `docs/PROJECT.md` — milestone table
-- Close GitHub milestone
+- **Consult product manager** (`product-manager` skill) to sync GitHub:
+  - Close completed milestone and all its issues
+  - Create/update next milestone with release goal
+  - Create issues for next milestone features (user stories + Gherkin acceptance criteria)
+  - Verify all GitHub milestones/issues match `docs/STATE.md`
 
 ### Phase 5: Retro
 
