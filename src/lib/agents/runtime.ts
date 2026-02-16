@@ -2,6 +2,11 @@
  * Agent WASM runtime.
  * Instantiates WASM modules with host function bindings.
  * Provides sandboxed execution with capability-constrained imports.
+ *
+ * Wave 2: Functions used by both main thread (executor) and Web Worker.
+ * - Worker uses: instantiateAgent, buildHostImports, memory helpers
+ * - Main thread uses: loadAgentState, flushAgentState (IndexedDB operations)
+ * - callWithTimeout: deprecated, worker timeout handled by worker.terminate()
  */
 
 import type { Task, TaskEvent } from "$lib/tasks/types";
@@ -348,6 +353,9 @@ export function buildAssignmentData(
  * Call an agent function with a timeout.
  * Note: synchronous WASM blocks the JS event loop, so this timeout only fires
  * after the call returns. True preemption requires a Web Worker (C-2, deferred).
+ *
+ * @deprecated Wave 2+ uses Web Workers for true preemption via worker.terminate().
+ * This function remains for backward compatibility but is not used by executor.ts.
  */
 export function callWithTimeout<T>(
   fn: () => T,

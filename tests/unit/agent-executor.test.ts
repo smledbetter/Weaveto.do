@@ -2,39 +2,25 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { AgentExecutor } from "../../src/lib/agents/executor";
 import type { StoredAgentModule } from "../../src/lib/agents/types";
 import type { TaskEvent } from "../../src/lib/tasks/types";
+import {
+  MockWorker,
+  installWorkerMock,
+  removeWorkerMock,
+} from "./helpers/worker-mock";
 
-// Mock the runtime module
-vi.mock("../../src/lib/agents/runtime", () => {
-  const mockExports = {
-    init: vi.fn(),
-    on_task_event: vi.fn(),
-    on_tick: vi.fn(),
-    memory: new WebAssembly.Memory({ initial: 1 }),
-  };
-
-  return {
-    instantiateAgent: vi.fn().mockResolvedValue(mockExports),
-    callWithTimeout: vi.fn((fn: () => unknown) => Promise.resolve(fn())),
-    loadAgentState: vi.fn().mockResolvedValue(undefined),
-    flushAgentState: vi.fn().mockResolvedValue(undefined),
-    __mockExports: mockExports,
-  };
-});
-
-// Mock state key derivation (H-1: executor now derives keys eagerly)
+// Mock state key derivation (executor derives keys eagerly on main thread)
 vi.mock("../../src/lib/agents/state", () => ({
   deriveAgentStateKey: vi.fn().mockResolvedValue(null),
+  encryptState: vi.fn().mockResolvedValue({ iv: "", ciphertext: "" }),
+  openStateDB: vi.fn().mockResolvedValue({ close: vi.fn() }),
+  saveState: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Access mocks
-import {
-  instantiateAgent,
-  callWithTimeout,
-  loadAgentState,
-  flushAgentState,
-  // @ts-expect-error — test-only export
-  __mockExports,
-} from "../../src/lib/agents/runtime";
+// Mock runtime state loading (happens on main thread before sending to worker)
+vi.mock("../../src/lib/agents/runtime", () => ({
+  loadAgentState: vi.fn().mockResolvedValue(undefined),
+  flushAgentState: vi.fn().mockResolvedValue(undefined),
+}));
 
 function makeModule(name: string = "test-agent"): StoredAgentModule {
   return {
@@ -60,6 +46,8 @@ describe("AgentExecutor", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    installWorkerMock();
+    MockWorker.callLog = [];
     emittedEvents = [];
     executor = new AgentExecutor("room-1", new Uint8Array(32), (event) => {
       emittedEvents.push(event);
@@ -68,6 +56,7 @@ describe("AgentExecutor", () => {
 
   afterEach(async () => {
     await executor.shutdown();
+    removeWorkerMock();
   });
 
   it("starts with no active agents", () => {
@@ -81,9 +70,8 @@ describe("AgentExecutor", () => {
 
     expect(executor.isActive("room-1:test-agent")).toBe(true);
     expect(executor.getActiveAgents()).toEqual(["room-1:test-agent"]);
-    expect(instantiateAgent).toHaveBeenCalledOnce();
-    expect(loadAgentState).toHaveBeenCalledOnce();
-    expect(__mockExports.init).toHaveBeenCalledOnce();
+    // Worker should have received instantiate + init call
+    expect(MockWorker.callLog).toEqual([{ fn: "init" }]);
   });
 
   it("does not activate the same module twice", async () => {
@@ -91,8 +79,9 @@ describe("AgentExecutor", () => {
     await executor.activate(module);
     await executor.activate(module);
 
-    expect(instantiateAgent).toHaveBeenCalledOnce();
     expect(executor.getActiveAgents()).toHaveLength(1);
+    // Only one init call
+    expect(MockWorker.callLog.filter((c) => c.fn === "init")).toHaveLength(1);
   });
 
   it("deactivates an agent module", async () => {
@@ -102,7 +91,6 @@ describe("AgentExecutor", () => {
 
     expect(executor.isActive("room-1:test-agent")).toBe(false);
     expect(executor.getActiveAgents()).toEqual([]);
-    expect(flushAgentState).toHaveBeenCalled();
   });
 
   it("deactivate is a no-op for non-active agent", async () => {
@@ -129,12 +117,16 @@ describe("AgentExecutor", () => {
     };
 
     await executor.dispatchTaskEvent(event);
-    expect(__mockExports.on_task_event).toHaveBeenCalledOnce();
+    expect(
+      MockWorker.callLog.filter((c) => c.fn === "on_task_event"),
+    ).toHaveLength(1);
   });
 
   it("dispatches events to multiple active agents", async () => {
     await executor.activate(makeModule("agent-a"));
     await executor.activate(makeModule("agent-b"));
+
+    MockWorker.callLog = [];
 
     const event: TaskEvent = {
       type: "task_assigned",
@@ -145,8 +137,9 @@ describe("AgentExecutor", () => {
     };
 
     await executor.dispatchTaskEvent(event);
-    // on_task_event is shared mock, called once per agent
-    expect(__mockExports.on_task_event).toHaveBeenCalledTimes(2);
+    expect(
+      MockWorker.callLog.filter((c) => c.fn === "on_task_event"),
+    ).toHaveLength(2);
   });
 
   it("does not dispatch to deactivated agents", async () => {
@@ -154,7 +147,7 @@ describe("AgentExecutor", () => {
     await executor.activate(module);
     await executor.deactivate("room-1:test-agent");
 
-    vi.clearAllMocks();
+    MockWorker.callLog = [];
 
     const event: TaskEvent = {
       type: "task_created",
@@ -171,7 +164,9 @@ describe("AgentExecutor", () => {
     };
 
     await executor.dispatchTaskEvent(event);
-    expect(__mockExports.on_task_event).not.toHaveBeenCalled();
+    expect(
+      MockWorker.callLog.filter((c) => c.fn === "on_task_event"),
+    ).toHaveLength(0);
   });
 
   it("updates context for all active agents", async () => {
@@ -193,7 +188,7 @@ describe("AgentExecutor", () => {
     ]);
 
     executor.updateContext(tasks, members);
-    // No direct assertion on context internals, but ensures no throw
+    // No throw — context update is fire-and-forget postMessage
   });
 
   it("shutdown deactivates all agents", async () => {
@@ -207,5 +202,66 @@ describe("AgentExecutor", () => {
     expect(executor.getActiveAgents()).toHaveLength(0);
     expect(executor.isActive("room-1:agent-a")).toBe(false);
     expect(executor.isActive("room-1:agent-b")).toBe(false);
+  });
+
+  it("processes emitted events from worker response", async () => {
+    // Override MockWorker to return emitted events
+    const OrigMock = MockWorker;
+    class EventEmittingWorker extends OrigMock {
+      postMessage(request: any, transfer?: any): void {
+        if (this.terminated) return;
+        this.postMessageCalls.push(request);
+        queueMicrotask(() => {
+          if (this.terminated) return;
+          if (request.type === "call" && request.fn === "on_task_event") {
+            const response = {
+              type: "call_ok" as const,
+              id: request.id,
+              stateCache: null,
+              stateDirty: false,
+              emittedEvents: [
+                {
+                  type: "task_assigned",
+                  taskId: "t1",
+                  task: { assignee: "agent-user" },
+                  timestamp: Date.now(),
+                  actorId: "agent:test",
+                },
+              ],
+            };
+            const handlers = (this as any).listeners?.get("message");
+            if (handlers) {
+              for (const handler of handlers) {
+                handler({ data: response } as any);
+              }
+            }
+          } else {
+            // Default behavior for instantiate/init
+            super.postMessage(request, transfer);
+            // Undo the double-push from super
+            this.postMessageCalls.pop();
+          }
+        });
+      }
+    }
+    (globalThis as any).Worker = EventEmittingWorker;
+
+    const executor2 = new AgentExecutor("room-1", null, (event) => {
+      emittedEvents.push(event);
+    });
+    await executor2.activate(makeModule());
+    await executor2.dispatchTaskEvent({
+      type: "task_created",
+      taskId: "t1",
+      task: { title: "Test" },
+      timestamp: Date.now(),
+      actorId: "user1",
+    });
+
+    expect(emittedEvents).toHaveLength(1);
+    expect(emittedEvents[0].type).toBe("task_assigned");
+
+    await executor2.shutdown();
+    (globalThis as any).Worker = MockWorker;
   });
 });

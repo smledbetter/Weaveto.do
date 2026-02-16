@@ -5,7 +5,7 @@
  * Uses node environment for crypto.subtle compatibility.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "fake-indexeddb/auto";
 import { AgentExecutor } from "../../src/lib/agents/executor";
 import {
@@ -24,36 +24,27 @@ import type {
 } from "../../src/lib/agents/types";
 import type { TaskEvent, Task } from "../../src/lib/tasks/types";
 import type { RoomMember } from "../../src/lib/room/session";
+import {
+  MockWorker,
+  installWorkerMock,
+  removeWorkerMock,
+} from "./helpers/worker-mock";
 
 // --- Mocks ---
 
-// Mock runtime module since we can't instantiate real WASM in node tests
-vi.mock("../../src/lib/agents/runtime", () => {
-  const mockExports = {
-    init: vi.fn(),
-    on_task_event: vi.fn(),
-    on_tick: vi.fn(),
-    memory: { buffer: new ArrayBuffer(1024) },
-  };
-
-  return {
-    instantiateAgent: vi.fn().mockResolvedValue(mockExports),
-    callWithTimeout: vi.fn((fn: () => unknown) => Promise.resolve(fn())),
-    loadAgentState: vi.fn().mockResolvedValue(undefined),
-    flushAgentState: vi.fn().mockResolvedValue(undefined),
-    __mockExports: mockExports,
-  };
-});
+// Mock runtime module (state loading happens on main thread)
+vi.mock("../../src/lib/agents/runtime", () => ({
+  loadAgentState: vi.fn().mockResolvedValue(undefined),
+  flushAgentState: vi.fn().mockResolvedValue(undefined),
+}));
 
 // Mock state key derivation (H-1: executor derives keys eagerly)
 vi.mock("../../src/lib/agents/state", () => ({
   deriveAgentStateKey: vi.fn().mockResolvedValue(null),
+  encryptState: vi.fn().mockResolvedValue({ iv: "", ciphertext: "" }),
+  openStateDB: vi.fn().mockResolvedValue({ close: vi.fn() }),
+  saveState: vi.fn().mockResolvedValue(undefined),
 }));
-
-// Get mock references
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const { __mockExports: mockExports } =
-  (await import("../../src/lib/agents/runtime")) as any;
 
 describe("Agent Integration: Loader → Executor Pipeline", () => {
   const ROOM_ID = "test-room-integration";
@@ -70,10 +61,16 @@ describe("Agent Integration: Loader → Executor Pipeline", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    installWorkerMock();
+    MockWorker.callLog = [];
     // Reset fake-indexeddb
     const { IDBFactory } = await import("fake-indexeddb");
     globalThis.indexedDB = new IDBFactory();
     db = await openModuleDB();
+  });
+
+  afterEach(() => {
+    removeWorkerMock();
   });
 
   it("stores a module via loader and activates via executor", async () => {
@@ -127,7 +124,9 @@ describe("Agent Integration: Loader → Executor Pipeline", () => {
     };
 
     await executor.dispatchTaskEvent(event);
-    expect(mockExports.on_task_event).toHaveBeenCalled();
+    expect(
+      MockWorker.callLog.filter((c) => c.fn === "on_task_event"),
+    ).toHaveLength(1);
 
     await executor.shutdown();
     db.close();
@@ -145,7 +144,7 @@ describe("Agent Integration: Loader → Executor Pipeline", () => {
     await executor.activate(stored);
     await executor.deactivate(stored.id);
 
-    vi.clearAllMocks();
+    MockWorker.callLog = [];
 
     const event: TaskEvent = {
       type: "task_created",
@@ -155,7 +154,9 @@ describe("Agent Integration: Loader → Executor Pipeline", () => {
     };
 
     await executor.dispatchTaskEvent(event);
-    expect(mockExports.on_task_event).not.toHaveBeenCalled();
+    expect(
+      MockWorker.callLog.filter((c) => c.fn === "on_task_event"),
+    ).toHaveLength(0);
 
     await executor.shutdown();
     db.close();
@@ -209,13 +210,16 @@ describe("Agent Integration: Loader → Executor Pipeline", () => {
     await setModuleActive(db, stored.id, true);
 
     // 3. Dispatch
+    MockWorker.callLog = [];
     await executor.dispatchTaskEvent({
       type: "task_assigned",
       taskId: "t1",
       timestamp: Date.now(),
       actorId: "user:abc",
     });
-    expect(mockExports.on_task_event).toHaveBeenCalledTimes(1);
+    expect(
+      MockWorker.callLog.filter((c) => c.fn === "on_task_event"),
+    ).toHaveLength(1);
 
     // 4. Deactivate
     await executor.deactivate(stored.id);
@@ -255,7 +259,7 @@ describe("Agent Integration: Loader → Executor Pipeline", () => {
 
     expect(executor.getActiveAgents()).toHaveLength(2);
 
-    vi.clearAllMocks();
+    MockWorker.callLog = [];
 
     await executor.dispatchTaskEvent({
       type: "task_created",
@@ -265,7 +269,9 @@ describe("Agent Integration: Loader → Executor Pipeline", () => {
     });
 
     // on_task_event called once per agent
-    expect(mockExports.on_task_event).toHaveBeenCalledTimes(2);
+    expect(
+      MockWorker.callLog.filter((c) => c.fn === "on_task_event"),
+    ).toHaveLength(2);
 
     await executor.shutdown();
     db.close();
@@ -276,6 +282,7 @@ describe("Agent Integration: Manifest Validation → Store", () => {
   let db: IDBDatabase;
 
   beforeEach(async () => {
+    vi.clearAllMocks();
     const { IDBFactory } = await import("fake-indexeddb");
     globalThis.indexedDB = new IDBFactory();
     db = await openModuleDB();
