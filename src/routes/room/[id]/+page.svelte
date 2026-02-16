@@ -33,6 +33,7 @@
 
 	let roomId = $derived($page.params.id ?? '');
 	let isCreator = $derived($page.url.searchParams.has('create'));
+	let isEphemeral = $derived($page.url.searchParams.has('ephemeral'));
 	let session: RoomSession | null = $state(null);
 	let messages: DecryptedMessage[] = $state([]);
 	let members: Map<string, RoomMember> = $state(new Map());
@@ -69,6 +70,7 @@
 	// M5 burn features
 	let showBurnModal = $state(false);
 	let autoDeleteExpiresAt = $state<number | null>(null);
+	let autoDeleteCancelled = $state(false);
 	let burnError = $state('');
 	let roomDeleted = $state(false);
 
@@ -394,6 +396,7 @@
 			const roomSession = new RoomSession(roomId, displayName.trim(), {
 				prfSeed,
 				isCreator,
+				ephemeral: isEphemeral,
 			});
 
 			roomSession.setMessageHandler((msg) => {
@@ -523,6 +526,7 @@
 
 	function handleKeepRoom() {
 		autoDeleteExpiresAt = null;
+		autoDeleteCancelled = true;
 		if (browser) {
 			sessionStorage.setItem(autoDeleteKey(roomId), JSON.stringify({ expiresAt: 0, cancelled: true }));
 		}
@@ -546,14 +550,15 @@
 		if (!browser || taskList.length === 0) return;
 		const allComplete = taskList.every(t => t.status === 'completed');
 
-		if (allComplete && !autoDeleteExpiresAt) {
+		if (allComplete && !autoDeleteExpiresAt && !autoDeleteCancelled) {
 			// Start 24h countdown
 			const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
 			autoDeleteExpiresAt = expiresAt;
 			sessionStorage.setItem(autoDeleteKey(roomId), JSON.stringify({ expiresAt, cancelled: false }));
-		} else if (!allComplete && autoDeleteExpiresAt) {
-			// Tasks were un-completed, cancel auto-delete
+		} else if (!allComplete && (autoDeleteExpiresAt || autoDeleteCancelled)) {
+			// Tasks were un-completed, reset auto-delete state
 			autoDeleteExpiresAt = null;
+			autoDeleteCancelled = false;
 			sessionStorage.removeItem(autoDeleteKey(roomId));
 		}
 	});

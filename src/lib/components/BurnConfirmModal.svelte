@@ -23,7 +23,15 @@
 			onCancel();
 		}
 	}
+
+	function handleGlobalKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			onCancel();
+		}
+	}
 </script>
+
+<svelte:window onkeydown={handleGlobalKeydown} />
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div

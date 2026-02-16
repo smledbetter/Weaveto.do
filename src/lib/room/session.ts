@@ -134,6 +134,7 @@ export class RoomSession {
   private prfSeed: Uint8Array | null;
   private isCreator: boolean;
   private isEphemeral: boolean;
+  private purgeInitiated = false;
 
   // Olm sessions with other members (keyed by their identity key)
   private olmSessions = new Map<string, OlmSession>();
@@ -411,6 +412,7 @@ export class RoomSession {
         }
       };
 
+      this.purgeInitiated = true;
       this.ws.addEventListener("message", handler);
       this.ws.send(
         JSON.stringify({
@@ -458,8 +460,10 @@ export class RoomSession {
         this.disconnect();
         break;
       case "room_destroyed":
-        this.onError?.("This room has been deleted.");
-        this.disconnect();
+        if (!this.purgeInitiated) {
+          this.onError?.("This room has been deleted.");
+          this.disconnect();
+        }
         break;
       case "purge_unauthorized":
         // Handled by sendPurgeRequest via event listener

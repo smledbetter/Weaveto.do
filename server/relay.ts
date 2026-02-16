@@ -379,12 +379,16 @@ function handlePurge(
   // Delete room from registry
   rooms.delete(roomId);
 
-  // Close all client connections
-  for (const [, client] of room.clients) {
-    if (client.ws.readyState === WebSocket.OPEN) {
-      client.ws.close(4000, "Room purged");
+  // Close all client connections after a short delay
+  // to allow clients to process the room_destroyed message
+  const clientsToClose = Array.from(room.clients.values());
+  setTimeout(() => {
+    for (const client of clientsToClose) {
+      if (client.ws.readyState === WebSocket.OPEN) {
+        client.ws.close(4000, "Room purged");
+      }
     }
-  }
+  }, 100);
 }
 
 function removeClient(roomId: string, identityKey: string): void {

@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import path from "path";
 
 export default defineConfig({
   plugins: [svelte({ hot: false })],
@@ -8,13 +9,13 @@ export default defineConfig({
     environment: "jsdom",
     coverage: {
       provider: "v8",
-      include: ["src/lib/tasks/**", "src/lib/agents/**"],
+      include: ["src/lib/tasks/**", "src/lib/agents/**", "src/lib/room/**"],
       thresholds: { lines: 80, functions: 80, branches: 80 },
     },
   },
   resolve: {
     alias: {
-      $lib: "/Users/stevo/Sites/Weave.us/src/lib",
+      $lib: path.resolve(__dirname, "src/lib"),
     },
   },
 });
