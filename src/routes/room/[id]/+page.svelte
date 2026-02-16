@@ -33,6 +33,11 @@
 	import { cleanupRoom } from '$lib/room/cleanup';
 	import { autoDeleteKey } from '$lib/room/types';
 	import type { AutoDeleteState } from '$lib/room/types';
+	import PinSetup from '$lib/components/PinSetup.svelte';
+	import PinEntry from '$lib/components/PinEntry.svelte';
+	import type { PinState } from '$lib/pin/types';
+	import { generatePinSalt, derivePinKey, derivePinKeyRaw, hashPinKey, verifyPin } from '$lib/pin/derive';
+	import { storePinKey, loadPinKey, clearPinKey } from '$lib/pin/store';
 
 	let roomId = $derived($page.params.id ?? '');
 	let roomName = $derived(roomId ? getRoomName(roomId) : '');
@@ -44,10 +49,21 @@
 	let connected = $state(false);
 	let messageInput = $state('');
 	let displayName = $state('');
-	let phase: 'name' | 'auth' | 'connecting' | 'connected' | 'error' = $state('name');
+	let phase: 'name' | 'auth' | 'connecting' | 'pin-setup' | 'connected' | 'error' = $state('name');
 	let error = $state('');
 	let showKeyWarning = $state(false);
 	let roomUrl = $derived(browser ? `${window.location.origin}/room/${roomId}` : '');
+
+	// PIN state
+	let pinRequired = $derived($page.url.searchParams.has('pinRequired'));
+	let pinTimeout = $derived(parseInt($page.url.searchParams.get('pinTimeout') ?? '15'));
+	let pinState: PinState = $state({ status: 'unset' });
+	let pinKey: CryptoKey | null = $state(null);
+	let pinSalt: Uint8Array | null = $state(null);
+	let pinKeyHash: Uint8Array | null = $state(null);
+	let pinFailedAttempts = $state(0);
+	let showPinSetup = $state(false);
+	let prfSeedRef: Uint8Array | null = $state(null);
 
 	// Task management
 	const taskStore = createTaskStore();
@@ -372,6 +388,43 @@
 		agentExecutor?.shutdown();
 	});
 
+	async function handlePinCreate(pin: string) {
+		const salt = generatePinSalt();
+		const key = await derivePinKey(pin, salt);
+		const rawKey = await derivePinKeyRaw(pin, salt);
+		const hash = await hashPinKey(rawKey);
+
+		if (prfSeedRef) {
+			await storePinKey(roomId, key, salt, hash, prfSeedRef);
+		}
+
+		pinKey = key;
+		pinSalt = salt;
+		pinKeyHash = hash;
+		pinState = { status: 'set' };
+		showPinSetup = false;
+		phase = 'connected';
+	}
+
+	async function handlePinVerify(pin: string) {
+		if (!pinSalt || !pinKeyHash) return;
+		const key = await verifyPin(pin, pinSalt, pinKeyHash);
+		if (key) {
+			pinKey = key;
+			pinState = { status: 'set' };
+			pinFailedAttempts = 0;
+		} else {
+			pinFailedAttempts += 1;
+		}
+	}
+
+	function handlePinLockout() {
+		pinState = { status: 'cleared' };
+		session?.disconnect();
+		if (prfSeedRef) clearPinKey(roomId);
+		window.location.href = '/';
+	}
+
 	function dismissKeyWarning() {
 		showKeyWarning = false;
 		sessionStorage.setItem('weave-key-warning-shown', 'true');
@@ -452,6 +505,34 @@
 
 			// Initialize agent executor after room connection
 			await initAgentExecutor(prfSeed);
+
+			// Store PRF seed for PIN key storage
+			prfSeedRef = prfSeed ?? null;
+
+			// PIN setup: check if PIN is required
+			if (pinRequired) {
+				// Try to load existing PIN key
+				if (prfSeed) {
+					const storedPin = await loadPinKey(roomId, prfSeed);
+					if (storedPin) {
+						pinKey = storedPin.pinKey;
+						pinSalt = storedPin.salt;
+						pinKeyHash = storedPin.keyHash;
+						pinState = { status: 'set' };
+						phase = 'connected';
+					} else {
+						// No stored PIN key, show setup
+						showPinSetup = true;
+						phase = 'pin-setup';
+					}
+				} else {
+					// Dev mode, no PRF seed — skip PIN setup
+					phase = 'connected';
+				}
+			} else {
+				// PIN not required, proceed to connected
+				phase = 'connected';
+			}
 		} catch (e) {
 			if (e instanceof WebAuthnUnsupportedError) {
 				error = e.message;
@@ -604,6 +685,12 @@
 			<p>Establishing secure connection...</p>
 		</div>
 
+	{:else if phase === 'pin-setup'}
+		<PinSetup
+			oncreate={handlePinCreate}
+			oncancel={() => { session?.disconnect(); phase = 'name'; }}
+		/>
+
 	{:else if phase === 'error'}
 		<div class="center-card">
 			<p class="error">{error}</p>
@@ -664,6 +751,9 @@
 				<div class="room-info">
 					<h2>{roomName || 'Room'}</h2>
 					<span class="encryption-badge">&#128274; End-to-end encrypted</span>
+					{#if pinRequired || pinState.status === 'set'}
+						<span class="shield-badge" title="PIN-protected room">&#128737; PIN protected</span>
+					{/if}
 					{#if session?.getEphemeralMode()}
 						<EphemeralIndicator memberCount={members.size + 1} />
 					{/if}
@@ -821,6 +911,14 @@
 				{/if}
 			</div>
 		</div>
+
+		{#if pinState.status === 'locked'}
+			<PinEntry
+				onverify={handlePinVerify}
+				onlockout={handlePinLockout}
+				failedAttempts={pinFailedAttempts}
+			/>
+		{/if}
 
 		{#if showBurnModal}
 			<BurnConfirmModal onConfirm={handleBurnConfirm} onCancel={() => { showBurnModal = false; }} />
@@ -1007,6 +1105,15 @@
 		padding: 0.2rem 0.5rem;
 		border-radius: 4px;
 		border: 1px solid var(--accent-border);
+	}
+
+	.shield-badge {
+		font-size: 0.75rem;
+		color: var(--status-success);
+		background: var(--status-success-bg);
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+		border: 1px solid var(--status-success-border);
 	}
 
 	.room-meta {

@@ -4,6 +4,9 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { isWebAuthnSupported } from '$lib/webauthn/prf';
+	import PinPolicyToggle from '$lib/components/PinPolicyToggle.svelte';
+	import { DEFAULT_PIN_POLICY } from '$lib/pin/types';
+	import type { PinPolicy } from '$lib/pin/types';
 
 	let webauthnSupported = $state(true);
 	let creating = $state(false);
@@ -11,6 +14,7 @@
 	let ephemeralMode = $state(false);
 	let showDeletedNotice = $state(false);
 	let deletedReason = $state('');
+	let pinPolicy: PinPolicy = $state({ ...DEFAULT_PIN_POLICY });
 
 	$effect(() => {
 		if (browser) {
@@ -42,7 +46,9 @@
 			const bytes = crypto.getRandomValues(new Uint8Array(16));
 			const roomId = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 
-			const params = ephemeralMode ? '?create=1&ephemeral=true' : '?create=1';
+			let params = '?create=1';
+			if (ephemeralMode) params += '&ephemeral=true';
+			if (pinPolicy.required) params += `&pinRequired=true&pinTimeout=${pinPolicy.inactivityTimeout}`;
 			await goto(`/room/${roomId}${params}`);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to create room';
@@ -103,6 +109,11 @@
 					</label>
 				</div>
 			</div>
+
+			<PinPolicyToggle
+				policy={pinPolicy}
+				onchange={(newPolicy) => { pinPolicy = newPolicy; }}
+			/>
 
 			<p class="hint">Create a private, encrypted space to coordinate with your team. No account needed.</p>
 		{:else}
