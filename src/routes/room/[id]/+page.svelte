@@ -575,7 +575,8 @@
 
 	{#if phase === 'name'}
 		<div class="center-card">
-			<h2>Join {roomName || 'Room'}</h2>
+			<h2>Join Room</h2>
+			{#if roomName}<p class="room-name-label">{roomName}</p>{/if}
 			<p class="subtitle">You've been invited to a private, encrypted room. Pick a name so others know who you are.</p>
 			<input
 				type="text"
@@ -889,6 +890,14 @@
 	.center-card h2 {
 		font-weight: 400;
 		margin: 0 0 0.5rem;
+	}
+
+	.room-name-label {
+		font-size: 1.1rem;
+		font-weight: 500;
+		color: var(--accent-default);
+		margin: 0.25rem 0 0.75rem;
+		letter-spacing: 0.02em;
 	}
 
 	.subtitle {

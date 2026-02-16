@@ -7,10 +7,14 @@ async function createAndJoinRoom(page: Page, name = "Alice") {
   const btn = page.locator("button", { hasText: "New Room" });
   await expect(btn).toBeEnabled();
   await btn.click();
-  await expect(page.locator('input[placeholder="What should we call you?"]')).toBeVisible({
+  await expect(
+    page.locator('input[placeholder="What should we call you?"]'),
+  ).toBeVisible({
     timeout: 10_000,
   });
-  await page.locator('input[placeholder="What should we call you?"]').fill(name);
+  await page
+    .locator('input[placeholder="What should we call you?"]')
+    .fill(name);
   await page.locator("button", { hasText: "Join Securely" }).click();
   await expect(page.locator("header .room-info h2")).not.toBeEmpty({
     timeout: 15_000,
@@ -23,7 +27,9 @@ test.describe("M5.5: UX Polish", () => {
       const t = trackErrors(page);
       await page.goto("/", { waitUntil: "networkidle" });
 
-      const standardRadio = page.locator('input[type="radio"][value="standard"]');
+      const standardRadio = page.locator(
+        'input[type="radio"][value="standard"]',
+      );
       await expect(standardRadio).toBeChecked();
 
       t.assertNoErrors();
@@ -33,22 +39,30 @@ test.describe("M5.5: UX Polish", () => {
       const t = trackErrors(page);
       await page.goto("/", { waitUntil: "networkidle" });
 
-      const ephemeralRadio = page.locator('input[type="radio"][value="ephemeral"]');
+      const ephemeralRadio = page.locator(
+        'input[type="radio"][value="ephemeral"]',
+      );
       await ephemeralRadio.check();
       await expect(ephemeralRadio).toBeChecked();
 
-      const standardRadio = page.locator('input[type="radio"][value="standard"]');
+      const standardRadio = page.locator(
+        'input[type="radio"][value="standard"]',
+      );
       await expect(standardRadio).not.toBeChecked();
 
       t.assertNoErrors();
     });
 
-    test("creating room with Ephemeral adds ephemeral URL param", async ({ page }) => {
+    test("creating room with Ephemeral adds ephemeral URL param", async ({
+      page,
+    }) => {
       const t = trackErrors(page);
       await page.goto("/", { waitUntil: "networkidle" });
 
       // Select Ephemeral
-      const ephemeralRadio = page.locator('input[type="radio"][value="ephemeral"]');
+      const ephemeralRadio = page.locator(
+        'input[type="radio"][value="ephemeral"]',
+      );
       await ephemeralRadio.check();
 
       // Create room
@@ -56,7 +70,9 @@ test.describe("M5.5: UX Polish", () => {
       await btn.click();
 
       // URL should contain ephemeral param
-      await expect(page.locator('input[placeholder="What should we call you?"]')).toBeVisible({
+      await expect(
+        page.locator('input[placeholder="What should we call you?"]'),
+      ).toBeVisible({
         timeout: 10_000,
       });
       expect(page.url()).toContain("ephemeral=true");
@@ -64,7 +80,9 @@ test.describe("M5.5: UX Polish", () => {
       t.assertNoErrors();
     });
 
-    test("creating room with Standard does not add ephemeral param", async ({ page }) => {
+    test("creating room with Standard does not add ephemeral param", async ({
+      page,
+    }) => {
       const t = trackErrors(page);
       await page.goto("/", { waitUntil: "networkidle" });
 
@@ -73,7 +91,9 @@ test.describe("M5.5: UX Polish", () => {
       await btn.click();
 
       // URL should NOT contain ephemeral param
-      await expect(page.locator('input[placeholder="What should we call you?"]')).toBeVisible({
+      await expect(
+        page.locator('input[placeholder="What should we call you?"]'),
+      ).toBeVisible({
         timeout: 10_000,
       });
       expect(page.url()).not.toContain("ephemeral=true");
@@ -133,13 +153,17 @@ test.describe("M5.5: UX Polish", () => {
   });
 
   test.describe("Join Page Copy", () => {
-    test("join page shows 'You've been invited' in subtitle", async ({ page }) => {
+    test("join page shows 'You've been invited' in subtitle", async ({
+      page,
+    }) => {
       const t = trackErrors(page);
 
       // Create room to get a valid room ID
       await page.goto("/", { waitUntil: "networkidle" });
       await page.locator("button", { hasText: "New Room" }).click();
-      await expect(page.locator('input[placeholder="What should we call you?"]')).toBeVisible({
+      await expect(
+        page.locator('input[placeholder="What should we call you?"]'),
+      ).toBeVisible({
         timeout: 10_000,
       });
 
@@ -164,7 +188,9 @@ test.describe("M5.5: UX Polish", () => {
       // Create room to get a valid room ID
       await page.goto("/", { waitUntil: "networkidle" });
       await page.locator("button", { hasText: "New Room" }).click();
-      await expect(page.locator('input[placeholder="What should we call you?"]')).toBeVisible({
+      await expect(
+        page.locator('input[placeholder="What should we call you?"]'),
+      ).toBeVisible({
         timeout: 10_000,
       });
 
@@ -177,11 +203,12 @@ test.describe("M5.5: UX Polish", () => {
       // Navigate to join page (without create param)
       await page.goto(`/room/${roomId}`, { waitUntil: "networkidle" });
 
-      // Check for "Join {roomName}" heading
-      const heading = page.locator("h2");
-      await expect(heading).toBeVisible();
-      const headingText = await heading.textContent();
-      expect(headingText).toMatch(/^Join [a-z]+-[a-z]+$/);
+      // Check for "Join Room" heading and room name label
+      await expect(page.locator("h2", { hasText: "Join Room" })).toBeVisible();
+      const nameLabel = page.locator(".room-name-label");
+      await expect(nameLabel).toBeVisible();
+      const nameText = await nameLabel.textContent();
+      expect(nameText).toMatch(/^[a-z]+-[a-z]+$/);
 
       t.assertNoErrors();
     });
@@ -201,7 +228,9 @@ test.describe("M5.5: UX Polish", () => {
       t.assertNoErrors();
     });
 
-    test("display name updates when different name is used", async ({ page }) => {
+    test("display name updates when different name is used", async ({
+      page,
+    }) => {
       const t = trackErrors(page);
       await createAndJoinRoom(page, "BobTheBuilder");
 
@@ -219,7 +248,9 @@ test.describe("M5.5: UX Polish", () => {
 
       await page.locator("button", { hasText: "New Room" }).click();
 
-      const input = page.locator('input[placeholder="What should we call you?"]');
+      const input = page.locator(
+        'input[placeholder="What should we call you?"]',
+      );
       await expect(input).toBeVisible({ timeout: 10_000 });
 
       t.assertNoErrors();
@@ -231,7 +262,9 @@ test.describe("M5.5: UX Polish", () => {
 
       await page.locator("button", { hasText: "New Room" }).click();
 
-      const input = page.locator('input[placeholder="What should we call you?"]');
+      const input = page.locator(
+        'input[placeholder="What should we call you?"]',
+      );
       await expect(input).toBeVisible({ timeout: 10_000 });
 
       const joinBtn = page.locator("button", { hasText: "Join Securely" });
