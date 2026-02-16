@@ -61,6 +61,7 @@ A single agent loads all three skill perspectives (`product-manager`, `ux-design
 - Waves — dependency-grouped tasks with `depends_on` metadata
 - Task types — `auto`, `checkpoint:human-verify`, `checkpoint:decision`
 - Agent strategy — model selection per wave (haiku for mechanics, sonnet for logic, opus for crypto)
+- **Batch small milestones** (<30 tests expected) into a single sprint session when possible. Small milestones have disproportionate overhead from planning, gating, and retro. M3.5 and M5.5 each spent ~40% of tokens on non-feature work.
 
 ### Phase 2: Execute + Gate
 
@@ -70,6 +71,7 @@ Run plans in dependency-aware waves, then verify.
 - Each subagent gets a **fresh context** with file path references (not embedded content)
 - **2-3 tasks max** per subagent to stay in quality range
 - **Atomic commit per wave** (not per task): `feat(M{N}): description`. Group related changes.
+- **The orchestrator should orchestrate, not implement.** Delegate all waves to sonnet/haiku agents. Every wave done at opus rate costs ~5x more than sonnet delegation. Target: opus handles only planning, review, and coordination — never writes feature code directly.
 - Orchestrator stays at **30-40% context** — delegates, doesn't accumulate
 - Load **research artifacts** (`docs/research/*.md`) once, not re-discover
 - **Crypto waves stay serial** — no parallelism on waves that modify key management chains
@@ -88,7 +90,8 @@ Run plans in dependency-aware waves, then verify.
 
 A single agent loads both `production-engineer` and `security-auditor` skills and runs all checks in one pass:
 
-- **Quality gates**: `npm run test:unit` (75%+ coverage), `npm run test:e2e` (0 regressions), `npm run check` (0 errors), TDD conventions
+- **Quality gates**: `npm run test:unit` (75%+ coverage), `npm run test:e2e` (0 regressions), `npm run check` (0 TypeScript errors), TDD conventions
+- **`npm run check` is mandatory** — Vitest doesn't catch TypeScript type errors. Code can pass all tests but fail type checking (e.g., M7's `Uint8Array<ArrayBufferLike>` vs `BufferSource`).
 - **Security audit**: 10-principle review on all changed files, OWASP ASI Top 10 threat analysis
 - Must produce a combined pass/fail report
 - **Must pass before proceeding to Phase 3.** Fix any issues found, then re-run.
@@ -107,6 +110,7 @@ The orchestrator handles this directly. Steps 1-3 are parallelizable.
      - What was inefficient (missed opportunities)
      - Patterns established
      - Cost observations (model selection, context usage)
+     - **Token accounting**: Run token count script against JSONL session logs. Record verified totals (input, output, cache_read, cache_creation) and model mix percentages. Separate **feature tokens** (code waves, tests) from **meta tokens** (planning, retro, doc sync, GitHub housekeeping) — meta work should be <15% of total new-work tokens.
      - Update cross-milestone tables (process evolution, cumulative quality, top lessons)
      - **Never skip** (M2 was missed — don't repeat)
 3. **Review lessons and recommend process changes** for the next milestone:
@@ -133,6 +137,8 @@ Quick heuristic: **3+ parallel work streams in a DAG -> use a team.** Default to
 | Feature (2-3 subsystems) | Team: sonnet lead + 2-3 haiku |
 | Cross-cutting feature | Team: sonnet lead + 2 sonnet + 2 haiku |
 | Security-critical crypto | Team: opus lead + 2 sonnet + haiku |
+
+**Target model mix** (based on M6's best efficiency): ~27% opus, ~56% sonnet, ~17% haiku. Opus should be limited to orchestration, planning, review, and crypto audits. Feature code and tests should be sonnet/haiku. Milestones exceeding 80% opus (like M1-M4) are 3-5x more expensive per unit of work.
 
 ### Context Budget
 
