@@ -69,6 +69,7 @@ interface JoinMessage {
   oneTimeKeys: Record<string, string>;
   displayName: string;
   create?: boolean;
+  ephemeral?: boolean;
 }
 
 interface NewMemberMessage {
@@ -103,12 +104,23 @@ interface RoomNotFoundMessage {
   type: "room_not_found";
 }
 
+interface RoomDestroyedMessage {
+  type: "room_destroyed";
+  reason: string;
+}
+
+interface PurgeUnauthorizedMessage {
+  type: "purge_unauthorized";
+}
+
 type ServerMessage =
   | NewMemberMessage
   | KeyShareMessage
   | EncryptedMessage
   | MemberListMessage
-  | RoomNotFoundMessage;
+  | RoomNotFoundMessage
+  | RoomDestroyedMessage
+  | PurgeUnauthorizedMessage;
 
 // --- Room Session ---
 
@@ -121,6 +133,7 @@ export class RoomSession {
   private displayName: string;
   private prfSeed: Uint8Array | null;
   private isCreator: boolean;
+  private isEphemeral: boolean;
 
   // Olm sessions with other members (keyed by their identity key)
   private olmSessions = new Map<string, OlmSession>();
@@ -147,12 +160,17 @@ export class RoomSession {
   constructor(
     roomId: string,
     displayName: string,
-    options?: { prfSeed?: Uint8Array; isCreator?: boolean },
+    options?: {
+      prfSeed?: Uint8Array;
+      isCreator?: boolean;
+      ephemeral?: boolean;
+    },
   ) {
     this.roomId = roomId;
     this.displayName = displayName;
     this.prfSeed = options?.prfSeed ?? null;
     this.isCreator = options?.isCreator ?? false;
+    this.isEphemeral = options?.ephemeral ?? false;
   }
 
   setMessageHandler(handler: MessageHandler) {
@@ -179,6 +197,12 @@ export class RoomSession {
   }
   getLastMessageTimes(): Map<string, number> {
     return this.lastMessageTimes;
+  }
+  getEphemeralMode(): boolean {
+    return this.isEphemeral;
+  }
+  getIsCreator(): boolean {
+    return this.isCreator;
   }
 
   /**
@@ -247,6 +271,7 @@ export class RoomSession {
           oneTimeKeys,
           displayName: this.displayName,
           ...(this.isCreator ? { create: true } : {}),
+          ...(this.isCreator && this.isEphemeral ? { ephemeral: true } : {}),
         };
         ws.send(JSON.stringify(joinMsg));
         resolve();
@@ -360,6 +385,43 @@ export class RoomSession {
   }
 
   /**
+   * Send a purge request to delete this ephemeral room.
+   * Only the room creator can delete the room.
+   */
+  sendPurgeRequest(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        reject(new Error("Not connected"));
+        return;
+      }
+
+      // Listen for response
+      const handler = (event: MessageEvent) => {
+        try {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === "room_destroyed") {
+            this.ws?.removeEventListener("message", handler);
+            resolve();
+          } else if (msg.type === "purge_unauthorized") {
+            this.ws?.removeEventListener("message", handler);
+            reject(new Error("Only the room creator can delete this room"));
+          }
+        } catch {
+          // ignore parse errors
+        }
+      };
+
+      this.ws.addEventListener("message", handler);
+      this.ws.send(
+        JSON.stringify({
+          type: "purge",
+          identityKey: this.identityKey,
+        }),
+      );
+    });
+  }
+
+  /**
    * Disconnect and clean up.
    */
   disconnect(): void {
@@ -394,6 +456,13 @@ export class RoomSession {
       case "room_not_found":
         this.onError?.("This room does not exist or has expired.");
         this.disconnect();
+        break;
+      case "room_destroyed":
+        this.onError?.("This room has been deleted.");
+        this.disconnect();
+        break;
+      case "purge_unauthorized":
+        // Handled by sendPurgeRequest via event listener
         break;
     }
   }

@@ -1,5 +1,5 @@
 /**
- * WebSocket relay server for weave.us.
+ * WebSocket relay server for weaveto.do.
  * Routes encrypted messages between room members.
  *
  * Security invariants:
@@ -37,6 +37,8 @@ interface RoomClient {
 
 interface Room {
   clients: Map<string, RoomClient>;
+  creatorIdentityKey?: string;
+  ephemeral?: boolean;
 }
 
 // --- Validated message types ---
@@ -48,6 +50,7 @@ interface ValidatedJoinMessage {
   oneTimeKeys: Record<string, string>;
   displayName: string;
   create?: boolean;
+  ephemeral?: boolean;
 }
 
 interface ValidatedKeyShareMessage {
@@ -65,10 +68,16 @@ interface ValidatedEncryptedMessage {
   timestamp: number;
 }
 
+interface ValidatedPurgeMessage {
+  type: "purge";
+  identityKey: string;
+}
+
 type ValidatedMessage =
   | ValidatedJoinMessage
   | ValidatedKeyShareMessage
-  | ValidatedEncryptedMessage;
+  | ValidatedEncryptedMessage
+  | ValidatedPurgeMessage;
 
 // --- Input validation ---
 
@@ -111,6 +120,8 @@ function validateMessage(raw: unknown): ValidatedMessage | null {
       if (!validateOneTimeKeys(raw.oneTimeKeys)) return null;
       if (raw.create !== undefined && typeof raw.create !== "boolean")
         return null;
+      if (raw.ephemeral !== undefined && typeof raw.ephemeral !== "boolean")
+        return null;
       return raw as ValidatedJoinMessage;
     }
     case "key_share": {
@@ -133,6 +144,11 @@ function validateMessage(raw: unknown): ValidatedMessage | null {
       if (!isNumber(raw.timestamp)) return null;
       return raw as ValidatedEncryptedMessage;
     }
+    case "purge": {
+      if (!isNonEmptyString(raw.identityKey, MAX_IDENTITY_KEY_LENGTH))
+        return null;
+      return raw as ValidatedPurgeMessage;
+    }
     default:
       return null;
   }
@@ -146,7 +162,7 @@ const rooms = new Map<string, Room>();
 
 const server = createServer((_req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("weave.us relay server");
+  res.end("weaveto.do relay server");
 });
 
 const wss = new WebSocketServer({ noServer: true });
@@ -235,6 +251,9 @@ function handleMessage(
     case "encrypted":
       handleEncrypted(roomId, msg, client);
       break;
+    case "purge":
+      handlePurge(roomId, ws, msg);
+      break;
   }
 }
 
@@ -253,7 +272,11 @@ function handleJoin(
       ws.close(4004, "Room not found");
       return;
     }
-    room = { clients: new Map() };
+    room = {
+      clients: new Map(),
+      creatorIdentityKey: msg.identityKey,
+      ephemeral: msg.ephemeral ?? false,
+    };
     rooms.set(roomId, room);
   }
 
@@ -324,6 +347,46 @@ function handleEncrypted(
   }
 }
 
+function handlePurge(
+  roomId: string,
+  ws: WebSocket,
+  msg: ValidatedPurgeMessage,
+): void {
+  const room = rooms.get(roomId);
+  if (!room) {
+    ws.close(4004, "Room not found");
+    return;
+  }
+
+  // Only the creator can purge
+  if (room.creatorIdentityKey !== msg.identityKey) {
+    ws.send(JSON.stringify({ type: "purge_unauthorized" }));
+    return;
+  }
+
+  // Broadcast destruction to all clients
+  const destroyMsg = JSON.stringify({
+    type: "room_destroyed",
+    reason: "manual",
+  });
+
+  for (const [, client] of room.clients) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(destroyMsg);
+    }
+  }
+
+  // Delete room from registry
+  rooms.delete(roomId);
+
+  // Close all client connections
+  for (const [, client] of room.clients) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      client.ws.close(4000, "Room purged");
+    }
+  }
+}
+
 function removeClient(roomId: string, identityKey: string): void {
   const room = rooms.get(roomId);
   if (!room) return;
@@ -348,6 +411,6 @@ function removeClient(roomId: string, identityKey: string): void {
 }
 
 server.listen(PORT, () => {
-  console.log(`weave.us relay server listening on port ${PORT}`);
+  console.log(`weaveto.do relay server listening on port ${PORT}`);
   console.log("No plaintext inspection. No IP logging. No persistent storage.");
 });
