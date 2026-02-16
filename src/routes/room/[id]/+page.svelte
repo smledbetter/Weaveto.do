@@ -38,6 +38,7 @@
 	import type { PinState } from '$lib/pin/types';
 	import { generatePinSalt, derivePinKey, derivePinKeyRaw, hashPinKey, verifyPin } from '$lib/pin/derive';
 	import { storePinKey, loadPinKey, clearPinKey } from '$lib/pin/store';
+	import { SessionGate } from '$lib/pin/gate';
 
 	let roomId = $derived($page.params.id ?? '');
 	let roomName = $derived(roomId ? getRoomName(roomId) : '');
@@ -64,6 +65,7 @@
 	let pinFailedAttempts = $state(0);
 	let showPinSetup = $state(false);
 	let prfSeedRef: Uint8Array | null = $state(null);
+	let sessionGate: SessionGate | null = $state(null);
 
 	// Task management
 	const taskStore = createTaskStore();
@@ -386,6 +388,7 @@
 		reminderScheduler.clearAll();
 		shortcutManager?.detach();
 		agentExecutor?.shutdown();
+		sessionGate?.stop();
 	});
 
 	async function handlePinCreate(pin: string) {
@@ -404,6 +407,7 @@
 		pinState = { status: 'set' };
 		showPinSetup = false;
 		phase = 'connected';
+		startSessionGate();
 	}
 
 	async function handlePinVerify(pin: string) {
@@ -413,6 +417,7 @@
 			pinKey = key;
 			pinState = { status: 'set' };
 			pinFailedAttempts = 0;
+			sessionGate?.unlock();
 		} else {
 			pinFailedAttempts += 1;
 		}
@@ -422,7 +427,23 @@
 		pinState = { status: 'cleared' };
 		session?.disconnect();
 		if (prfSeedRef) clearPinKey(roomId);
+		sessionGate?.stop();
 		window.location.href = '/';
+	}
+
+	function startSessionGate() {
+		if (!pinRequired) return;
+		sessionGate = new SessionGate(pinTimeout, {
+			onLock: () => {
+				pinState = { status: 'locked', failedAttempts: 0 };
+				// Clear Megolm keys from memory (session lock)
+				// For now, we mark as locked. Wave 4 will add actual key clearing.
+			},
+			onLockout: () => {
+				handlePinLockout();
+			},
+		});
+		sessionGate.start();
 	}
 
 	function dismissKeyWarning() {
@@ -520,6 +541,7 @@
 						pinKeyHash = storedPin.keyHash;
 						pinState = { status: 'set' };
 						phase = 'connected';
+						startSessionGate();
 					} else {
 						// No stored PIN key, show setup
 						showPinSetup = true;
