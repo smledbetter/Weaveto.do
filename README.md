@@ -1,8 +1,8 @@
-# weave.us
+# weaveto.do
 
 Privacy-first, agent-augmented task coordination for decentralized teams.
 
-Weave.us enables trusted groups — caregiving collectives, event organizers, volunteer networks — to coordinate tasks securely without relying on centralized services. All communication is end-to-end encrypted. No accounts. No tracking. No persistence beyond what's necessary.
+weaveto.do enables trusted groups — caregiving collectives, event organizers, volunteer networks — to coordinate tasks securely without relying on centralized services. All communication is end-to-end encrypted. No accounts. No tracking. No persistence beyond what's necessary.
 
 ## Project Goals
 
@@ -74,7 +74,7 @@ WASM sandboxing for user-uploaded agent modules.
 - AES-256-GCM encrypted persistent state per agent
 - Security hardened: hash verification, memory isolation, circuit breaker, bounds checking
 
-### M3.5: Built-In Agent — current
+### M3.5: Built-In Agent ✓
 
 Ship a working agent so users get immediate value from the infrastructure.
 
@@ -82,16 +82,16 @@ Ship a working agent so users get immediate value from the infrastructure.
 - First-run disclosure toast on initial activation
 - Agent description cards with last-run timestamp in AgentPanel
 
-### M4: Task Polish
+### M4: Task Polish ✓
 
 Describe, sort, and triage tasks more effectively.
 
-- Task descriptions (encrypted, expandable)
-- Due date sorting, quick-pick date buttons
-- Urgent flag (binary)
-- Room-scoped task search
+- Task descriptions (encrypted, displayed below titles)
+- Due date sorting (3-state toggle), quick-pick date buttons (Today/Tomorrow/Next Week)
+- Urgent flag (binary toggle, text badge, sorts urgent-first)
+- Room-scoped task search (real-time filter on title + description)
 
-### M5: Burn-After-Use
+### M5: Burn-After-Use — current
 
 Automatic data destruction after task completion.
 
