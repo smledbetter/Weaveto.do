@@ -1,6 +1,6 @@
 ---
 name: weave-architect
-description: Architectural blueprint for weave.us — E2EE task coordination with agent teams, no accounts, burn-after-use.
+description: Architectural blueprint for weaveto.do — E2EE task coordination with agent teams, no accounts, burn-after-use.
 ---
 
 ## Core Principles

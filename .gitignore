@@ -37,3 +37,4 @@ vite.config.ts.timestamp-*
 .claude/plans/
 .claude/teams/
 .claude/tasks/
+nohup.out

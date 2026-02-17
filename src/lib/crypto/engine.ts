@@ -79,7 +79,7 @@ export async function derivePickleKey(seed: Uint8Array): Promise<Uint8Array> {
     {
       name: "HKDF",
       hash: "SHA-256",
-      salt: encoder.encode("weave.us-pickle-key-v1"),
+      salt: encoder.encode("weaveto.do-pickle-key-v1"),
       info: encoder.encode("olm-account-pickle"),
     },
     keyMaterial,

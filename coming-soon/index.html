@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>weaveto.do — Private Task Coordination</title>
+        <link
+            rel="icon"
+            href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128' viewBox='0 0 128 128'><rect width='128' height='128' rx='16' fill='%234a9856'/><text x='64' y='96' font-family='system-ui' font-size='88' font-weight='300' fill='white' text-anchor='middle'>W</text></svg>"
+        />
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            :root {
+                --bg-base: #f4f3f1;
+                --bg-surface: #ebeae7;
+                --text-primary: #1c1c1e;
+                --text-secondary: #5a5a66;
+                --text-muted: #696971;
+                --text-heading: #0c0c0e;
+                --accent-default: #1a7a2e;
+                --accent-strong: #145e22;
+                --border-default: #848381;
+            }
+
+            body {
+                font-family:
+                    system-ui,
+                    -apple-system,
+                    sans-serif;
+                background: var(--bg-base);
+                color: var(--text-primary);
+                min-height: 100vh;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                padding: 2rem;
+            }
+
+            .hero {
+                text-align: center;
+                max-width: 480px;
+            }
+
+            h1 {
+                font-size: 3rem;
+                font-weight: 300;
+                letter-spacing: 0.1em;
+                margin: 0 0 1rem;
+                color: var(--text-heading);
+            }
+
+            .brand-accent {
+                color: var(--accent-default);
+            }
+
+            .tagline {
+                font-size: 1.1rem;
+                color: var(--text-secondary);
+                margin: 0 0 1.5rem;
+            }
+
+            .status {
+                display: inline-block;
+                font-size: 0.85rem;
+                color: var(--accent-strong);
+                border: 1px solid var(--accent-default);
+                border-radius: 100px;
+                padding: 0.35rem 1rem;
+                margin-bottom: 1.5rem;
+                letter-spacing: 0.05em;
+            }
+
+            .description {
+                font-size: 0.95rem;
+                color: var(--text-secondary);
+                line-height: 1.6;
+                margin-bottom: 2.5rem;
+            }
+
+            .cta {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.5rem;
+                padding: 1rem 2rem;
+                font-size: 1.1rem;
+                font-weight: 500;
+                color: var(--bg-base);
+                background: var(--text-primary);
+                border: none;
+                border-radius: 8px;
+                text-decoration: none;
+                transition:
+                    background 0.15s,
+                    transform 0.1s;
+            }
+
+            .cta:hover {
+                background: var(--text-heading);
+                transform: translateY(-1px);
+            }
+
+            .cta svg {
+                width: 1.25rem;
+                height: 1.25rem;
+            }
+
+            footer {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                text-align: center;
+                padding: 1rem;
+                font-size: 0.8rem;
+                color: var(--text-muted);
+            }
+        </style>
+    </head>
+    <body>
+        <div class="hero">
+            <h1>weave<span class="brand-accent">to.do</span></h1>
+            <p class="tagline">
+                Private, encrypted coordination. No accounts. No tracking.
+            </p>
+            <span class="status">Coming Soon</span>
+            <p class="description">
+                End-to-end encrypted task rooms. Zero accounts. Burn-after-use.
+                Your data never leaves your device unencrypted.
+            </p>
+            <a href="https://github.com/smledbetter/Weaveto.do" class="cta">
+                <svg viewBox="0 0 16 16" fill="currentColor">
+                    <path
+                        d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+                    />
+                </svg>
+                View on GitHub
+            </a>
+        </div>
+        <footer>
+            &#128274; End-to-end encrypted. Zero-knowledge by design.
+        </footer>
+    </body>
+</html>

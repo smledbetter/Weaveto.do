@@ -22,7 +22,7 @@
 
 {#if browser && !isRoomPage}
 	<nav class="global-nav">
-		<span class="nav-brand">weave.us</span>
+		<span class="nav-brand">weave<span class="nav-brand-accent">to.do</span></span>
 		<button class="theme-toggle-inline" onclick={toggleTheme} aria-label="Toggle light/dark mode" title="Toggle light/dark mode">
 			{isDark() ? '\u2600' : '\u263E'}
 		</button>
@@ -49,6 +49,10 @@
 		font-weight: 300;
 		letter-spacing: 0.08em;
 		color: var(--text-muted);
+	}
+
+	.nav-brand-accent {
+		color: var(--accent-default);
 	}
 
 	.theme-toggle-inline {

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Weave.us — privacy-first, E2E encrypted task coordination. See `docs/` for full documentation.
+weaveto.do — privacy-first, E2E encrypted task coordination. See `docs/` for full documentation.
 
 ## Quick Links
 

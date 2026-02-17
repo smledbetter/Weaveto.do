@@ -1,13 +1,13 @@
 /**
- * WebAuthn PRF key derivation for weave.us.
+ * WebAuthn PRF key derivation for weaveto.do.
  * Triggers a WebAuthn ceremony with the PRF extension to derive
  * a deterministic seed for cryptographic identity.
  *
  * No accounts, no passwords — identity is device-bound via WebAuthn.
  */
 
-const RP_ID = "weave.us";
-const RP_NAME = "Weave.us";
+const RP_ID = "weaveto.do";
+const RP_NAME = "weaveto.do";
 
 export interface PrfResult {
   seed: Uint8Array;
@@ -121,7 +121,7 @@ export async function assertWithPrf(
   }
 
   const challenge = crypto.getRandomValues(new Uint8Array(32));
-  const salt = new TextEncoder().encode("weave.us-identity-v1");
+  const salt = new TextEncoder().encode("weaveto.do-identity-v1");
 
   const allowCredentials: PublicKeyCredentialDescriptor[] = credentialId
     ? [{ id: credentialId as BufferSource, type: "public-key" as const }]
@@ -190,7 +190,7 @@ export function getStoredCredentialId(): Uint8Array | null {
 }
 
 /**
- * Get the relying party ID. Uses localhost in dev, weave.us in production.
+ * Get the relying party ID. Uses localhost in dev, weaveto.do in production.
  */
 function getRpId(): string {
   if (

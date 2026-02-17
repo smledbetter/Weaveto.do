@@ -1,6 +1,6 @@
 ---
 name: production-engineer
-description: Testing strategy, code quality gates, and TDD process for weave.us. Consult during implementation and review phases.
+description: Testing strategy, code quality gates, and TDD process for weaveto.do. Consult during implementation and review phases.
 ---
 
 ## Testing Stack

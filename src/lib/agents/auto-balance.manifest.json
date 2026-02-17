@@ -2,7 +2,7 @@
   "name": "auto-balance",
   "version": "1.0.0",
   "description": "Assigns unassigned tasks to the member with the fewest pending tasks. Runs every 30 seconds.",
-  "author": "Weave.us",
+  "author": "weaveto.do",
   "wasmHash": "136803b30277af04fbf868c1986359880635ed6780c3e5381e9a150763550e72",
   "permissions": ["read_tasks", "read_members", "emit_events", "persist_state"]
 }
