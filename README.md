@@ -4,6 +4,8 @@ Privacy-first, agent-augmented task coordination for decentralized teams.
 
 weaveto.do enables trusted groups — caregiving collectives, event organizers, volunteer networks — to coordinate tasks securely without relying on centralized services. All communication is end-to-end encrypted. No accounts. No tracking. No persistence beyond what's necessary.
 
+> **Status:** weaveto.do is not yet hosted. The app will go live after M8 (Penetration Testing) verifies the security of all shipped milestones. Until then, you can clone this repo and run it locally.
+
 ## Project Goals
 
 - **Zero-knowledge relay**: The server only routes ciphertext. It cannot read messages, identify users, or correlate activity.

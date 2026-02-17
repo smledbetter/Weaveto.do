@@ -38,3 +38,4 @@ vite.config.ts.timestamp-*
 .claude/teams/
 .claude/tasks/
 nohup.out
+uluka-report.sarif
