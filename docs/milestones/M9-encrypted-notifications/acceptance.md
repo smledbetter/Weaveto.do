@@ -176,4 +176,4 @@ Room name is the 2-word hash (e.g., "swift-falcon") — deterministic, not user-
 - 0 new dependencies (Web Push API is browser-native; VAPID key generation uses WebCrypto)
 - 0 type errors (`npm run check`)
 - Ship-readiness gate: prod-eng + security audit pass
-- Pen testing (M8) has validated existing SW notification infrastructure before this milestone begins
+- Vulnerability scanning (M8) has validated existing SW notification infrastructure before this milestone begins

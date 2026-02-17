@@ -2,7 +2,7 @@
 
 ## Context
 
-After M8 (Penetration Testing) validates the existing notification infrastructure (service worker generic payloads, IndexedDB reminder storage), M9 expands notification coverage to task assignments and status changes, adds local user controls, and introduces Web Push API for closed-browser delivery. This is the first milestone that adds a feature to the relay server since M0.
+After M8 (Vulnerability Scanning) validates the existing notification infrastructure (service worker generic payloads, IndexedDB reminder storage), M9 expands notification coverage to task assignments and status changes, adds local user controls, and introduces Web Push API for closed-browser delivery. This is the first milestone that adds a feature to the relay server since M0.
 
 Builds on: `src/lib/tasks/reminders.ts` (in-tab scheduler), `src/lib/tasks/sw-reminders.ts` (IndexedDB persistence), `src/service-worker.ts` (SW with generic notifications), `server/relay.ts` (WebSocket relay).
 

@@ -128,9 +128,9 @@ Last updated: 2026-02-16
 - Ship-readiness audit: TypeScript clean, no console violations, Worker isolation verified
 - See: `docs/milestones/M7-agent-hardening/`
 
-### What's Next (M8 — Penetration Testing)
+### What's Next (M8 — Vulnerability Scanning)
 
-Security penetration testing across all shipped milestones.
+Security vulnerability scanning across all shipped milestones.
 
 ### Known Issues
 
@@ -151,7 +151,7 @@ Security penetration testing across all shipped milestones.
 | M5.5 | UX Polish | Complete |
 | M6 | Session Security | Complete |
 | M7 | Agent Hardening | Complete |
-| M8 | Penetration Testing | Not Started |
+| M8 | Vulnerability Scanning | Not Started |
 | M9 | Encrypted Notifications | Not Started |
 | M10 | Offline & Sync | Not Started |
 
@@ -206,8 +206,8 @@ Harden the agent infrastructure with true preemption, module signatures, and run
 - Ed25519 module signature verification
 - Agent event validation against known taskIds
 
-#### M8 — Penetration Testing (Release Goal)
-Security penetration testing across all shipped milestones.
+#### M8 — Vulnerability Scanning (Release Goal)
+Security vulnerability scanning across all shipped milestones.
 - E2EE protocol audit
 - WebAuthn PRF identity testing
 - WASM sandbox escape testing

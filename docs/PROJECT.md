@@ -33,7 +33,7 @@ No accounts, no tracking, no persistence beyond what's necessary.
 | M5.5 | UX Polish | Complete | Memorable room names, onboarding copy, mode clarity, display name visibility, agent panel explainer |
 | M6 | Session Security | Complete | PIN-based endpoint compromise containment, PBKDF2 key derivation, session lock, Megolm key rotation gated by PIN |
 | M7 | Agent Hardening | Complete | Web Worker preemption, Ed25519 module signatures, agent event validation |
-| M8 | Penetration Testing | Planned | E2EE audit, WebAuthn testing, WASM sandbox testing, relay hardening |
+| M8 | Vulnerability Scanning | Planned | E2EE audit, WebAuthn testing, WASM sandbox testing, relay hardening |
 | M9 | Encrypted Notifications | Planned | Expanded SW notifications, local notification rules, Web Push API with encrypted payloads |
 | M10 | Offline & Sync | Planned | IndexedDB offline store, conflict resolution on reconnect, optimistic UI |
 

@@ -4,7 +4,7 @@ Privacy-first, agent-augmented task coordination for decentralized teams.
 
 weaveto.do enables trusted groups — caregiving collectives, event organizers, volunteer networks — to coordinate tasks securely without relying on centralized services. All communication is end-to-end encrypted. No accounts. No tracking. No persistence beyond what's necessary.
 
-> **Status:** weaveto.do is not yet hosted. The app will go live after M8 (Penetration Testing) verifies the security of all shipped milestones. Until then, you can clone this repo and run it locally.
+> **Status:** weaveto.do is not yet hosted. The app will go live after M8 (Vulnerability Scanning) verifies the security of all shipped milestones. Until then, you can clone this repo and run it locally.
 
 ## Project Goals
 
@@ -140,9 +140,9 @@ Harden the agent infrastructure with true preemption, module signatures, and run
 - Structured clone safety for Worker postMessage (JSON imports, ArrayBuffer handling)
 - 372 unit tests (30 new), 119 E2E tests, 0 regressions
 
-### M8: Penetration Testing
+### M8: Vulnerability Scanning
 
-Security penetration testing across all shipped milestones.
+Security vulnerability scanning across all shipped milestones.
 
 - E2EE protocol audit
 - WebAuthn PRF identity testing
