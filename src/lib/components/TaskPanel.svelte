@@ -491,6 +491,8 @@
 									class="assignee-btn"
 									onclick={() => { assignDropdownTask = assignDropdownTask === task.id ? null : task.id; }}
 									aria-label="Assign task"
+									aria-expanded={assignDropdownTask === task.id}
+									onkeydown={(e) => { if (e.key === 'Escape') { assignDropdownTask = null; e.stopPropagation(); } }}
 								>
 									{task.assignee ? getMemberName(task.assignee) : 'Unassigned'}
 								</button>
