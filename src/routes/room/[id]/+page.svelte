@@ -1177,7 +1177,7 @@
 	.room {
 		display: flex;
 		flex-direction: column;
-		height: 100vh;
+		height: 100dvh;
 	}
 
 	header {
@@ -1446,11 +1446,44 @@
 		.tasks-col,
 		.agents-col {
 			width: 100%;
+			min-width: 0;
 			max-width: none;
 		}
 
 		.mobile-hidden {
 			display: none;
+		}
+
+		header {
+			padding: 0.5rem 0.75rem;
+		}
+
+		.room-info {
+			gap: 0.4rem;
+			min-width: 0;
+			overflow: hidden;
+		}
+
+		.room-info h2 {
+			font-size: 0.9rem;
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+
+		.encryption-badge,
+		.shield-badge {
+			display: none;
+		}
+
+		.room-meta {
+			gap: 0.4rem;
+			flex-shrink: 0;
+		}
+
+		.room-meta button {
+			padding: 0.25rem 0.5rem;
+			font-size: 0.75rem;
 		}
 	}
 

@@ -136,6 +136,11 @@ export class RoomSession {
   private isCreator: boolean;
   private isEphemeral: boolean;
   private purgeInitiated = false;
+  private reconnecting = false;
+  private reconnectAttempts = 0;
+  private static readonly MAX_RECONNECT_ATTEMPTS = 5;
+  private static readonly RECONNECT_BASE_DELAY = 1000;
+  private intentionalClose = false;
 
   // Olm sessions with other members (keyed by their identity key)
   private olmSessions = new Map<string, OlmSession>();
@@ -290,6 +295,9 @@ export class RoomSession {
 
       ws.onclose = () => {
         this.onConnectionChanged?.(false);
+        if (!this.intentionalClose && !this.purgeInitiated) {
+          this.scheduleReconnect();
+        }
       };
 
       ws.onerror = () => {
@@ -297,6 +305,71 @@ export class RoomSession {
         reject(new Error("WebSocket connection failed"));
       };
     });
+  }
+
+  private scheduleReconnect(): void {
+    if (
+      this.reconnecting ||
+      this.reconnectAttempts >= RoomSession.MAX_RECONNECT_ATTEMPTS
+    ) {
+      return;
+    }
+    this.reconnecting = true;
+    const delay =
+      RoomSession.RECONNECT_BASE_DELAY * Math.pow(2, this.reconnectAttempts);
+    setTimeout(() => this.attemptReconnect(), delay);
+  }
+
+  private attemptReconnect(): void {
+    if (this.intentionalClose || this.purgeInitiated) {
+      this.reconnecting = false;
+      return;
+    }
+    this.reconnectAttempts++;
+
+    const wsUrl = this.getWebSocketUrl();
+    this.ws = new WebSocket(wsUrl);
+
+    this.ws.onopen = () => {
+      this.reconnecting = false;
+      this.reconnectAttempts = 0;
+      this.onConnectionChanged?.(true);
+
+      // Re-generate one-time keys for key exchange with existing members
+      generateOneTimeKeys(this.account!, 10);
+      const oneTimeKeys = getOneTimeKeys(this.account!);
+      markKeysAsPublished(this.account!);
+
+      const joinMsg: JoinMessage = {
+        type: "join",
+        identityKey: this.identityKey,
+        ed25519Key: this.ed25519Key,
+        oneTimeKeys,
+        displayName: this.displayName,
+      };
+      this.ws!.send(JSON.stringify(joinMsg));
+    };
+
+    this.ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data as string) as ServerMessage;
+        this.handleServerMessage(msg);
+      } catch {
+        // Invalid server message — ignore silently
+      }
+    };
+
+    this.ws.onclose = () => {
+      this.onConnectionChanged?.(false);
+      if (!this.intentionalClose && !this.purgeInitiated) {
+        this.scheduleReconnect();
+      }
+    };
+
+    this.ws.onerror = () => {
+      this.reconnecting = false;
+      this.onConnectionChanged?.(false);
+    };
   }
 
   /**
@@ -550,6 +623,7 @@ export class RoomSession {
    * Disconnect and clean up.
    */
   disconnect(): void {
+    this.intentionalClose = true;
     if (this.ws) {
       this.ws.close();
       this.ws = null;
