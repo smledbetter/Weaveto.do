@@ -193,11 +193,8 @@ export function getStoredCredentialId(): Uint8Array | null {
  * Get the relying party ID. Uses localhost in dev, weaveto.do in production.
  */
 function getRpId(): string {
-  if (
-    typeof window !== "undefined" &&
-    window.location.hostname === "localhost"
-  ) {
-    return "localhost";
+  if (typeof window !== "undefined") {
+    return window.location.hostname;
   }
   return RP_ID;
 }

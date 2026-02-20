@@ -440,10 +440,11 @@
 			// WebAuthn PRF ceremony: derive a device-bound seed for crypto identity.
 			// In dev mode, skip WebAuthn — identity will be random per session.
 			let prfSeed: Uint8Array | undefined;
-			if (import.meta.env.DEV) {
-				// Dev mode: use a deterministic seed so PIN flow works for testing
+			if (import.meta.env.DEV || import.meta.env.VITE_WEBAUTHN_BYPASS === 'true') {
+				// Bypass mode: unique seed per tab so multiple users can join the same room
 				const encoder = new TextEncoder();
-				const seedMaterial = await crypto.subtle.digest('SHA-256', encoder.encode(`dev-prf-seed-${roomId}`));
+				const nonce = crypto.randomUUID();
+				const seedMaterial = await crypto.subtle.digest('SHA-256', encoder.encode(`dev-prf-seed-${roomId}-${nonce}`));
 				prfSeed = new Uint8Array(seedMaterial);
 			} else {
 				const storedCred = getStoredCredentialId();
