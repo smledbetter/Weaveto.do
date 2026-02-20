@@ -1293,25 +1293,7 @@
 		50% { opacity: 0.5; }
 	}
 
-	.theme-toggle-btn {
-		background: none;
-		border: 1px solid var(--border-default);
-		color: var(--text-secondary);
-		width: 1.75rem;
-		height: 1.75rem;
-		border-radius: 50%;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 0.85rem;
-		line-height: 1;
-		padding: 0;
-	}
-
-	.theme-toggle-btn:hover { border-color: var(--border-strong); color: var(--text-primary); }
-
-	.room-info-dropdown-wrapper {
+.room-info-dropdown-wrapper {
 		position: relative;
 	}
 
