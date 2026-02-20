@@ -12,6 +12,7 @@
 	import type { TaskEvent, Task } from '$lib/tasks/types';
 	import TaskPanel from '$lib/components/TaskPanel.svelte';
 	import AgentPanel from '$lib/components/AgentPanel.svelte';
+	import CoachMarks from '$lib/components/CoachMarks.svelte';
 	import { ShortcutManager } from '$lib/keyboard/shortcuts';
 	import { AgentExecutor } from '$lib/agents/executor';
 	import type { AgentManifest, StoredAgentModule } from '$lib/agents/types';
@@ -907,6 +908,14 @@
 				</div>
 			{/if}
 
+			{#if !showTaskPanel && taskCount === 0}
+				<div class="task-prompt" role="status">
+					<button class="task-prompt-btn" onclick={() => { showTaskPanel = true; }}>
+						No tasks yet — create one to get started
+					</button>
+				</div>
+			{/if}
+
 			{#if autoDeleteExpiresAt}
 				<div class="auto-delete-container">
 					<AutoDeleteBanner
@@ -1737,5 +1746,33 @@
 		margin: 0;
 		color: var(--text-secondary);
 		line-height: 1.4;
+	}
+
+	.task-prompt {
+		padding: 0.5rem 1rem;
+		text-align: center;
+		border-bottom: 1px solid var(--border-subtle);
+	}
+
+	.task-prompt-btn {
+		background: none;
+		border: 1px dashed var(--border-default);
+		color: var(--text-secondary);
+		padding: 0.5rem 1rem;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 0.85rem;
+		width: 100%;
+		max-width: 400px;
+	}
+
+	.task-prompt-btn:hover {
+		border-color: var(--accent-default);
+		color: var(--accent-default);
+	}
+
+	.task-prompt-btn:focus-visible {
+		outline: 2px solid var(--accent-default);
+		outline-offset: 2px;
 	}
 </style>
