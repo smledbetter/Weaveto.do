@@ -59,7 +59,7 @@ test.describe("Room Creation Flow", () => {
       "End-to-end encrypted",
     );
     await expect(page.locator("button.invite-btn")).toBeVisible();
-    await expect(page.locator(".member-count")).toContainText("member");
+    await expect(page.locator(".room-info-btn")).toBeVisible();
     await expect(page.locator(".composer input")).toBeVisible();
     await expect(
       page.locator(".composer button", { hasText: "Send" }),
