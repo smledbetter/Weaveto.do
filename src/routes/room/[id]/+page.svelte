@@ -105,7 +105,7 @@
 		reminderNotice = `Reminder: "${task.title}" is due soon`;
 		// Try browser Notification API
 		if (browser && 'Notification' in window && Notification.permission === 'granted') {
-			new Notification('Task Reminder', { body: `"${task.title}" is due soon` });
+			new Notification('Task Reminder', { body: 'A task is due soon — open Weave to view details' });
 		}
 		// Auto-dismiss after 8 seconds
 		setTimeout(() => { if (reminderNotice) reminderNotice = ''; }, 8000);

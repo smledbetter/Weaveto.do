@@ -1,8 +1,8 @@
 # Project State
 
-Last updated: 2026-02-16
+Last updated: 2026-02-19
 
-## Current Milestone: M7 — Agent Hardening
+## Current Milestone: M8 — Vulnerability Scanning
 
 ### What's Done
 
@@ -126,18 +126,31 @@ Last updated: 2026-02-16
 - Structured clone fix: JSON.parse/stringify for manifest objects (JSON imports have non-clonable prototypes)
 - Removed ArrayBuffer transfer list (prevents detachment on agent reactivation)
 - No console.log/console.warn in agent runtime (security requirement)
-- 372 unit tests (30 new), 119 E2E tests (all agent tests pass), 0 regressions
+- 372 unit tests (30 new), 119 E2E tests, 0 regressions
 - Ship-readiness audit: TypeScript clean, no console violations, Worker isolation verified
 - See: `docs/milestones/M7-agent-hardening/`
 
-### What's Next (M8 — Vulnerability Scanning)
+**M8 — Vulnerability Scanning** (Complete)
+- Security audit across all shipped milestones (M0-M7), ~3,500 lines, 5 audit areas
+- 2 critical, 9 high, 18 medium, 24 low, 23 info findings identified
+- All critical + high findings fixed (except 1 high deferred — no upload UI exists yet)
+- Relay hardening: rate limiting (30 msg/sec), connection limits (10K rooms, 5K connections, 50/room, 10/IP)
+- Relay security: sender identity verification, origin validation, identity key collision handling
+- Agent validation: host helpers routed through validateEmittedEvent, main-thread re-validation
+- Client cleanup: console.* removed (reminders, service worker, runtime), prfSeed cleared on disconnect
+- Notification body changed to generic message (no plaintext task titles in browser notifications)
+- 389 unit tests, 0 regressions
+- See: `docs/milestones/M8-vulnerability-scanning/`
 
-Security vulnerability scanning across all shipped milestones.
+### What's Next (M9 — Encrypted Notifications)
+
+Expanded service worker notifications and Web Push API integration.
 
 ### Known Issues
 
 - Service worker notifications show generic body (no decrypted task titles)
 - 24 pre-existing E2E test failures (PIN, task intelligence, task polish — not M7 regressions)
+- 3 pre-existing TypeScript errors in `PinEntry.svelte` (2) and `PinPolicyToggle.svelte` (1) from M6. These are Svelte 5 type inference issues that don't affect runtime behavior. Accepted baseline for `npm run check` gate — verified via stash comparison at M8 ship.
 
 ### Milestone Roadmap
 
@@ -153,7 +166,7 @@ Security vulnerability scanning across all shipped milestones.
 | M5.5 | UX Polish | Complete |
 | M6 | Session Security | Complete |
 | M7 | Agent Hardening | Complete |
-| M8 | Vulnerability Scanning | Not Started |
+| M8 | Vulnerability Scanning | Complete |
 | M9 | Encrypted Notifications | Not Started |
 | M10 | Offline & Sync | Not Started |
 

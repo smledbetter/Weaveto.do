@@ -554,6 +554,9 @@ export class RoomSession {
       this.ws = null;
     }
     this.account = null;
+    this.prfSeed = null;
+    this.identityKey = "";
+    this.ed25519Key = "";
     this.outboundSession = null;
     this.olmSessions.clear();
     this.inboundSessions.clear();

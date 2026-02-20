@@ -16,10 +16,13 @@ vi.mock("../../src/lib/agents/state", () => ({
   saveState: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Mock runtime state loading (happens on main thread before sending to worker)
+// Mock runtime functions used by executor on main thread
 vi.mock("../../src/lib/agents/runtime", () => ({
   loadAgentState: vi.fn().mockResolvedValue(undefined),
   flushAgentState: vi.fn().mockResolvedValue(undefined),
+  // Stub as passthrough — executor calls this for defense-in-depth re-validation.
+  // Default mock (no-op) lets valid events through; tests can override to throw.
+  validateEmittedEvent: vi.fn(),
 }));
 
 function makeModule(name: string = "test-agent"): StoredAgentModule {
@@ -246,6 +249,8 @@ describe("AgentExecutor", () => {
     }
     (globalThis as any).Worker = EventEmittingWorker;
 
+    const { validateEmittedEvent } = await import("../../src/lib/agents/runtime");
+
     const executor2 = new AgentExecutor("room-1", null, (event) => {
       emittedEvents.push(event);
     });
@@ -258,10 +263,86 @@ describe("AgentExecutor", () => {
       actorId: "user1",
     });
 
+    // Verify re-validation was called on main thread (defense-in-depth)
+    expect(validateEmittedEvent).toHaveBeenCalledTimes(1);
+    expect(validateEmittedEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "task_assigned", taskId: "t1" }),
+      "room-1:test-agent",
+      expect.any(Array),
+    );
     expect(emittedEvents).toHaveLength(1);
     expect(emittedEvents[0].type).toBe("task_assigned");
 
     await executor2.shutdown();
     (globalThis as any).Worker = MockWorker;
+  });
+
+  it("drops events when main-thread re-validation rejects", async () => {
+    const { validateEmittedEvent } = await import("../../src/lib/agents/runtime");
+    const mockValidate = validateEmittedEvent as ReturnType<typeof vi.fn>;
+
+    // Make validateEmittedEvent throw (simulating invalid event)
+    mockValidate.mockImplementation(() => {
+      throw new Error("Disallowed event type");
+    });
+
+    // Override MockWorker to return an emitted event
+    const OrigMock = MockWorker;
+    class RejectingWorker extends OrigMock {
+      postMessage(request: any, transfer?: any): void {
+        if (this.terminated) return;
+        this.postMessageCalls.push(request);
+        queueMicrotask(() => {
+          if (this.terminated) return;
+          if (request.type === "call" && request.fn === "on_task_event") {
+            const response = {
+              type: "call_ok" as const,
+              id: request.id,
+              stateCache: null,
+              stateDirty: false,
+              emittedEvents: [
+                {
+                  type: "task_assigned",
+                  taskId: "t1",
+                  task: { assignee: "attacker" },
+                  timestamp: Date.now(),
+                  actorId: "agent:malicious",
+                },
+              ],
+            };
+            const handlers = (this as any).listeners?.get("message");
+            if (handlers) {
+              for (const handler of handlers) {
+                handler({ data: response } as any);
+              }
+            }
+          } else {
+            super.postMessage(request, transfer);
+            this.postMessageCalls.pop();
+          }
+        });
+      }
+    }
+    (globalThis as any).Worker = RejectingWorker;
+
+    const executor2 = new AgentExecutor("room-1", null, (event) => {
+      emittedEvents.push(event);
+    });
+    await executor2.activate(makeModule());
+    await executor2.dispatchTaskEvent({
+      type: "task_created",
+      taskId: "t1",
+      task: { title: "Test" },
+      timestamp: Date.now(),
+      actorId: "user1",
+    });
+
+    // Event should be dropped — validateEmittedEvent threw
+    expect(mockValidate).toHaveBeenCalled();
+    expect(emittedEvents).toHaveLength(0);
+
+    await executor2.shutdown();
+    (globalThis as any).Worker = MockWorker;
+    mockValidate.mockReset();
   });
 });

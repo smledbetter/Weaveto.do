@@ -31,8 +31,8 @@ let reminderCheckInterval: ReturnType<typeof setInterval> | null = null;
 async function initReminders() {
   try {
     reminderDb = await initReminderDB();
-  } catch (err) {
-    console.error('Failed to initialize reminder DB:', err);
+  } catch {
+    // Silent failure — reminder DB unavailable
   }
 }
 
@@ -69,8 +69,8 @@ async function checkAndFireReminders() {
         });
       }
     }
-  } catch (err) {
-    console.error('Error checking reminders:', err);
+  } catch {
+    // Silent failure — reminder check error
   }
 }
 
@@ -125,7 +125,6 @@ self.addEventListener('message', async (event) => {
   const message = event.data as ReminderMessage;
 
   if (!reminderDb) {
-    console.warn('Reminder DB not initialized');
     return;
   }
 
@@ -135,8 +134,8 @@ self.addEventListener('message', async (event) => {
     } else if (message.type === 'CANCEL_REMINDER') {
       await cancelReminder(reminderDb, message.taskId);
     }
-  } catch (err) {
-    console.error('Error handling reminder message:', err);
+  } catch {
+    // Silent failure — reminder message handling error
   }
 });
 

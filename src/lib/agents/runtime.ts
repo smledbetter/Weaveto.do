@@ -164,9 +164,6 @@ export function buildHostImports(
       ? (ptr: number, len: number) => {
           // M-1: Enforce MAX_STATE_SIZE on write
           if (len > MAX_STATE_SIZE) {
-            console.warn(
-              `[agent:${context.moduleId}] State exceeds max size (${len} > ${MAX_STATE_SIZE})`,
-            );
             return;
           }
           context.stateCache = readBytesFromMemory(memory, ptr, len);
@@ -218,7 +215,12 @@ export function buildHostImports(
               timestamp: Date.now(),
               actorId: `agent:${context.moduleId}`,
             };
-            context.onEmitEvent(event);
+            try {
+              validateEmittedEvent(event, context.moduleId, context.tasks);
+              context.onEmitEvent(event);
+            } catch {
+              // Silently drop invalid events (no console in production)
+            }
           }
         : () => {},
 
@@ -246,7 +248,12 @@ export function buildHostImports(
               timestamp: Date.now(),
               actorId: `agent:${context.moduleId}`,
             };
-            context.onEmitEvent(event);
+            try {
+              validateEmittedEvent(event, context.moduleId, context.tasks);
+              context.onEmitEvent(event);
+            } catch {
+              // Silently drop invalid events (no console in production)
+            }
           }
         : () => {},
 
@@ -505,8 +512,7 @@ export async function loadAgentState(context: HostContext): Promise<void> {
     if (encrypted) {
       context.stateCache = await decryptState(context.stateKey, encrypted);
     }
-  } catch (e) {
-    console.warn(`[agent:${context.moduleId}] Failed to load state:`, e);
+  } catch {
     context.stateCache = null;
   }
 }
@@ -524,8 +530,8 @@ export async function flushAgentState(context: HostContext): Promise<void> {
     await saveState(db, context.roomId, context.moduleId, encrypted);
     db.close();
     context.stateDirty = false;
-  } catch (e) {
-    console.warn(`[agent:${context.moduleId}] Failed to flush state:`, e);
+  } catch {
+    // Flush failed — silent failure
   }
 }
 

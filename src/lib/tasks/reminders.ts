@@ -39,7 +39,6 @@ export class ReminderScheduler {
         // Note: We don't have the full task object from SW,
         // but in the real app the component will update from the socket.
         // This is mainly to ensure UI responsiveness.
-        console.log("Reminder fired from service worker:", event.data.taskId);
       }
     });
   }
@@ -52,8 +51,8 @@ export class ReminderScheduler {
 
     try {
       this.swController.controller.postMessage(message);
-    } catch (err) {
-      console.error("Failed to post to service worker:", err);
+    } catch {
+      // Silent failure — service worker may be unavailable
     }
   }
 

@@ -9,7 +9,7 @@ import type { RoomMember } from "$lib/room/session";
 import type { StoredAgentModule } from "./types";
 import { TICK_INTERVAL_MS, CALL_TIMEOUT_MS } from "./types";
 import { deriveAgentStateKey, encryptState } from "./state";
-import { loadAgentState, flushAgentState } from "./runtime";
+import { loadAgentState, flushAgentState, validateEmittedEvent } from "./runtime";
 import type {
   WorkerRequest,
   WorkerResponse,
@@ -306,11 +306,13 @@ export class AgentExecutor {
     );
 
     if (response.type === "call_ok") {
-      // Process emitted events
+      // Process emitted events — re-validate on main thread as defense-in-depth
       for (const event of response.emittedEvents) {
         try {
-          this.onEmitEvent(event as TaskEvent);
-        } catch (e) {
+          const taskEvent = event as TaskEvent;
+          validateEmittedEvent(taskEvent, moduleId, this.currentTasks);
+          this.onEmitEvent(taskEvent);
+        } catch {
           // Invalid event — drop silently
         }
       }

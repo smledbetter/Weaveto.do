@@ -27,6 +27,14 @@ const MAX_ONE_TIME_KEYS = 20;
 const MAX_MESSAGE_SIZE = 131072; // 128KB
 const ROOM_ID_PATTERN = /^[a-f0-9]{32}$/;
 
+// --- Rate limiting / connection limit constants ---
+
+const MAX_ROOMS = 10_000;
+const MAX_CONNECTIONS = 5_000;
+const MAX_CLIENTS_PER_ROOM = 50;
+const MAX_CONNECTIONS_PER_IP = 10;
+const MSG_RATE_LIMIT = 30; // messages per second per connection
+
 // --- Types ---
 
 interface RoomClient {
@@ -158,11 +166,26 @@ function validateMessage(raw: unknown): ValidatedMessage | null {
 
 const rooms = new Map<string, Room>();
 
+// --- Connection tracking ---
+
+/** Total active WebSocket connections across all rooms */
+let totalConnections = 0;
+
+/** Active connections per IP address */
+const connectionsPerIp = new Map<string, number>();
+
+// --- Allowed origins ---
+
+const ALLOWED_ORIGINS = new Set([
+  "http://localhost:5173",
+  "https://weaveto.do",
+]);
+
 // --- Server ---
 
 const server = createServer((_req, res) => {
-  res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("weaveto.do relay server");
+  res.writeHead(200);
+  res.end("OK");
 });
 
 const wss = new WebSocketServer({ noServer: true });
@@ -174,6 +197,30 @@ server.on("upgrade", (request, socket, head) => {
   delete request.headers["user-agent"];
   delete request.headers["referer"];
   delete request.headers["accept-language"];
+
+  // Origin validation — allow browser origins we serve and non-browser clients
+  const origin = request.headers.origin;
+  if (origin !== undefined && !ALLOWED_ORIGINS.has(origin)) {
+    socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+
+  // Connection limit check
+  if (totalConnections >= MAX_CONNECTIONS) {
+    socket.write("HTTP/1.1 503 Service Unavailable\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+
+  // Per-IP connection limit check
+  const ip = request.socket.remoteAddress ?? "unknown";
+  const ipCount = connectionsPerIp.get(ip) ?? 0;
+  if (ipCount >= MAX_CONNECTIONS_PER_IP) {
+    socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
+    socket.destroy();
+    return;
+  }
 
   const url = parse(request.url || "", true);
   const pathParts = (url.pathname || "").split("/").filter(Boolean);
@@ -192,47 +239,78 @@ server.on("upgrade", (request, socket, head) => {
     return;
   }
 
+  // Track IP and total before handing off
+  connectionsPerIp.set(ip, ipCount + 1);
+  totalConnections++;
+
   wss.handleUpgrade(request, socket, head, (ws) => {
-    wss.emit("connection", ws, request, roomId);
+    wss.emit("connection", ws, request, roomId, ip);
   });
 });
 
-wss.on("connection", (ws: WebSocket, _req: unknown, roomId: string) => {
-  let client: RoomClient | null = null;
+wss.on(
+  "connection",
+  (ws: WebSocket, _req: unknown, roomId: string, ip: string) => {
+    let client: RoomClient | null = null;
 
-  ws.on("message", (data) => {
-    // Enforce max message size
-    const raw = data.toString();
-    if (raw.length > MAX_MESSAGE_SIZE) {
-      ws.close(4001, "Message too large");
-      return;
-    }
+    // Per-connection message timestamps for rate limiting
+    const msgTimestamps: number[] = [];
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      ws.close(4002, "Invalid JSON");
-      return;
-    }
+    ws.on("message", (data) => {
+      // Rate limiting: allow at most MSG_RATE_LIMIT messages per second
+      const now = Date.now();
+      // Drop timestamps older than 1 second
+      while (msgTimestamps.length > 0 && now - msgTimestamps[0] > 1000) {
+        msgTimestamps.shift();
+      }
+      if (msgTimestamps.length >= MSG_RATE_LIMIT) {
+        ws.close(4029, "Rate limit exceeded");
+        return;
+      }
+      msgTimestamps.push(now);
 
-    const msg = validateMessage(parsed);
-    if (!msg) {
-      ws.close(4003, "Invalid message schema");
-      return;
-    }
+      // Enforce max message size
+      const raw = data.toString();
+      if (raw.length > MAX_MESSAGE_SIZE) {
+        ws.close(4001, "Message too large");
+        return;
+      }
 
-    handleMessage(roomId, ws, msg, client, (c) => {
-      client = c;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        ws.close(4002, "Invalid JSON");
+        return;
+      }
+
+      const msg = validateMessage(parsed);
+      if (!msg) {
+        ws.close(4003, "Invalid message schema");
+        return;
+      }
+
+      handleMessage(roomId, ws, msg, client, (c) => {
+        client = c;
+      });
     });
-  });
 
-  ws.on("close", () => {
-    if (client) {
-      removeClient(roomId, client.identityKey);
-    }
-  });
-});
+    ws.on("close", () => {
+      // Decrement IP counter
+      const ipCount = connectionsPerIp.get(ip) ?? 1;
+      if (ipCount <= 1) {
+        connectionsPerIp.delete(ip);
+      } else {
+        connectionsPerIp.set(ip, ipCount - 1);
+      }
+      totalConnections = Math.max(0, totalConnections - 1);
+
+      if (client) {
+        removeClient(roomId, client.identityKey);
+      }
+    });
+  },
+);
 
 function handleMessage(
   roomId: string,
@@ -246,13 +324,13 @@ function handleMessage(
       handleJoin(roomId, ws, msg, setClient);
       break;
     case "key_share":
-      handleKeyShare(roomId, msg);
+      handleKeyShare(roomId, msg, client);
       break;
     case "encrypted":
       handleEncrypted(roomId, msg, client);
       break;
     case "purge":
-      handlePurge(roomId, ws, msg);
+      handlePurge(roomId, ws, msg, client);
       break;
   }
 }
@@ -272,12 +350,32 @@ function handleJoin(
       ws.close(4004, "Room not found");
       return;
     }
+    // Enforce room count limit
+    if (rooms.size >= MAX_ROOMS) {
+      ws.send(JSON.stringify({ type: "server_full" }));
+      ws.close(4008, "Server full");
+      return;
+    }
     room = {
       clients: new Map(),
       creatorIdentityKey: msg.identityKey,
       ephemeral: msg.ephemeral ?? false,
     };
     rooms.set(roomId, room);
+  }
+
+  // Enforce per-room client limit
+  if (room.clients.size >= MAX_CLIENTS_PER_ROOM) {
+    ws.send(JSON.stringify({ type: "room_full" }));
+    ws.close(4009, "Room full");
+    return;
+  }
+
+  // Identity key collision: close the old connection before inserting the new one
+  const existing = room.clients.get(msg.identityKey);
+  if (existing) {
+    existing.ws.close(4005, "Replaced by new connection");
+    room.clients.delete(msg.identityKey);
   }
 
   const client: RoomClient = {
@@ -319,9 +417,17 @@ function handleJoin(
   room.clients.set(msg.identityKey, client);
 }
 
-function handleKeyShare(roomId: string, msg: ValidatedKeyShareMessage): void {
+function handleKeyShare(
+  roomId: string,
+  msg: ValidatedKeyShareMessage,
+  client: RoomClient | null,
+): void {
   const room = rooms.get(roomId);
   if (!room) return;
+
+  // Verify the sender is actually in the room and is who they claim to be
+  if (!client || !room.clients.has(client.identityKey)) return;
+  if (msg.senderIdentityKey !== client.identityKey) return;
 
   const target = room.clients.get(msg.targetIdentityKey);
   if (target && target.ws.readyState === WebSocket.OPEN) {
@@ -338,6 +444,9 @@ function handleEncrypted(
   const room = rooms.get(roomId);
   if (!room || !sender) return;
 
+  // Verify the sender is who they claim to be
+  if (msg.senderIdentityKey !== sender.identityKey) return;
+
   // Relay ciphertext to all other members — server cannot decrypt
   const serialized = JSON.stringify(msg);
   for (const [key, client] of room.clients) {
@@ -351,6 +460,7 @@ function handlePurge(
   roomId: string,
   ws: WebSocket,
   msg: ValidatedPurgeMessage,
+  client: RoomClient | null,
 ): void {
   const room = rooms.get(roomId);
   if (!room) {
@@ -358,8 +468,8 @@ function handlePurge(
     return;
   }
 
-  // Only the creator can purge
-  if (room.creatorIdentityKey !== msg.identityKey) {
+  // Only the creator can purge — use the connection's actual identity, not self-reported msg.identityKey
+  if (room.creatorIdentityKey !== client?.identityKey) {
     ws.send(JSON.stringify({ type: "purge_unauthorized" }));
     return;
   }
@@ -370,9 +480,9 @@ function handlePurge(
     reason: "manual",
   });
 
-  for (const [, client] of room.clients) {
-    if (client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(destroyMsg);
+  for (const [, c] of room.clients) {
+    if (c.ws.readyState === WebSocket.OPEN) {
+      c.ws.send(destroyMsg);
     }
   }
 
@@ -383,9 +493,9 @@ function handlePurge(
   // to allow clients to process the room_destroyed message
   const clientsToClose = Array.from(room.clients.values());
   setTimeout(() => {
-    for (const client of clientsToClose) {
-      if (client.ws.readyState === WebSocket.OPEN) {
-        client.ws.close(4000, "Room purged");
+    for (const c of clientsToClose) {
+      if (c.ws.readyState === WebSocket.OPEN) {
+        c.ws.close(4000, "Room purged");
       }
     }
   }, 100);
