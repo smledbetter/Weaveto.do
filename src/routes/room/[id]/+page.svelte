@@ -1170,6 +1170,13 @@
 		flex-shrink: 0;
 	}
 
+	header button:focus-visible,
+	.room-info-btn:focus-visible,
+	.room-info-dropdown .dropdown-action:focus-visible {
+		outline: 2px solid var(--accent-default);
+		outline-offset: 2px;
+	}
+
 	.room-info {
 		display: flex;
 		align-items: center;
