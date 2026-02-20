@@ -174,10 +174,12 @@ export function createInboundSession(
     message.messageType,
     message.ciphertext,
   );
-  return {
-    session: result.session,
-    plaintext: decoder.decode(result.plaintext),
-  };
+  // IMPORTANT: access plaintext BEFORE session — the session getter
+  // consumes the underlying WASM object (calls __destroy_into_raw),
+  // making the plaintext getter throw "null pointer passed to rust".
+  const plaintext = decoder.decode(result.plaintext);
+  const session = result.session;
+  return { session, plaintext };
 }
 
 export function olmEncrypt(

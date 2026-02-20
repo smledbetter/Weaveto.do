@@ -17,6 +17,7 @@ import {
   createOutboundSession,
   createInboundSession,
   olmEncrypt,
+  olmDecrypt,
   createGroupSession,
   getGroupSessionKey,
   getGroupSessionId,
@@ -635,8 +636,8 @@ export class RoomSession {
         olmMessage: encrypted,
       };
       this.ws!.send(JSON.stringify(keyShareMsg));
-    } catch (e) {
-      // Olm session establishment failed — member won't receive our Megolm key
+    } catch {
+      // Olm session creation failed — skip key share for this member
     }
   }
 
@@ -645,14 +646,23 @@ export class RoomSession {
     if (msg.targetIdentityKey !== this.identityKey) return;
 
     try {
-      // Create inbound Olm session and decrypt the key share
-      const { session, plaintext } = createInboundSession(
-        this.account,
-        msg.senderIdentityKey,
-        msg.olmMessage,
-      );
+      let plaintext: string;
+      const existingOlm = this.olmSessions.get(msg.senderIdentityKey);
+      const hadExistingSession = !!existingOlm;
 
-      this.olmSessions.set(msg.senderIdentityKey, session);
+      if (existingOlm) {
+        // Already have an Olm session (we initiated the key exchange) — decrypt with it
+        plaintext = olmDecrypt(existingOlm, msg.olmMessage);
+      } else {
+        // No existing session — create an inbound Olm session
+        const result = createInboundSession(
+          this.account,
+          msg.senderIdentityKey,
+          msg.olmMessage,
+        );
+        this.olmSessions.set(msg.senderIdentityKey, result.session);
+        plaintext = result.plaintext;
+      }
 
       // Parse the Megolm session key
       const keyData = JSON.parse(plaintext) as {
@@ -671,8 +681,39 @@ export class RoomSession {
       // Create inbound Megolm session
       const inbound = createInboundGroupSession(keyData.sessionKey);
       this.inboundSessions.set(keyData.sessionId, inbound);
-    } catch (e) {
-      // Key share decryption failed — won't be able to decrypt this sender's messages
+
+      // Reciprocate: share our Megolm key back so they can decrypt our messages.
+      // Only do this if we didn't initiate the exchange (to prevent infinite loops).
+      if (
+        !hadExistingSession &&
+        this.outboundSession &&
+        this.ws?.readyState === WebSocket.OPEN
+      ) {
+        try {
+          const olmSession = this.olmSessions.get(msg.senderIdentityKey);
+          if (olmSession) {
+            const ourSessionKey = getGroupSessionKey(this.outboundSession);
+            const ourKeyPayload = JSON.stringify({
+              sessionId: this.outboundSessionId,
+              sessionKey: ourSessionKey,
+              senderIdentityKey: this.identityKey,
+            });
+            const encrypted = olmEncrypt(olmSession, ourKeyPayload);
+            this.ws.send(
+              JSON.stringify({
+                type: "key_share",
+                targetIdentityKey: msg.senderIdentityKey,
+                senderIdentityKey: this.identityKey,
+                olmMessage: encrypted,
+              }),
+            );
+          }
+        } catch {
+          // Reciprocal key share failed — they will not receive our Megolm key
+        }
+      }
+    } catch {
+      // Key share decryption failed — ignore silently
     }
   }
 
@@ -781,9 +822,13 @@ export class RoomSession {
   }
 
   private getWebSocketUrl(): string {
+    const envUrl = import.meta.env.VITE_RELAY_URL;
+    if (envUrl) {
+      return `${envUrl}/room/${this.roomId}`;
+    }
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.hostname;
-    const port = 3001; // Relay server port
+    const port = 3001;
     return `${protocol}//${host}:${port}/room/${this.roomId}`;
   }
 }
