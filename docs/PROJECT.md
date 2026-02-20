@@ -27,7 +27,7 @@ No accounts, no tracking, no persistence beyond what's necessary.
 | M1 | Task Management | Complete | Event-sourced tasks, auto-assign agent, in-tab reminders |
 | M2 | Task Intelligence | Complete | Natural language dates, task dependencies, progress visibility, service worker reminders, keyboard shortcuts, inline editing |
 | M3 | Agent Infrastructure | Complete | WASM agent sandboxing, persistent encrypted state, agent module upload, security hardening |
-| M3.5 | Built-In Agent | Complete | Auto-balance WAT agent (default-on), first-run toast, built-in badge, binary host helpers |
+| M3.5 | Built-In Agents | Complete | Auto-balance + Unblock WAT agents (default-on), first-run toast, built-in badge, binary host helpers |
 | M4 | Task Polish | Complete | Task descriptions, due date sorting, quick-pick dates, urgent flag, room search |
 | M5 | Burn-After-Use | Complete | Auto-deletion (24h grace period), manual `/burn` (creator-only), ephemeral mode, 6-layer cleanup |
 | M5.5 | UX Polish | Complete | Memorable room names, onboarding copy, mode clarity, display name visibility, agent panel explainer |

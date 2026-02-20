@@ -1,0 +1,8 @@
+{
+  "name": "unblock",
+  "version": "1.0.0",
+  "description": "Flags blocker tasks as urgent when they're holding up 2+ other tasks.",
+  "author": "weaveto.do",
+  "wasmHash": "58aa4498e6a7021017be672566e40eb4393ff6005b0014c69c4fd64015d1431f",
+  "permissions": ["read_tasks", "emit_events"]
+}

@@ -12,7 +12,13 @@
 import type { Task, TaskEvent } from "$lib/tasks/types";
 import type { RoomMember } from "$lib/room/session";
 import type { AgentExports, AgentManifest, AgentPermission } from "./types";
-import { CALL_TIMEOUT_MS, MAX_MEMORY_PAGES, MAX_STATE_SIZE } from "./types";
+import {
+  CALL_TIMEOUT_MS,
+  MAX_MEMORY_PAGES,
+  MAX_STATE_SIZE,
+  DEP_TASK_ID_SIZE,
+  DEP_TASK_RECORD_SIZE,
+} from "./types";
 import {
   encryptState,
   decryptState,
@@ -216,6 +222,34 @@ export function buildHostImports(
           }
         : () => {},
 
+    // Binary dependency graph data for bottleneck detection (e.g. hand-written WAT).
+    // Returns compact binary: [u32 taskCount][task records with dependentCount]
+    host_get_dependency_data: has("read_tasks")
+      ? (buf_ptr: number, buf_len: number) => {
+          const data = buildDependencyData(context.tasks);
+          return writeBytesToMemory(memory, buf_ptr, buf_len, data);
+        }
+      : () => 0,
+
+    // High-level urgency helper: agent passes taskId pointer, host builds task_urgency_changed event.
+    host_emit_urgency:
+      has("emit_events") && has("read_tasks")
+        ? (task_id_ptr: number, task_id_len: number) => {
+            const taskId = readStringFromMemory(memory, task_id_ptr, task_id_len);
+            if (!taskId) return;
+            const task = context.tasks.find((t) => t.id === taskId);
+            if (!task || task.urgent) return;
+            const event: TaskEvent = {
+              type: "task_urgency_changed",
+              taskId,
+              task: { urgent: true },
+              timestamp: Date.now(),
+              actorId: `agent:${context.moduleId}`,
+            };
+            context.onEmitEvent(event);
+          }
+        : () => {},
+
     host_log: (_ptr: number, _len: number) => {
       // No-op in production (no console logging allowed)
     },
@@ -230,6 +264,7 @@ const ALLOWED_EVENT_TYPES = new Set([
   "task_assigned",
   "task_status_changed",
   "task_dependencies_changed",
+  "task_urgency_changed",
 ]);
 
 /** Event types that create new tasks (taskId won't exist yet). */
@@ -357,6 +392,67 @@ export function buildAssignmentData(
     // lastActive: 0 for now (executor can update context with real timestamps later)
     view.setUint32(offset, 0, true);
     offset += 4;
+  }
+
+  return buffer;
+}
+
+// --- Dependency Data Builder ---
+
+const STATUS_MAP: Record<string, number> = {
+  pending: 0,
+  in_progress: 1,
+  completed: 2,
+};
+
+/**
+ * Build compact binary format for bottleneck detection agents (e.g. hand-written WAT).
+ *
+ * Format:
+ *   [u32: taskCount]                   (little-endian)
+ *   For each task (39 bytes):
+ *     [DEP_TASK_ID_SIZE bytes: taskId UTF-8, zero-padded]
+ *     [u8: status (0=pending, 1=in_progress, 2=completed)]
+ *     [u8: isUrgent (0 or 1)]
+ *     [u8: dependentCount — number of non-completed tasks whose blockedBy includes this taskId, capped at 255]
+ */
+export function buildDependencyData(tasks: Task[]): Uint8Array {
+  // Count how many non-completed tasks depend on each task
+  const dependentCounts = new Map<string, number>();
+  for (const task of tasks) {
+    if (task.status === "completed") continue;
+    if (!task.blockedBy) continue;
+    for (const depId of task.blockedBy) {
+      dependentCounts.set(depId, (dependentCounts.get(depId) ?? 0) + 1);
+    }
+  }
+
+  const headerSize = 4;
+  const totalSize = headerSize + tasks.length * DEP_TASK_RECORD_SIZE;
+  const buffer = new Uint8Array(totalSize);
+  const view = new DataView(buffer.buffer);
+
+  // Header
+  view.setUint32(0, tasks.length, true);
+
+  let offset = 4;
+  for (const task of tasks) {
+    // TaskId (zero-padded to DEP_TASK_ID_SIZE)
+    const idBytes = encoder.encode(task.id.slice(0, DEP_TASK_ID_SIZE));
+    buffer.set(idBytes, offset);
+    offset += DEP_TASK_ID_SIZE;
+
+    // Status
+    buffer[offset] = STATUS_MAP[task.status] ?? 0;
+    offset += 1;
+
+    // isUrgent
+    buffer[offset] = task.urgent ? 1 : 0;
+    offset += 1;
+
+    // dependentCount (capped at 255)
+    buffer[offset] = Math.min(dependentCounts.get(task.id) ?? 0, 255);
+    offset += 1;
   }
 
   return buffer;

@@ -22,7 +22,8 @@ export type TaskEventType =
   | "task_assigned"
   | "task_status_changed"
   | "task_dependencies_changed"
-  | "task_updated";
+  | "task_updated"
+  | "task_urgency_changed";
 
 export interface TaskEvent {
   type: TaskEventType;

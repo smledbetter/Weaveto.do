@@ -5,9 +5,11 @@
  */
 
 import type { AgentManifest, StoredAgentModule } from "./types";
-import manifestJson from "./auto-balance.manifest.json";
+import autoBalanceManifestJson from "./auto-balance.manifest.json";
+import unblockManifestJson from "./unblock.manifest.json";
 
-const manifest = manifestJson as AgentManifest;
+const autoBalanceManifest = autoBalanceManifestJson as AgentManifest;
+const unblockManifest = unblockManifestJson as AgentManifest;
 
 /** Prefix used for built-in agent module IDs. */
 export const BUILTIN_PREFIX = "builtin:";
@@ -27,12 +29,12 @@ function builtInId(roomId: string, name: string): string {
 }
 
 /**
- * Fetch the auto-balance WASM binary from static assets.
+ * Fetch a WASM binary from static assets.
  * Returns null if fetch fails (e.g. offline, missing asset).
  */
-async function fetchAutoBalanceWasm(): Promise<ArrayBuffer | null> {
+async function fetchWasm(path: string): Promise<ArrayBuffer | null> {
   try {
-    const response = await fetch("/agents/auto-balance.wasm");
+    const response = await fetch(path);
     if (!response.ok) return null;
     return await response.arrayBuffer();
   } catch {
@@ -42,31 +44,49 @@ async function fetchAutoBalanceWasm(): Promise<ArrayBuffer | null> {
 
 /**
  * Get all built-in agent modules for a room.
- * Fetches WASM binaries from static assets.
- * Returns empty array if fetch fails.
+ * Fetches WASM binaries from static assets in parallel.
+ * Partial failure safe: if one agent fails to load, others still register.
  */
 export async function getBuiltInAgents(
   roomId: string,
 ): Promise<StoredAgentModule[]> {
-  const wasmBytes = await fetchAutoBalanceWasm();
-  if (!wasmBytes) return [];
+  const [autoBalanceBytes, unblockBytes] = await Promise.all([
+    fetchWasm("/agents/auto-balance.wasm"),
+    fetchWasm("/agents/unblock.wasm"),
+  ]);
 
-  return [
-    {
-      id: builtInId(roomId, manifest.name),
+  const result: StoredAgentModule[] = [];
+
+  if (autoBalanceBytes) {
+    result.push({
+      id: builtInId(roomId, autoBalanceManifest.name),
       roomId,
-      manifest,
-      wasmBytes,
+      manifest: autoBalanceManifest,
+      wasmBytes: autoBalanceBytes,
       uploadedAt: 0,
       active: true,
-    },
-  ];
+    });
+  }
+
+  if (unblockBytes) {
+    result.push({
+      id: builtInId(roomId, unblockManifest.name),
+      roomId,
+      manifest: unblockManifest,
+      wasmBytes: unblockBytes,
+      uploadedAt: 0,
+      active: true,
+    });
+  }
+
+  return result;
 }
 
 /**
  * Get the manifest for a built-in agent by name.
  */
 export function getBuiltInManifest(name: string): AgentManifest | null {
-  if (name === "auto-balance") return manifest;
+  if (name === "auto-balance") return autoBalanceManifest;
+  if (name === "unblock") return unblockManifest;
   return null;
 }

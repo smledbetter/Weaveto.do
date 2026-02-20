@@ -48,14 +48,16 @@ Last updated: 2026-02-16
 - 207 unit tests, 36 E2E tests, 89%+ statement coverage
 - See: `docs/milestones/M3-agent-infra/`
 
-**M3.5 — Built-In Agent** (Complete)
+**M3.5 — Built-In Agents** (Complete)
 - Hand-written WAT auto-balance agent (634 bytes compiled WASM)
-- Binary host helpers (`host_get_assignment_data`, `host_emit_assignment`) for JSON-free WAT consumption
-- Built-in agent registry (fetches from static assets, bypasses IndexedDB)
+- Hand-written WAT unblock agent (528 bytes) — flags blocker tasks as urgent when holding up 2+ other tasks
+- New `task_urgency_changed` event type (narrow write surface for agents — only `urgent` flag)
+- Binary host helpers (`host_get_assignment_data`, `host_emit_assignment`, `host_get_dependency_data`, `host_emit_urgency`)
+- Built-in agent registry with parallel fetch and partial-failure safety
 - Auto-activates on room join with localStorage-based enable/disable
 - First-run disclosure toast (once per browser)
 - AgentPanel: "Built-in" badge, no delete for built-ins, upload form behind "Advanced" toggle
-- 221 unit tests, 40 E2E tests, 0 regressions
+- 389 unit tests, 40 E2E tests, 0 regressions
 - See: `docs/milestones/M3.5-built-in-agent/`
 
 **M4 — Task Polish** (Complete)
@@ -155,10 +157,12 @@ Security vulnerability scanning across all shipped milestones.
 | M9 | Encrypted Notifications | Not Started |
 | M10 | Offline & Sync | Not Started |
 
-#### M3.5 — Built-In Agent (Release Goal)
-Users get automatic task distribution out of the box, with no setup required.
+#### M3.5 — Built-In Agents (Release Goal)
+Users get automatic task distribution and bottleneck detection out of the box, with no setup required.
 - Auto-balance WAT agent (port of autoAssign, default-on)
-- Binary helper import (`host_get_assignment_data`) for WAT consumption
+- Unblock WAT agent (bottleneck detector — flags blocker tasks as urgent, default-on)
+- Binary host helpers (`host_get_assignment_data`, `host_get_dependency_data`) for WAT consumption
+- `task_urgency_changed` event type (narrow agent write surface for urgent flag)
 - First-run disclosure toast on initial activation
 - AgentPanel: built-in badge, description card, last-run timestamp
 - Upload form hidden until M3.6 ships developer tooling

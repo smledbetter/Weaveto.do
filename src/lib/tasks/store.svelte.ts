@@ -35,6 +35,7 @@ class TaskStore {
       case "task_status_changed":
       case "task_dependencies_changed":
       case "task_updated":
+      case "task_urgency_changed":
         this.handleUpdate(event);
         break;
     }

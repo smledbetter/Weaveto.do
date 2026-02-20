@@ -29,6 +29,7 @@ describe("Agent Event Validation", () => {
         "task_assigned",
         "task_status_changed",
         "task_dependencies_changed",
+        "task_urgency_changed",
       ];
       for (const type of allowed) {
         const event = { type, taskId: "t1", task: {} } as TaskEvent;

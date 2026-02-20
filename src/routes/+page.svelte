@@ -206,9 +206,10 @@
 
 	.room-mode-option {
 		position: relative;
-		display: flex;
-		align-items: flex-start;
+		display: grid;
+		grid-template-columns: 1.25rem 1fr 1.25rem;
 		gap: 0.75rem;
+		align-items: center;
 		padding: 1rem;
 		background: var(--bg-surface);
 		border: 2px solid var(--border-default);
@@ -221,7 +222,6 @@
 		cursor: pointer;
 		width: 1.25rem;
 		height: 1.25rem;
-		margin-top: 0.125rem;
 		flex-shrink: 0;
 		accent-color: var(--accent-default);
 	}
@@ -255,6 +255,7 @@
 		cursor: pointer;
 		margin: 0;
 		flex: 1;
+		text-align: center;
 	}
 
 	.mode-title {

@@ -75,6 +75,10 @@ export interface AgentHostImports {
   host_get_event: (buf_ptr: number, buf_len: number) => number;
   /** Log a message (UTF-8 at ptr, len bytes). Written to console with agent prefix. */
   host_log: (ptr: number, len: number) => void;
+  /** Write dependency graph binary data into agent memory. Returns bytes written. */
+  host_get_dependency_data: (buf_ptr: number, buf_len: number) => number;
+  /** Flag a task as urgent by taskId pointer. Host builds the task_urgency_changed event. */
+  host_emit_urgency: (task_id_ptr: number, task_id_len: number) => void;
 }
 
 // --- Runtime State ---
@@ -119,3 +123,10 @@ export const ALL_PERMISSIONS: AgentPermission[] = [
   "emit_events",
   "persist_state",
 ];
+
+// --- Dependency Data Binary Format ---
+
+/** Size of a task ID field in the dependency data binary format (zero-padded UTF-8). */
+export const DEP_TASK_ID_SIZE = 36;
+/** Size of a task record: 36-byte taskId + 1 status + 1 isUrgent + 1 dependentCount = 39 bytes. */
+export const DEP_TASK_RECORD_SIZE = DEP_TASK_ID_SIZE + 3;
