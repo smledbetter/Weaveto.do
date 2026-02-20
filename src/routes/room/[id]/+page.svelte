@@ -51,6 +51,7 @@
 	let phase: 'name' | 'auth' | 'connecting' | 'pin-setup' | 'connected' | 'error' = $state('name');
 	let error = $state('');
 	let showKeyWarning = $state(false);
+	let usingTempIdentity = $state(false);
 	let roomUrl = $derived(browser ? `${window.location.origin}/room/${roomId}` : '');
 
 	// PIN state
@@ -460,10 +461,11 @@
 						result = await createCredential();
 					}
 					prfSeed = result.seed;
-				} catch (prfError) {
+				} catch {
 					// WebAuthn PRF not supported (e.g. mobile browsers) — fall back to random seed.
 					// Identity will be ephemeral (unique per session) but encryption still works.
 					prfSeed = await generateRandomSeed(roomId);
+					usingTempIdentity = true;
 				}
 			}
 
@@ -788,6 +790,12 @@
 				<div class="warning-banner" role="alert">
 					<p>Your encryption keys live only in this tab. If you close it, you'll need to rejoin.</p>
 					<button onclick={dismissKeyWarning}>Got it</button>
+				</div>
+			{/if}
+			{#if usingTempIdentity}
+				<div class="warning-banner temp-identity" role="status">
+					<p>Using temporary identity — your identity will change next session.</p>
+					<button onclick={() => { usingTempIdentity = false; }}>Dismiss</button>
 				</div>
 			{/if}
 			<header>
