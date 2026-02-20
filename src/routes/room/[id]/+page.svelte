@@ -431,6 +431,13 @@
 		sessionStorage.setItem('weave-key-warning-shown', 'true');
 	}
 
+	async function generateRandomSeed(roomId: string): Promise<Uint8Array> {
+		const encoder = new TextEncoder();
+		const nonce = crypto.randomUUID();
+		const seedMaterial = await crypto.subtle.digest('SHA-256', encoder.encode(`dev-prf-seed-${roomId}-${nonce}`));
+		return new Uint8Array(seedMaterial);
+	}
+
 	async function joinRoom() {
 		if (!displayName.trim()) return;
 		phase = 'auth';
@@ -438,23 +445,26 @@
 
 		try {
 			// WebAuthn PRF ceremony: derive a device-bound seed for crypto identity.
-			// In dev mode, skip WebAuthn — identity will be random per session.
+			// In dev/bypass mode, skip WebAuthn — identity will be random per session.
+			// On devices without PRF support, fall back to random seed automatically.
 			let prfSeed: Uint8Array | undefined;
 			if (import.meta.env.DEV || import.meta.env.VITE_WEBAUTHN_BYPASS === 'true') {
-				// Bypass mode: unique seed per tab so multiple users can join the same room
-				const encoder = new TextEncoder();
-				const nonce = crypto.randomUUID();
-				const seedMaterial = await crypto.subtle.digest('SHA-256', encoder.encode(`dev-prf-seed-${roomId}-${nonce}`));
-				prfSeed = new Uint8Array(seedMaterial);
+				prfSeed = await generateRandomSeed(roomId);
 			} else {
-				const storedCred = getStoredCredentialId();
-				let result;
-				if (storedCred) {
-					result = await assertWithPrf(storedCred);
-				} else {
-					result = await createCredential();
+				try {
+					const storedCred = getStoredCredentialId();
+					let result;
+					if (storedCred) {
+						result = await assertWithPrf(storedCred);
+					} else {
+						result = await createCredential();
+					}
+					prfSeed = result.seed;
+				} catch (prfError) {
+					// WebAuthn PRF not supported (e.g. mobile browsers) — fall back to random seed.
+					// Identity will be ephemeral (unique per session) but encryption still works.
+					prfSeed = await generateRandomSeed(roomId);
 				}
-				prfSeed = result.seed;
 			}
 
 			phase = 'connecting';
