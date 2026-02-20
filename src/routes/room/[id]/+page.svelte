@@ -880,6 +880,8 @@
 				</div>
 			</header>
 
+			<CoachMarks />
+
 			<!-- Mobile tab bar (visible <768px when panel is open) -->
 			{#if showTaskPanel || showAgentPanel}
 				<div class="mobile-tabs" role="tablist" aria-label="Room sections">
