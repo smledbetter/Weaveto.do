@@ -33,6 +33,8 @@ vite.config.ts.timestamp-*
 
 # Claude Code local settings (user-specific permissions)
 .claude/settings.local.json
+.claude/skills/
+.claude/commands/
 .claude/projects/
 .claude/plans/
 .claude/teams/
