@@ -89,6 +89,7 @@
 	let agentToast = $state('');
 
 	// Invite modal
+	let showRoomInfo = $state(false);
 	let showInviteModal = $state(false);
 	let inviteBannerDismissed = $state(false);
 	let isSoloMember = $derived(members.size === 0);
@@ -689,6 +690,17 @@
 	<title>{roomName || 'Room'} — weaveto.do</title>
 </svelte:head>
 
+<svelte:window
+	onclick={(e) => {
+		if (showRoomInfo && !(e.target as HTMLElement)?.closest('.room-info-dropdown-wrapper')) {
+			showRoomInfo = false;
+		}
+	}}
+	onkeydown={(e) => {
+		if (e.key === 'Escape' && showRoomInfo) { showRoomInfo = false; }
+	}}
+/>
+
 <main>
 	{#if showKeyWarning && phase !== 'connected' && phase !== 'error'}
 		<div class="warning-banner" role="alert">
@@ -823,18 +835,47 @@
 					<button class="invite-btn" onclick={() => { showInviteModal = true; }}>
 						Invite
 					</button>
-					<span class="member-count">{members.size + 1} {members.size + 1 === 1 ? 'member' : 'members'}</span>
-					{#if displayName}<span class="display-name-tag">You: {displayName}</span>{/if}
-					<span
-					class="connection-dot"
-					class:online={connected}
-					role="status"
-					aria-label={connected ? 'Connected' : 'Disconnected'}
-					title={connected ? 'Connected' : 'Disconnected'}
-				></span>
-					<button class="theme-toggle-btn" onclick={toggleTheme} aria-label="Toggle light/dark mode" title="Toggle light/dark mode">
-						{isDark() ? '\u2600' : '\u263E'}
-					</button>
+					<div class="room-info-dropdown-wrapper">
+						<button
+							class="room-info-btn"
+							onclick={() => { showRoomInfo = !showRoomInfo; }}
+							onkeydown={(e) => { if (e.key === 'Escape' && showRoomInfo) { showRoomInfo = false; e.stopPropagation(); } }}
+							aria-expanded={showRoomInfo}
+							aria-label="Room info"
+						>
+							<span
+								class="connection-dot"
+								class:online={connected}
+							></span>
+							{members.size + 1}
+						</button>
+						{#if showRoomInfo}
+							<div class="room-info-dropdown" role="menu">
+								<div class="dropdown-item info-item">
+									<span
+										class="connection-dot"
+										class:online={connected}
+										role="status"
+										aria-label={connected ? 'Connected' : 'Disconnected'}
+									></span>
+									<span>{connected ? 'Connected' : 'Reconnecting...'}</span>
+								</div>
+								<div class="dropdown-item info-item">
+									<span class="member-count">{members.size + 1} {members.size + 1 === 1 ? 'member' : 'members'}</span>
+								</div>
+								{#if displayName}
+									<div class="dropdown-item info-item">
+										<span class="display-name-tag">You: {displayName}</span>
+									</div>
+								{/if}
+								<div class="dropdown-item">
+									<button class="dropdown-action" onclick={toggleTheme} aria-label="Toggle light/dark mode">
+										{isDark() ? '\u2600 Light mode' : '\u263E Dark mode'}
+									</button>
+								</div>
+							</div>
+						{/if}
+					</div>
 				</div>
 			</header>
 
@@ -1251,6 +1292,64 @@
 	}
 
 	.theme-toggle-btn:hover { border-color: var(--border-strong); color: var(--text-primary); }
+
+	.room-info-dropdown-wrapper {
+		position: relative;
+	}
+
+	.room-info-btn {
+		background: none;
+		border: 1px solid var(--border-default);
+		color: var(--btn-secondary-text);
+		padding: 0.3rem 0.75rem;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.8rem;
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+
+	.room-info-btn:hover { border-color: var(--border-strong); color: var(--btn-secondary-hover-text); }
+
+	.room-info-dropdown {
+		position: absolute;
+		top: 100%;
+		right: 0;
+		margin-top: 0.25rem;
+		background: var(--surface-default);
+		border: 1px solid var(--border-default);
+		border-radius: 6px;
+		box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+		min-width: 180px;
+		z-index: 100;
+		padding: 0.25rem 0;
+	}
+
+	.dropdown-item {
+		padding: 0.5rem 0.75rem;
+	}
+
+	.dropdown-item.info-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.dropdown-action {
+		background: none;
+		border: none;
+		color: var(--text-primary);
+		cursor: pointer;
+		font-size: 0.8rem;
+		padding: 0;
+		width: 100%;
+		text-align: left;
+	}
+
+	.dropdown-action:hover { color: var(--accent-default); }
 
 	/* Mobile tab bar */
 	.mobile-tabs {
