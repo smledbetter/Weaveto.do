@@ -13,7 +13,7 @@ const config = {
           "sha256-94yTjVcb5wUAs+UjAs3xcZX3TtmUCmw2go8N7mk2g3Q=",
         ],
         "style-src": ["self", "unsafe-inline"],
-        "connect-src": ["self", "ws://localhost:3001", "wss://weaveto.do:3001"],
+        "connect-src": ["self", "ws://localhost:3001", "wss://weaveto.do:3001", "wss://weaveto-relay.fly.dev"],
         "img-src": ["self", "data:"],
         "font-src": ["self"],
         "object-src": ["none"],

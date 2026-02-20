@@ -179,6 +179,7 @@ const connectionsPerIp = new Map<string, number>();
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:5173",
   "https://weaveto.do",
+  ...(process.env.ALLOWED_ORIGINS?.split(",").filter(Boolean) ?? []),
 ]);
 
 // --- Server ---
@@ -385,6 +386,16 @@ function handleJoin(
   };
   setClient(client);
 
+  // Send current member list to the new member (before adding them to the room)
+  const memberList = Array.from(room.clients.values()).map((c) => ({
+    identityKey: c.identityKey,
+    displayName: c.displayName,
+  }));
+
+  // Add new client to room BEFORE notifying existing members, so that
+  // key_share responses targeting this client can be routed immediately.
+  room.clients.set(msg.identityKey, client);
+
   // Notify existing members about the new member
   const newMemberMsg = JSON.stringify({
     type: "new_member",
@@ -395,16 +406,12 @@ function handleJoin(
   });
 
   for (const [, existingClient] of room.clients) {
+    // Skip the new client — they don't need their own new_member notification
+    if (existingClient.identityKey === msg.identityKey) continue;
     if (existingClient.ws.readyState === WebSocket.OPEN) {
       existingClient.ws.send(newMemberMsg);
     }
   }
-
-  // Send current member list to the new member
-  const memberList = Array.from(room.clients.values()).map((c) => ({
-    identityKey: c.identityKey,
-    displayName: c.displayName,
-  }));
 
   ws.send(
     JSON.stringify({
@@ -412,9 +419,6 @@ function handleJoin(
       members: memberList,
     }),
   );
-
-  // Add new client to room
-  room.clients.set(msg.identityKey, client);
 }
 
 function handleKeyShare(
