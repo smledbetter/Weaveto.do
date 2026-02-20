@@ -3,11 +3,17 @@
 
 	const STORAGE_KEY = 'weave-walkthrough-seen';
 
+	let { active = $bindable(false) }: { active?: boolean } = $props();
+
 	let currentStep = $state(0);
 	let dismissed = $state(false);
 
 	const seen = browser && sessionStorage.getItem(STORAGE_KEY) === 'true';
-	if (seen) dismissed = true;
+	if (seen) {
+		dismissed = true;
+	} else {
+		active = true;
+	}
 
 	const steps = [
 		{
@@ -34,6 +40,7 @@
 
 	function finish() {
 		dismissed = true;
+		active = false;
 		if (browser) sessionStorage.setItem(STORAGE_KEY, 'true');
 	}
 </script>
@@ -70,7 +77,7 @@
 	}
 
 	.coach-card {
-		background: var(--surface-default);
+		background: var(--bg-surface);
 		border: 1px solid var(--border-default);
 		border-radius: 12px;
 		padding: 1.5rem;
