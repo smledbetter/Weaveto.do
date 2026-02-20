@@ -216,15 +216,16 @@ test.describe("M5.5: UX Polish", () => {
   });
 
   test.describe("Display Name Visibility", () => {
-    test("header shows 'You: {name}' after joining", async ({ page }) => {
+    test("room info dropdown shows 'You: {name}' after joining", async ({ page }) => {
       const t = trackErrors(page);
       await createAndJoinRoom(page, "Alice");
 
-      // Wait for header to be visible
-      await expect(page.locator("header")).toBeVisible();
+      // Open room info dropdown
+      await page.locator(".room-info-btn").click();
+      await expect(page.locator(".room-info-dropdown")).toBeVisible();
 
-      // Check for display name in header
-      await expect(page.locator("header")).toContainText("You: Alice");
+      // Check for display name in dropdown
+      await expect(page.locator(".room-info-dropdown")).toContainText("You: Alice");
 
       t.assertNoErrors();
     });
@@ -235,8 +236,11 @@ test.describe("M5.5: UX Polish", () => {
       const t = trackErrors(page);
       await createAndJoinRoom(page, "BobTheBuilder");
 
-      await expect(page.locator("header")).toBeVisible();
-      await expect(page.locator("header")).toContainText("You: BobTheBuilder");
+      // Open room info dropdown
+      await page.locator(".room-info-btn").click();
+      await expect(page.locator(".room-info-dropdown")).toBeVisible();
+
+      await expect(page.locator(".room-info-dropdown")).toContainText("You: BobTheBuilder");
 
       t.assertNoErrors();
     });
