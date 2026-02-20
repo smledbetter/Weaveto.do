@@ -15,12 +15,9 @@
 	import CoachMarks from '$lib/components/CoachMarks.svelte';
 	import { ShortcutManager } from '$lib/keyboard/shortcuts';
 	import { AgentExecutor } from '$lib/agents/executor';
-	import type { AgentManifest, StoredAgentModule } from '$lib/agents/types';
+	import type { StoredAgentModule } from '$lib/agents/types';
 	import {
-		validateManifest,
-		validateWasmBinary,
 		openModuleDB,
-		storeModule,
 		listModules,
 		deleteModule,
 		setModuleActive,
@@ -267,32 +264,10 @@
 			const toastKey = 'weave-agent-first-run-shown';
 			if (!localStorage.getItem(toastKey)) {
 				localStorage.setItem(toastKey, 'true');
-				agentToast = 'Auto-balance agent is active. It assigns unassigned tasks to the least-busy member every 30s. You can disable it in the Agents panel.';
+				agentToast = 'Auto-balance agent is active. It assigns unassigned tasks to the least-busy member every 30s. You can disable it in the Automation panel.';
 				setTimeout(() => { agentToast = ''; }, 10000);
 			}
 		}
-	}
-
-	async function handleAgentUpload(manifest: AgentManifest, wasmBytes: ArrayBuffer) {
-		// Validate manifest
-		const manifestErr = validateManifest(manifest);
-		if (manifestErr) {
-			error = `Invalid agent manifest: ${manifestErr}`;
-			return;
-		}
-
-		// Validate WASM binary
-		const wasmErr = await validateWasmBinary(wasmBytes, manifest.wasmHash);
-		if (wasmErr) {
-			error = `Invalid WASM binary: ${wasmErr}`;
-			return;
-		}
-
-		// Store in IndexedDB
-		const db = await openModuleDB();
-		await storeModule(db, roomId, manifest, wasmBytes);
-		db.close();
-		await refreshAgentModules();
 	}
 
 	async function handleAgentActivate(moduleId: string) {
@@ -831,7 +806,7 @@
 						aria-label="Toggle agent panel"
 						aria-expanded={showAgentPanel}
 					>
-						Agents{#if activeAgentIds.length > 0} ({activeAgentIds.length}){/if}
+						Automation{#if activeAgentIds.length > 0} ({activeAgentIds.length}){/if}
 					</button>
 					<button class="invite-btn" onclick={() => { showInviteModal = true; }}>
 						Invite
@@ -905,7 +880,7 @@
 							aria-selected={mobileTab === 'agents'}
 							class:active={mobileTab === 'agents'}
 							onclick={() => { mobileTab = 'agents'; }}
-						>Agents</button>
+						>Automation</button>
 					{/if}
 				</div>
 			{/if}
@@ -996,7 +971,6 @@
 						<AgentPanel
 							modules={agentModules}
 							activeAgents={activeAgentIds}
-							onUpload={handleAgentUpload}
 							onActivate={handleAgentActivate}
 							onDeactivate={handleAgentDeactivate}
 							onDelete={handleAgentDelete}

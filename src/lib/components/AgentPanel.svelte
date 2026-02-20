@@ -1,12 +1,10 @@
 <script lang="ts">
-	import type { AgentManifest, AgentPermission, StoredAgentModule } from '$lib/agents/types';
-	import { ALL_PERMISSIONS } from '$lib/agents/types';
+	import type { StoredAgentModule } from '$lib/agents/types';
 	import { isBuiltIn } from '$lib/agents/builtin';
 
 	interface Props {
 		modules: StoredAgentModule[];
 		activeAgents: string[];
-		onUpload: (manifest: AgentManifest, wasmBytes: ArrayBuffer) => void;
 		onActivate: (moduleId: string) => void;
 		onDeactivate: (moduleId: string) => void;
 		onDelete: (moduleId: string) => void;
@@ -16,124 +14,14 @@
 	let {
 		modules,
 		activeAgents,
-		onUpload,
 		onActivate,
 		onDeactivate,
 		onDelete,
 		onClose,
 	}: Props = $props();
 
-	// Upload form state
-	let showUploadToggle = $state(false);
-	let showUploadForm = $state(false);
-	let uploadFile = $state<File | null>(null);
-	let uploadName = $state('');
-	let uploadVersion = $state('');
-	let uploadDescription = $state('');
-	let uploadAuthor = $state('');
-	let uploadPermissions = $state<AgentPermission[]>([]);
-	let uploadError = $state('');
-
 	// Delete confirmation
 	let confirmDelete = $state<string | null>(null);
-
-	// File input reference
-	let fileInputRef: HTMLInputElement | null = null;
-
-	function handleUploadClick() {
-		showUploadForm = true;
-		fileInputRef?.click();
-	}
-
-	function handleFileSelect(event: Event) {
-		const input = event.target as HTMLInputElement;
-		if (input.files && input.files[0]) {
-			const file = input.files[0];
-			if (!file.name.endsWith('.wasm')) {
-				uploadError = 'Please select a .wasm file';
-				uploadFile = null;
-				return;
-			}
-			uploadError = '';
-			uploadFile = file;
-		}
-	}
-
-	function resetUploadForm() {
-		uploadFile = null;
-		uploadName = '';
-		uploadVersion = '';
-		uploadDescription = '';
-		uploadAuthor = '';
-		uploadPermissions = [];
-		uploadError = '';
-		showUploadForm = false;
-		if (fileInputRef) {
-			fileInputRef.value = '';
-		}
-	}
-
-	function togglePermission(perm: AgentPermission) {
-		if (uploadPermissions.includes(perm)) {
-			uploadPermissions = uploadPermissions.filter((p) => p !== perm);
-		} else {
-			uploadPermissions = [...uploadPermissions, perm];
-		}
-	}
-
-	async function handleUpload() {
-		// Validation
-		if (!uploadFile) {
-			uploadError = 'No file selected';
-			return;
-		}
-		if (!uploadName.trim()) {
-			uploadError = 'Agent name is required';
-			return;
-		}
-		if (!uploadVersion.trim()) {
-			uploadError = 'Version is required';
-			return;
-		}
-		if (!uploadAuthor.trim()) {
-			uploadError = 'Author is required';
-			return;
-		}
-
-		uploadError = '';
-
-		try {
-			// Read file as ArrayBuffer
-			const arrayBuffer = await uploadFile.arrayBuffer();
-
-			// Compute SHA-256 hash
-			const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
-			const hashArray = Array.from(new Uint8Array(hashBuffer));
-			const wasmHash = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-
-			// Build manifest
-			const manifest: AgentManifest = {
-				name: uploadName.trim(),
-				version: uploadVersion.trim(),
-				description: uploadDescription.trim(),
-				author: uploadAuthor.trim(),
-				wasmHash,
-				permissions: uploadPermissions,
-			};
-
-			// Call onUpload callback
-			onUpload(manifest, arrayBuffer);
-
-			// Reset form
-			resetUploadForm();
-		} catch (err) {
-			uploadError = err instanceof Error ? err.message : 'Failed to process file';
-		}
-	}
-
-	function handleCancel() {
-		resetUploadForm();
-	}
 
 	function toggleActive(moduleId: string) {
 		if (activeAgents.includes(moduleId)) {
@@ -188,110 +76,7 @@
 			</p>
 		</div>
 
-		{#if !showUploadForm && !showUploadToggle}
-			<div class="upload-section">
-				<button
-					class="upload-toggle-link"
-					onclick={() => { showUploadToggle = true; }}
-					aria-label="Show upload option"
-				>
-					Advanced: upload custom agent
-				</button>
-				<p class="upload-note">Upload a custom WASM agent. For developers only.</p>
-			</div>
-		{/if}
-
-		{#if showUploadToggle && !showUploadForm}
-			<button
-				class="upload-btn"
-				onclick={handleUploadClick}
-				aria-label="Upload new agent module"
-			>
-				+ Upload Agent
-			</button>
-		{/if}
-
-		{#if showUploadForm}
-			<div class="upload-form">
-				<div class="form-section">
-					<label for="agent-name">Agent Name</label>
-					<input
-						id="agent-name"
-						type="text"
-						placeholder="e.g. Task Auto-Assigner"
-						bind:value={uploadName}
-					/>
-				</div>
-
-				<div class="form-section">
-					<label for="agent-version">Version</label>
-					<input
-						id="agent-version"
-						type="text"
-						placeholder="e.g. 1.0.0"
-						bind:value={uploadVersion}
-					/>
-				</div>
-
-				<div class="form-section">
-					<label for="agent-description">Description</label>
-					<textarea
-						id="agent-description"
-						placeholder="What does this agent do?"
-						bind:value={uploadDescription}
-						rows="2"
-					></textarea>
-				</div>
-
-				<div class="form-section">
-					<label for="agent-author">Author</label>
-					<input
-						id="agent-author"
-						type="text"
-						placeholder="Author name"
-						bind:value={uploadAuthor}
-					/>
-				</div>
-
-				<div class="form-section">
-					<label>Permissions</label>
-					<div class="permissions-grid">
-						{#each ALL_PERMISSIONS as perm}
-							<label class="permission-checkbox">
-								<input
-									type="checkbox"
-									checked={uploadPermissions.includes(perm)}
-									onchange={() => togglePermission(perm)}
-								/>
-								<span>{perm}</span>
-							</label>
-						{/each}
-					</div>
-				</div>
-
-				{#if uploadError}
-					<div class="error-message">{uploadError}</div>
-				{/if}
-
-				<div class="form-actions">
-					<button class="upload-submit-btn" onclick={handleUpload}>
-						Upload
-					</button>
-					<button class="cancel-btn" onclick={handleCancel}>
-						Cancel
-					</button>
-				</div>
-			</div>
-		{/if}
-
-		<input
-			type="file"
-			accept=".wasm"
-			bind:this={fileInputRef}
-			onchange={handleFileSelect}
-			style="display: none;"
-			aria-label="Select WASM file"
-		/>
+		<!-- Custom agent upload UI removed — deferred to a later milestone -->
 
 		{#if modules.length === 0}
 			<div class="empty-state">
@@ -454,170 +239,6 @@
 		font-size: 0.85rem;
 		color: var(--text-secondary);
 		line-height: 1.4;
-	}
-
-	/* Upload section */
-	.upload-section {
-		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
-	}
-
-	/* Upload toggle link */
-	.upload-toggle-link {
-		background: none;
-		border: none;
-		color: var(--text-muted);
-		cursor: pointer;
-		font-size: 0.75rem;
-		text-decoration: underline;
-		padding: 0.25rem 0;
-		text-align: left;
-	}
-
-	.upload-toggle-link:hover {
-		color: var(--text-secondary);
-	}
-
-	/* Upload note */
-	.upload-note {
-		margin: 0;
-		font-size: 0.75rem;
-		color: var(--text-muted);
-		font-style: italic;
-	}
-
-	/* Upload button */
-	.upload-btn {
-		background: none;
-		border: 1px solid var(--border-default);
-		color: var(--accent-default);
-		padding: 0.5rem 1rem;
-		border-radius: 6px;
-		cursor: pointer;
-		font-size: 0.85rem;
-		font-weight: 500;
-		transition: all 150ms ease-out;
-	}
-
-	.upload-btn:hover {
-		border-color: var(--accent-default);
-		background: var(--accent-muted);
-	}
-
-	/* Upload form */
-	.upload-form {
-		background: var(--bg-surface);
-		border: 1px solid var(--border-default);
-		border-radius: 6px;
-		padding: 1rem;
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-
-	.form-section {
-		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
-	}
-
-	.form-section label {
-		font-size: 0.8rem;
-		font-weight: 500;
-		color: var(--text-secondary);
-	}
-
-	.form-section input,
-	.form-section textarea {
-		background: var(--bg-base);
-		border: 1px solid var(--border-default);
-		border-radius: 4px;
-		padding: 0.5rem;
-		font-size: 0.85rem;
-		color: var(--text-primary);
-		font-family: inherit;
-	}
-
-	.form-section input:focus,
-	.form-section textarea:focus {
-		outline: none;
-		border-color: var(--accent-default);
-		background: var(--bg-base);
-	}
-
-	.permissions-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 0.5rem;
-	}
-
-	.permission-checkbox {
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
-		font-size: 0.8rem;
-		cursor: pointer;
-		color: var(--text-secondary);
-	}
-
-	.permission-checkbox input {
-		width: 16px;
-		height: 16px;
-		cursor: pointer;
-		accent-color: var(--accent-default);
-	}
-
-	.permission-checkbox:hover {
-		color: var(--text-primary);
-	}
-
-	.error-message {
-		background: var(--status-error-bg);
-		border: 1px solid var(--status-error);
-		border-radius: 4px;
-		padding: 0.5rem;
-		font-size: 0.8rem;
-		color: var(--status-error);
-	}
-
-	.form-actions {
-		display: flex;
-		gap: 0.5rem;
-		margin-top: 0.5rem;
-	}
-
-	.upload-submit-btn {
-		flex: 1;
-		padding: 0.5rem;
-		background: var(--btn-primary-bg);
-		color: var(--text-inverse);
-		border: none;
-		border-radius: 6px;
-		cursor: pointer;
-		font-weight: 500;
-		font-size: 0.85rem;
-		transition: background 150ms ease-out;
-	}
-
-	.upload-submit-btn:hover {
-		background: var(--btn-primary-hover);
-	}
-
-	.cancel-btn {
-		padding: 0.5rem 1rem;
-		background: none;
-		border: 1px solid var(--border-default);
-		border-radius: 6px;
-		color: var(--text-secondary);
-		cursor: pointer;
-		font-size: 0.85rem;
-		transition: all 150ms ease-out;
-	}
-
-	.cancel-btn:hover {
-		border-color: var(--border-strong);
-		color: var(--text-primary);
 	}
 
 	/* Empty state */
@@ -864,6 +485,22 @@
 
 	.delete-confirm-btn:hover {
 		opacity: 0.9;
+	}
+
+	.cancel-btn {
+		padding: 0.5rem 1rem;
+		background: none;
+		border: 1px solid var(--border-default);
+		border-radius: 6px;
+		color: var(--text-secondary);
+		cursor: pointer;
+		font-size: 0.85rem;
+		transition: all 150ms ease-out;
+	}
+
+	.cancel-btn:hover {
+		border-color: var(--border-strong);
+		color: var(--text-primary);
 	}
 
 	/* Mobile: full width */
