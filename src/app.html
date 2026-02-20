@@ -6,16 +6,10 @@
         <script>
             (function () {
                 var t = localStorage.getItem("weave-theme");
-                if (
-                    t === "light" ||
-                    (!t &&
-                        window.matchMedia("(prefers-color-scheme: light)")
-                            .matches)
-                ) {
-                    document.documentElement.setAttribute(
-                        "data-theme",
-                        "light",
-                    );
+                if (t === "dark") {
+                    document.documentElement.setAttribute("data-theme", "dark");
+                } else {
+                    document.documentElement.setAttribute("data-theme", "light");
                 }
             })();
         </script>

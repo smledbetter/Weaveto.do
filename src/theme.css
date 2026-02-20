@@ -2,96 +2,96 @@
  * weaveto.do Design Tokens
  *
  * Single source of truth for all colors. Components reference these
- * via var(--token). Dark mode is the default; light mode is defined
- * under [data-theme="light"] for future use.
+ * via var(--token). Light mode is the default; dark mode is defined
+ * under [data-theme="dark"].
  */
 
 :root {
     /* Backgrounds */
-    --bg-base: #0c0c0e;
-    --bg-surface: #141416;
-    --bg-raised: #1c1c20;
-    --bg-overlay: #24242a;
-
-    /* Text */
-    --text-primary: #d8d8dc;
-    --text-secondary: #8e8e96;
-    --text-muted: #7d7d84;
-    --text-inverse: #0c0c0e;
-    --text-heading: #ffffff;
-
-    /* Borders */
-    --border-subtle: #1e1e22;
-    --border-default: #67676f;
-    --border-strong: #787880;
-
-    /* Accent (saturated green) */
-    --accent-muted: #1e3e24;
-    --accent-default: #4a9856;
-    --accent-strong: #6ab874;
-    --accent-border: #2e4a34;
-
-    /* Semantic: caution */
-    --status-caution: #b8a468;
-    --status-caution-bg: #1a1a00;
-    --status-caution-border: #444400;
-    --status-caution-btn-border: #666600;
-
-    /* Semantic: error */
-    --status-error: #b86868;
-    --status-error-bg: #1a1010;
-
-    /* Semantic: urgent */
-    --status-urgent: #d87878;
-    --status-urgent-bg: #1a1014;
-
-    /* Semantic: info */
-    --status-info: #6888a8;
-
-    /* Interactive */
-    --btn-primary-bg: #d8d8dc;
-    --btn-primary-hover: #ffffff;
-    --btn-secondary-text: #aaaaaa;
-    --btn-secondary-hover-text: #d8d8dc;
-}
-
-/* Light mode — activate by setting data-theme="light" on <html> */
-[data-theme="light"] {
     --bg-base: #f4f3f1;
     --bg-surface: #ebeae7;
     --bg-raised: #e0dfdc;
     --bg-overlay: #d6d5d2;
 
+    /* Text */
     --text-primary: #1c1c1e;
     --text-secondary: #5a5a66;
     --text-muted: #696971;
     --text-inverse: #f4f3f1;
     --text-heading: #0c0c0e;
 
+    /* Borders */
     --border-subtle: #e0dfdc;
     --border-default: #848381;
     --border-strong: #7a7a7c;
 
+    /* Accent (saturated green) */
     --accent-muted: #e0ede2;
     --accent-default: #1a7a2e;
     --accent-strong: #145e22;
     --accent-border: #699771;
 
+    /* Semantic: caution */
     --status-caution: #7a6c22;
     --status-caution-bg: #f5f0d8;
     --status-caution-border: #d8d0a0;
     --status-caution-btn-border: #b8b080;
 
+    /* Semantic: error */
     --status-error: #a04040;
     --status-error-bg: #f5e0e0;
 
+    /* Semantic: urgent */
     --status-urgent: #c03030;
     --status-urgent-bg: #f5e0e0;
 
+    /* Semantic: info */
     --status-info: #3868a8;
 
+    /* Interactive */
     --btn-primary-bg: #1c1c1e;
     --btn-primary-hover: #0c0c0e;
     --btn-secondary-text: #5a5a66;
     --btn-secondary-hover-text: #1c1c1e;
+}
+
+/* Dark mode — activate by setting data-theme="dark" on <html> */
+[data-theme="dark"] {
+    --bg-base: #0c0c0e;
+    --bg-surface: #141416;
+    --bg-raised: #1c1c20;
+    --bg-overlay: #24242a;
+
+    --text-primary: #d8d8dc;
+    --text-secondary: #8e8e96;
+    --text-muted: #7d7d84;
+    --text-inverse: #0c0c0e;
+    --text-heading: #ffffff;
+
+    --border-subtle: #1e1e22;
+    --border-default: #67676f;
+    --border-strong: #787880;
+
+    --accent-muted: #1e3e24;
+    --accent-default: #4a9856;
+    --accent-strong: #6ab874;
+    --accent-border: #2e4a34;
+
+    --status-caution: #b8a468;
+    --status-caution-bg: #1a1a00;
+    --status-caution-border: #444400;
+    --status-caution-btn-border: #666600;
+
+    --status-error: #b86868;
+    --status-error-bg: #1a1010;
+
+    --status-urgent: #d87878;
+    --status-urgent-bg: #1a1014;
+
+    --status-info: #6888a8;
+
+    --btn-primary-bg: #d8d8dc;
+    --btn-primary-hover: #ffffff;
+    --btn-secondary-text: #aaaaaa;
+    --btn-secondary-hover-text: #d8d8dc;
 }
