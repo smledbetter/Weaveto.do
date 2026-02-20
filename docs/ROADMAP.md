@@ -2,14 +2,14 @@
 
 ## Current State
 
-- **Git SHA**: 140481f
-- **Unit tests**: 372 (Vitest, jsdom)
+- **Git SHA**: c39ddec
+- **Unit tests**: 390 (Vitest, jsdom)
 - **E2E tests**: 119 (Playwright, Chromium) — 24 pre-existing failures (PIN, task intelligence, task polish)
 - **Coverage**: 75%+ lines, 73%+ functions/branches
 - **Lint**: clean (`npm run check` passes)
 - **Build**: clean (`npm run build` passes)
-- **Milestones complete**: M0-M7 (8 milestones shipped)
-- **LOC**: ~12K (src/ + tests/ + server/)
+- **Milestones complete**: M0-M8 (9 milestones shipped)
+- **LOC**: ~12.5K (src/ + tests/ + server/)
 
 ## Completed Phases (pre-Flowstate)
 
@@ -26,17 +26,9 @@ These milestones were completed before Flowstate tracking. Listed for context.
 - ~~M6: Session Security~~ — PIN gate, PBKDF2, session lock, key rotation
 - ~~M7: Agent Hardening~~ — Web Worker preemption, Ed25519 signatures, event validation
 
-## Phase 1: M8 — Vulnerability Scanning (hardening)
+## ~~Phase 1: M8 — Vulnerability Scanning~~ ✅ (Sprint 1)
 
-Security audit across all shipped milestones. This is a review/hardening sprint, not a feature sprint.
-
-- E2EE protocol audit (Olm/Megolm key exchange, ratchet correctness)
-- WebAuthn PRF identity testing (credential lifecycle, cross-device)
-- WASM sandbox escape testing (memory bounds, host function abuse)
-- Relay server hardening (rate limiting, payload validation, connection limits)
-- Client-side crypto review (key derivation, HKDF parameters, AES-GCM nonce reuse)
-
-**Done when**: Security report produced with findings rated critical/high/medium/low. All critical and high findings fixed. Gate: all existing tests still pass.
+Security audit across all shipped milestones. 2 critical, 9 high, 18 medium findings. All critical + high fixed (1 high deferred — no upload UI). Security report: `docs/milestones/M8-vulnerability-scanning/SECURITY-REPORT.md`
 
 ## Phase 2: M9 Phase 1 — Local Notifications
 
