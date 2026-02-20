@@ -58,7 +58,7 @@
 				class="timeout-select"
 			>
 				{#each TIMEOUT_OPTIONS as option}
-					<option value={option.toString()}>{option} minute{option === 1 ? '' : 's'}</option>
+					<option value={option.toString()}>{option} minute{option as number === 1 ? '' : 's'}</option>
 				{/each}
 			</select>
 		</div>

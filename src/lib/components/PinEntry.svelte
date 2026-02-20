@@ -57,7 +57,7 @@
 		if (isLockedOut && lockoutEnd) {
 			const updateCountdown = () => {
 				const now = Date.now();
-				const remaining = Math.ceil((lockoutEnd - now) / 1000);
+				const remaining = Math.ceil((lockoutEnd! - now) / 1000);
 				secondsRemaining = Math.max(0, remaining);
 
 				if (secondsRemaining === 0) {
@@ -136,9 +136,8 @@
 		}
 	}
 
-	onMount(async () => {
-		await tick();
-		inputElement?.focus();
+	onMount(() => {
+		tick().then(() => inputElement?.focus());
 
 		return () => {
 			if (countdownInterval) {
