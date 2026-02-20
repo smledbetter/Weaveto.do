@@ -77,7 +77,17 @@ Reconnect and merge offline changes.
 
 **Done when**: Two users can edit tasks offline, reconnect, and see merged state. No data loss. E2E test covers offline-edit-reconnect flow.
 
-## Phase 7: M11 — Tor Hidden Service (deployment)
+## Phase 7: M11 — Custom Agent Upload
+
+Re-enable the custom WASM agent upload UI (removed in M8.5). Includes file picker, manifest form (name, version, author, permissions), SHA-256 hash verification, and IndexedDB storage. Code preserved in git history at commit 4f7f872.
+
+- Upload form UI in Automation panel (file select, manifest fields, permissions grid)
+- WASM binary validation and hash verification
+- Agent marketplace / discovery (stretch)
+
+**Done when**: Users can upload, activate, and delete custom WASM agents from the Automation panel. Upload validates .wasm files and computes SHA-256 hash.
+
+## Phase 8: M12 — Tor Hidden Service (deployment)
 
 Run the relay as an optional .onion hidden service alongside the normal endpoint. Closes the IP metadata gap for high-risk users (journalists, activists) without affecting the default experience.
 
