@@ -168,9 +168,9 @@
 	}
 </script>
 
-<aside class="agent-panel" role="complementary" aria-label="Agent modules panel">
+<aside class="agent-panel" role="complementary" aria-label="Automation panel">
 	<div class="panel-header">
-		<h3>Agent Modules</h3>
+		<h3>Automation</h3>
 		<button
 			class="close-panel-btn"
 			onclick={onClose}
@@ -181,10 +181,10 @@
 	<div class="panel-body" aria-live="polite">
 		<div class="explainer-card">
 			<p class="explainer-primary">
-				Agents run small automations inside your room. They can read tasks and assign them, but never see your messages.
+				Automate your workflow — tasks get balanced and bottlenecks get flagged, all without sharing your messages.
 			</p>
 			<p class="explainer-secondary">
-				The auto-balance agent distributes unassigned tasks evenly. More agents coming soon.
+				Auto-balance distributes unassigned tasks evenly. Unblock flags stuck tasks as urgent.
 			</p>
 		</div>
 
