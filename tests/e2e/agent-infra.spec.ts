@@ -46,7 +46,7 @@ test.describe("M3: Agent Infrastructure", () => {
 
     // Panel should appear
     await expect(page.locator(".agent-panel")).toBeVisible();
-    await expect(page.locator(".agent-panel h3")).toHaveText("Agent Modules");
+    await expect(page.locator(".agent-panel h3")).toHaveText("Automation");
 
     t.assertNoErrors();
   });
