@@ -1,6 +1,16 @@
 import { expect, type Page } from '@playwright/test';
 
 /**
+ * Dismiss first-use coach marks by setting sessionStorage flag.
+ * Call before navigating to a room page, or use page.addInitScript.
+ */
+export async function dismissCoachMarks(page: Page) {
+  await page.addInitScript(() => {
+    sessionStorage.setItem('weave-walkthrough-seen', 'true');
+  });
+}
+
+/**
  * Collect console errors and page errors during a test.
  * Call at start of test, then call assertNoErrors() after interactions.
  */

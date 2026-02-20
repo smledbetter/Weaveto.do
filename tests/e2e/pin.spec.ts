@@ -15,7 +15,8 @@
  *   production build with WebAuthn enabled on a device with biometrics.
  */
 
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "./utils/fixtures";
+import type { Page } from "@playwright/test";
 import { trackErrors } from "./utils/test-helpers";
 
 /** Create a room with optional PIN policy and join as creator. */

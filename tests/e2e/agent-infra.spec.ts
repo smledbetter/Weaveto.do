@@ -1,4 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "./utils/fixtures";
+import type { Page } from "@playwright/test";
 import { trackErrors } from "./utils/test-helpers";
 
 /** Create a room and join as the given user name. */
