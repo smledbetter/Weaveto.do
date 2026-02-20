@@ -7,7 +7,7 @@
 	let { onInvite, onDismiss }: Props = $props();
 </script>
 
-<div class="solo-banner" role="status">
+<div class="solo-banner" role="status" aria-live="polite">
 	<span>You're the only one here — <button class="invite-link" onclick={onInvite}>invite someone</button> to start collaborating.</span>
 	<button class="dismiss-btn" onclick={onDismiss} aria-label="Dismiss">&times;</button>
 </div>

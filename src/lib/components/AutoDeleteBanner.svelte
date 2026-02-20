@@ -30,7 +30,7 @@
 	});
 </script>
 
-<div class="banner" role="alert" aria-live="polite">
+<div class="banner" role="alert">
 	<span class="message">All tasks complete. Room will auto-delete in {timeRemaining}.</span>
 	<div class="actions">
 		<button class="keep-btn" onclick={onKeepRoom}>Keep Room</button>

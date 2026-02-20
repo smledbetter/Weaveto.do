@@ -136,7 +136,7 @@
 		</div>
 
 		{#if error}
-			<div class="error-message" role="status">
+			<div class="error-message" role="alert">
 				{error}
 			</div>
 		{/if}
