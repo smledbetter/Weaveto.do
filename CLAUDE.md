@@ -13,7 +13,7 @@ This project uses the Flowstate sprint process. When asked to "start the next sp
 - **Baselines**: `~/.flowstate/weaveto-do/metrics/baseline-sprint-N.md`
 - **Retrospectives**: `~/.flowstate/weaveto-do/retrospectives/sprint-N.md`
 - **Metrics**: `~/.flowstate/weaveto-do/metrics/`
-- **collect.sh**: `~/.flowstate/weaveto-do/metrics/collect.sh`
+- **Metrics collection**: Use `mcp__flowstate__collect_metrics` MCP tool (or legacy `~/.flowstate/weaveto-do/metrics/collect.sh`)
 - **Progress**: `~/.flowstate/weaveto-do/progress.md` (operational state for next session)
 - **Roadmap**: `docs/ROADMAP.md` (in this repo)
 - **Skills**: `.claude/skills/` (in this repo)
@@ -71,19 +71,14 @@ When all gates pass, say: "Ready for Phase 3: SHIP whenever you want to proceed.
 
 ### Phase 3: SHIP
 
-1. **Collect metrics** (run from this project directory):
-   - Find the timestamp of the previous sprint's last commit:
-     `git log --format='%aI %s' | head -5`
-     The boundary is the timestamp of the last commit BEFORE this sprint's work.
-   - ALWAYS use --after to isolate this sprint's metrics:
-     `bash ~/.flowstate/weaveto-do/metrics/collect.sh --after <BOUNDARY> <SESSION_ID>`
-     Save to `~/.flowstate/weaveto-do/metrics/sprint-N-report.txt`
-   - JSON (same --after flag):
-     `bash ~/.flowstate/weaveto-do/metrics/collect.sh --json --after <BOUNDARY> <SESSION_ID>`
-     Save to `~/.flowstate/weaveto-do/metrics/sprint-N-report.json`
+1. **Collect metrics** using Flowstate MCP tools:
+   - Call `mcp__flowstate__sprint_boundary` with `project_path="/Users/stevo/Sites/Weaveto.do"` and `sprint_marker` (e.g. "M9", "sprint 2") to find the boundary timestamp
+   - Call `mcp__flowstate__list_sessions` with `project_path="/Users/stevo/Sites/Weaveto.do"` to find the session ID(s) for this sprint
+   - Call `mcp__flowstate__collect_metrics` with `project_path`, `session_ids`, and the boundary timestamp as `after`
+   - Save the raw metrics response to `~/.flowstate/weaveto-do/metrics/sprint-N-metrics.json`
 
 2. **Write import JSON** at `~/.flowstate/weaveto-do/metrics/sprint-N-import.json`:
-   - Start from the JSON report (`sprint-N-report.json`) as the base
+   - Start from the MCP metrics response (`sprint-N-metrics.json`) as the base
    - Add these fields:
      ```json
      {
@@ -92,7 +87,7 @@ When all gates pass, say: "Ready for Phase 3: SHIP whenever you want to proceed.
        "label": "WTD SN",
        "phase": "[phase name from roadmap]",
        "metrics": {
-         "...everything from sprint-N-report.json...",
+         "...everything from sprint-N-metrics.json...",
          "tests_total": "<current test count>",
          "tests_added": "<tests added this sprint>",
          "coverage_pct": "<current coverage % or null>",
@@ -102,17 +97,17 @@ When all gates pass, say: "Ready for Phase 3: SHIP whenever you want to proceed.
          "loc_added": "<LOC from git diff --stat>",
          "loc_added_approx": false,
          "task_type": "<feature|bugfix|refactor|infra|planning|hardening>",
-         "rework_rate": "<from sprint-N-report.json, or null>",
+         "rework_rate": "<from sprint-N-metrics.json, or null>",
          "judge_score": "<[scope, test_quality, gate_integrity, convention, diff_hygiene] 1-5 each, or null>",
          "judge_blocked": "<true if judge prevented stopping, false otherwise, or null>",
          "judge_block_reason": "<reason string if blocked, or null>",
          "coderabbit_issues": "<number of CodeRabbit issues on PR, or null>",
          "coderabbit_issues_valid": "<number human agreed were real, or null>",
          "mutation_score_pct": "<mutation score if run, or null>",
-         "delegation_ratio_pct": "<from sprint-N-report.json>",
-         "orchestrator_tokens": "<from sprint-N-report.json>",
-         "subagent_tokens": "<from sprint-N-report.json>",
-         "context_compressions": "<from sprint-N-report.json>"
+         "delegation_ratio_pct": "<from sprint-N-metrics.json>",
+         "orchestrator_tokens": "<from sprint-N-metrics.json>",
+         "subagent_tokens": "<from sprint-N-metrics.json>",
+         "context_compressions": "<from sprint-N-metrics.json>"
        },
        "hypotheses": [
          {"id": "H1", "name": "<from hypotheses.json>", "result": "...", "evidence": "..."},
@@ -121,7 +116,7 @@ When all gates pass, say: "Ready for Phase 3: SHIP whenever you want to proceed.
        ]
      }
      ```
-   - Validate: `python3 ~/Sites/Flowstate/tools/import_sprint.py --from --dry-run ~/.flowstate/weaveto-do/metrics/sprint-N-import.json`
+   - Validate: call `mcp__flowstate__import_sprint` with the import JSON path and `dry_run=true`
    - Fix any errors before proceeding. Warnings (auto-corrections) are ok.
 
 3. **Write retrospective** at `~/.flowstate/weaveto-do/retrospectives/sprint-N.md`:
@@ -160,9 +155,8 @@ When all gates pass, say: "Ready for Phase 3: SHIP whenever you want to proceed.
    This is operational state for the next agent session, not analysis. Overwrite any previous progress.md.
 
 9. **Completion check** -- print this checklist with [x] or [MISSING] for each:
-   - metrics/sprint-N-report.txt exists
-   - metrics/sprint-N-report.json exists
-   - metrics/sprint-N-import.json exists (complete import-ready JSON)
+   - metrics/sprint-N-metrics.json exists (raw MCP metrics response)
+   - metrics/sprint-N-import.json exists (complete import-ready JSON, validated via MCP dry_run)
    - retrospectives/sprint-N.md has hypothesis table (H1, H5, H7) and change proposals
    - metrics/baseline-sprint-{N+1}.md exists with SHA, tests, coverage, gates, H7 instructions
    - progress.md written (current state for next session)

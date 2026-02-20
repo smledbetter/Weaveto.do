@@ -2,14 +2,14 @@
 
 ## Current State
 
-- **Git SHA**: c39ddec
-- **Unit tests**: 390 (Vitest, jsdom)
-- **E2E tests**: 119 (Playwright, Chromium) — 24 pre-existing failures (PIN, task intelligence, task polish)
+- **Git SHA**: 7f904bf
+- **Unit tests**: 403 (Vitest, jsdom)
+- **E2E tests**: 119 (Playwright, Chromium) — 28 pre-existing failures (PIN, task intelligence, task polish, agent-infra, burn)
 - **Coverage**: 75%+ lines, 73%+ functions/branches
 - **Lint**: clean (`npm run check` passes)
 - **Build**: clean (`npm run build` passes)
-- **Milestones complete**: M0-M8 (9 milestones shipped)
-- **LOC**: ~12.5K (src/ + tests/ + server/)
+- **Milestones complete**: M0-M8.5 (10 milestones shipped)
+- **LOC**: ~13K (src/ + tests/ + server/)
 
 ## Completed Phases (pre-Flowstate)
 
@@ -30,17 +30,23 @@ These milestones were completed before Flowstate tracking. Listed for context.
 
 Security audit across all shipped milestones. 2 critical, 9 high, 18 medium findings. All critical + high fixed (1 high deferred — no upload UI). Security report: `docs/milestones/M8-vulnerability-scanning/SECURITY-REPORT.md`
 
-## Phase 2: M9 Phase 1 — Local Notifications
+## ~~Phase 2: M8.5 — UX & Accessibility Pass~~ ✅ (Sprint 2)
+
+Header decluttered (4 controls max, info dropdown). First-use coach marks. ARIA fixes (PinSetup, AutoDeleteBanner, SoloMemberBanner, assignee dropdown). Focus-visible rings. "Agent Modules" → "Automation". Connection status text label. Task empty-state prompt. +13 unit tests, E2E fixtures for coach marks.
+
+## Phase 3: M9 Phase 1 — Local Notifications
 
 Expand service worker notifications without external push infrastructure.
 
 - Expanded notification triggers (assignment, status change, due date approaching)
 - Local notification rules (per-room toggle, urgency filter, do-not-disturb)
 - Notification grouping (batch multiple events into single notification)
+- Explicit notification opt-in: pill in task panel "Enable reminders — [Turn on]" (no auto-requesting permission)
+- Notification status indicator: bell toggle in task panel header showing subscription state
 
-**Done when**: Notifications fire for assignments and due dates when tab is backgrounded. Rules UI works. E2E tests cover notification triggers.
+**Done when**: Notifications fire for assignments and due dates when tab is backgrounded. Rules UI works. Notification permission is opt-in only. E2E tests cover notification triggers.
 
-## Phase 3: M9 Phase 2 — Web Push
+## Phase 4: M9 Phase 2 — Web Push
 
 Add VAPID-based push notifications via the relay server.
 
@@ -50,17 +56,18 @@ Add VAPID-based push notifications via the relay server.
 
 **Done when**: Push notifications arrive when browser is closed. All payloads are generic (no task content). Subscriptions cleaned up on room destruction.
 
-## Phase 4: M10 Phase 1 — Offline Task Store
+## Phase 5: M10 Phase 1 — Offline Task Store
 
 IndexedDB-backed offline storage for tasks.
 
 - IndexedDB task store (encrypted, mirrors event-sourced in-memory store)
-- Offline detection and UI indicator
+- Offline detection and UI indicator: cloud-with-slash icon + text "Offline — changes will sync when reconnected" (distinct from disconnected state)
 - Queue outbound events while offline
+- Task creation works offline with clear local-storage indicator
 
-**Done when**: Tasks persist across page reloads without network. Offline indicator shown. Events queued for sync.
+**Done when**: Tasks persist across page reloads without network. Offline indicator shown (distinct from disconnected). Events queued for sync. Tasks can be created while offline.
 
-## Phase 5: M10 Phase 2 — Sync and Conflict Resolution
+## Phase 6: M10 Phase 2 — Sync and Conflict Resolution
 
 Reconnect and merge offline changes.
 
@@ -69,3 +76,13 @@ Reconnect and merge offline changes.
 - Sync status indicator
 
 **Done when**: Two users can edit tasks offline, reconnect, and see merged state. No data loss. E2E test covers offline-edit-reconnect flow.
+
+## Phase 7: M11 — Tor Hidden Service (deployment)
+
+Run the relay as an optional .onion hidden service alongside the normal endpoint. Closes the IP metadata gap for high-risk users (journalists, activists) without affecting the default experience.
+
+- Tor hidden service configuration for the relay (deployment-only, no app code changes)
+- Documentation for self-hosters to enable .onion alongside clearnet
+- Client-side relay URL configuration (allow users to specify a .onion endpoint)
+
+**Done when**: Relay is reachable via .onion address. Existing clearnet endpoint unaffected. Self-hosting docs cover Tor setup.
