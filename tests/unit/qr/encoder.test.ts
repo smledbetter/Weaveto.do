@@ -141,7 +141,11 @@ describe("QR encoder", () => {
 
     it("produces correct viewBox dimensions", () => {
       const svg = qrSvg("test", { size: 200 });
-      expect(svg).toContain('viewBox="0 0 200 200"');
+      // viewBox uses integer module units (version size + 8 quiet zone modules)
+      // "test" is 4 bytes -> version 1 (21x21), total = 21 + 8 = 29
+      expect(svg).toContain('viewBox="0 0 29 29"');
+      expect(svg).toContain('width="200"');
+      expect(svg).toContain('height="200"');
     });
 
     it("handles a realistic room URL", () => {

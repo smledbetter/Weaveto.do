@@ -271,7 +271,7 @@ const MASK_FNS: ((r: number, c: number) => boolean)[] = [
   (r, c) => (((r + c) % 2) + ((r * c) % 3)) % 2 === 0,
 ];
 
-function isDataModule(m: Matrix, row: number, col: number): boolean {
+function isDataModule(m: Matrix, row: number, col: number, alignments: number[]): boolean {
   // A module is "data" if it was null before data placement
   // We detect this by checking if it's not in a reserved area
   const size = m.length;
@@ -284,17 +284,22 @@ function isDataModule(m: Matrix, row: number, col: number): boolean {
   // Timing patterns
   if (row === 6 || col === 6) return false;
 
+  // Alignment patterns
+  for (const pos of alignments) {
+    if (Math.abs(row - pos) <= 2 && Math.abs(col - pos) <= 2) return false;
+  }
+
   return true;
 }
 
-function applyMask(m: Matrix, maskIdx: number): Matrix {
+function applyMask(m: Matrix, maskIdx: number, alignments: number[]): Matrix {
   const size = m.length;
   const result = m.map((row) => [...row]);
   const fn = MASK_FNS[maskIdx];
 
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
-      if (isDataModule(result, r, c) && result[r][c] !== null) {
+      if (isDataModule(result, r, c, alignments) && result[r][c] !== null) {
         if (fn(r, c)) {
           result[r][c] = !result[r][c];
         }
@@ -372,15 +377,19 @@ function placeFormatInfo(m: Matrix, maskIdx: number): void {
   const size = m.length;
   const info = FORMAT_INFO[maskIdx];
 
-  // Positions around top-left finder (horizontal then vertical)
-  const hPos = [0, 1, 2, 3, 4, 5, 7, 8, size - 8, size - 7, size - 6, size - 5, size - 4, size - 3, size - 2];
-  const vPos = [size - 1, size - 2, size - 3, size - 4, size - 5, size - 6, size - 7, size - 8, 7, 5, 4, 3, 2, 1, 0];
+  // Copy 1 horizontal (row 8): F14 at col 0 through F7 at col 8
+  const c1hCols = [0, 1, 2, 3, 4, 5, 7, 8];
+  for (let i = 0; i < 8; i++) m[8][c1hCols[i]] = ((info >> (14 - i)) & 1) === 1;
 
-  for (let i = 0; i < 15; i++) {
-    const bit = ((info >> i) & 1) === 1;
-    m[8][hPos[i]] = bit;
-    m[vPos[i]][8] = bit;
-  }
+  // Copy 1 vertical (col 8): F6 at row 7 through F0 at row 0
+  const c1vRows = [7, 5, 4, 3, 2, 1, 0];
+  for (let i = 0; i < 7; i++) m[c1vRows[i]][8] = ((info >> (6 - i)) & 1) === 1;
+
+  // Copy 2 horizontal (row 8): F7 at col size-8 through F0 at col size-1
+  for (let i = 0; i < 8; i++) m[8][size - 8 + i] = ((info >> (7 - i)) & 1) === 1;
+
+  // Copy 2 vertical (col 8): F14 at row size-7 through F8 at row size-1
+  for (let i = 0; i < 7; i++) m[size - 7 + i][8] = ((info >> (14 - i)) & 1) === 1;
 }
 
 // --- Public API ---
@@ -442,7 +451,7 @@ export function qrSvg(data: string, opts?: QrOptions): string {
   let bestMask = 0;
   let bestScore = Infinity;
   for (let i = 0; i < 8; i++) {
-    const masked = applyMask(m, i);
+    const masked = applyMask(m, i, ver.alignments);
     placeFormatInfo(masked, i);
     const score = penaltyScore(masked);
     if (score < bestScore) {
@@ -452,25 +461,26 @@ export function qrSvg(data: string, opts?: QrOptions): string {
   }
 
   // Apply best mask
-  const final = applyMask(m, bestMask);
+  const final = applyMask(m, bestMask, ver.alignments);
   placeFormatInfo(final, bestMask);
 
-  // Render SVG
-  const moduleSize = svgSize / (ver.size + 8); // 4-module quiet zone on each side
-  const offset = moduleSize * 4;
+  // Render SVG with integer coordinates to avoid subpixel rendering issues on mobile.
+  // Each module = 1 unit in viewBox; the quiet zone adds 4 modules on each side.
+  const totalModules = ver.size + 8;
+  const quietZone = 4;
   let path = '';
 
   for (let r = 0; r < ver.size; r++) {
     for (let c = 0; c < ver.size; c++) {
       if (final[r][c]) {
-        const x = offset + c * moduleSize;
-        const y = offset + r * moduleSize;
-        path += `M${x},${y}h${moduleSize}v${moduleSize}h${-moduleSize}z`;
+        const x = quietZone + c;
+        const y = quietZone + r;
+        path += `M${x},${y}h1v1h-1z`;
       }
     }
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgSize} ${svgSize}" width="${svgSize}" height="${svgSize}"><rect width="${svgSize}" height="${svgSize}" fill="${bg}"/><path d="${path}" fill="${fg}"/></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalModules} ${totalModules}" width="${svgSize}" height="${svgSize}" shape-rendering="crispEdges"><rect width="${totalModules}" height="${totalModules}" fill="${bg}"/><path d="${path}" fill="${fg}"/></svg>`;
 }
 
 /** Exported for testing */
