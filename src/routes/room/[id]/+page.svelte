@@ -88,9 +88,12 @@
 
 	// Invite modal
 	let showRoomInfo = $state(false);
+	let roomInfoPopoverEl: HTMLDivElement | undefined = $state();
+	let roomInfoBtnEl: HTMLButtonElement | undefined = $state();
 	let showInviteModal = $state(false);
 	let inviteBannerDismissed = $state(false);
 	let isSoloMember = $derived(members.size === 0);
+	let coachMarksActive = $state(false);
 
 	// M5 burn features
 	let showBurnModal = $state(false);
@@ -118,7 +121,7 @@
 	onMount(() => {
 		if (browser) {
 			const stored = sessionStorage.getItem('weave-task-panel-open');
-			if (stored === 'true') showTaskPanel = true;
+			showTaskPanel = stored !== 'false';
 
 			// Initialize shortcuts
 			shortcutManager = new ShortcutManager();
@@ -437,7 +440,12 @@
 			// WebAuthn PRF ceremony: derive a device-bound seed for crypto identity.
 			// In dev mode, skip WebAuthn — identity will be random per session.
 			let prfSeed: Uint8Array | undefined;
-			if (!import.meta.env.DEV) {
+			if (import.meta.env.DEV) {
+				// Dev mode: use a deterministic seed so PIN flow works for testing
+				const encoder = new TextEncoder();
+				const seedMaterial = await crypto.subtle.digest('SHA-256', encoder.encode(`dev-prf-seed-${roomId}`));
+				prfSeed = new Uint8Array(seedMaterial);
+			} else {
 				const storedCred = getStoredCredentialId();
 				let result;
 				if (storedCred) {
@@ -490,9 +498,7 @@
 
 			roomSession.setConnectionHandler((c) => {
 				connected = c;
-				if (c) {
-					phase = 'connected';
-				} else if (phase === 'connecting') {
+				if (!c && phase === 'connecting') {
 					error = 'Could not connect to relay server. Make sure it is running (npm run relay).';
 					phase = 'error';
 				}
@@ -667,13 +673,8 @@
 </svelte:head>
 
 <svelte:window
-	onclick={(e) => {
-		if (showRoomInfo && !(e.target as HTMLElement)?.closest('.room-info-dropdown-wrapper')) {
-			showRoomInfo = false;
-		}
-	}}
 	onkeydown={(e) => {
-		if (e.key === 'Escape' && showRoomInfo) { showRoomInfo = false; }
+		if (e.key === 'Escape' && showRoomInfo) { roomInfoPopoverEl?.hidePopover(); showRoomInfo = false; }
 	}}
 />
 
@@ -772,7 +773,7 @@
 		{/if}
 
 		<div class="room" class:panel-open={showTaskPanel}>
-			{#if showKeyWarning}
+			{#if showKeyWarning && !coachMarksActive}
 				<div class="warning-banner" role="alert">
 					<p>Your encryption keys live only in this tab. If you close it, you'll need to rejoin.</p>
 					<button onclick={dismissKeyWarning}>Got it</button>
@@ -813,9 +814,25 @@
 					</button>
 					<div class="room-info-dropdown-wrapper">
 						<button
+							bind:this={roomInfoBtnEl}
 							class="room-info-btn"
-							onclick={() => { showRoomInfo = !showRoomInfo; }}
-							onkeydown={(e) => { if (e.key === 'Escape' && showRoomInfo) { showRoomInfo = false; e.stopPropagation(); } }}
+							onclick={() => {
+								if (roomInfoPopoverEl) {
+									if (showRoomInfo) {
+										roomInfoPopoverEl.hidePopover();
+										showRoomInfo = false;
+									} else {
+										if (roomInfoBtnEl) {
+											const rect = roomInfoBtnEl.getBoundingClientRect();
+											roomInfoPopoverEl.style.top = (rect.bottom + 4) + 'px';
+											roomInfoPopoverEl.style.right = (window.innerWidth - rect.right) + 'px';
+										}
+										roomInfoPopoverEl.showPopover();
+										showRoomInfo = true;
+									}
+								}
+							}}
+							onkeydown={(e) => { if (e.key === 'Escape' && showRoomInfo) { showRoomInfo = false; roomInfoPopoverEl?.hidePopover(); e.stopPropagation(); } }}
 							aria-expanded={showRoomInfo}
 							aria-label="Room info"
 						>
@@ -825,37 +842,9 @@
 							></span>
 							{members.size + 1}
 						</button>
-						{#if showRoomInfo}
-							<div class="room-info-dropdown" role="menu">
-								<div class="dropdown-item info-item">
-									<span
-										class="connection-dot"
-										class:online={connected}
-										role="status"
-										aria-label={connected ? 'Connected' : 'Disconnected'}
-									></span>
-									<span>{connected ? 'Connected' : 'Reconnecting...'}</span>
-								</div>
-								<div class="dropdown-item info-item">
-									<span class="member-count">{members.size + 1} {members.size + 1 === 1 ? 'member' : 'members'}</span>
-								</div>
-								{#if displayName}
-									<div class="dropdown-item info-item">
-										<span class="display-name-tag">You: {displayName}</span>
-									</div>
-								{/if}
-								<div class="dropdown-item">
-									<button class="dropdown-action" onclick={toggleTheme} aria-label="Toggle light/dark mode">
-										{isDark() ? '\u2600 Light mode' : '\u263E Dark mode'}
-									</button>
-								</div>
-							</div>
-						{/if}
 					</div>
 				</div>
 			</header>
-
-			<CoachMarks />
 
 			<!-- Mobile tab bar (visible <768px when panel is open) -->
 			{#if showTaskPanel || showAgentPanel}
@@ -885,13 +874,6 @@
 				</div>
 			{/if}
 
-			{#if !showTaskPanel && taskCount === 0}
-				<div class="task-prompt" role="status">
-					<button class="task-prompt-btn" onclick={() => { showTaskPanel = true; }}>
-						No tasks yet — create one to get started
-					</button>
-				</div>
-			{/if}
 
 			{#if autoDeleteExpiresAt}
 				<div class="auto-delete-container">
@@ -904,7 +886,7 @@
 				</div>
 			{/if}
 
-			{#if isSoloMember && !inviteBannerDismissed}
+			{#if isSoloMember && !inviteBannerDismissed && !coachMarksActive}
 				<div class="invite-banner-container">
 					<SoloMemberBanner
 						onInvite={() => { showInviteModal = true; }}
@@ -1015,8 +997,41 @@
 		{#if burnError}
 			<div class="burn-error" role="alert">{burnError}</div>
 		{/if}
+
+		<CoachMarks bind:active={coachMarksActive} />
 	{/if}
+
 </main>
+
+<div
+	bind:this={roomInfoPopoverEl}
+	class="room-info-popover"
+	role="menu"
+	popover="auto"
+	ontoggle={(e) => { if (e.newState === 'closed') showRoomInfo = false; }}
+>
+	<div class="dropdown-header">
+		<span class="dropdown-title">Room info</span>
+		<button class="dropdown-close" onclick={() => { roomInfoPopoverEl?.hidePopover(); }} aria-label="Close room info">&times;</button>
+	</div>
+	<div class="dropdown-item info-item">
+		<span class="connection-dot" class:online={connected}></span>
+		<span>{connected ? 'Connected' : 'Reconnecting...'}</span>
+	</div>
+	<div class="dropdown-item info-item">
+		<span>{members.size + 1} {members.size + 1 === 1 ? 'member' : 'members'}</span>
+	</div>
+	{#if displayName}
+		<div class="dropdown-item info-item">
+			<span>You: {displayName}</span>
+		</div>
+	{/if}
+	<div class="dropdown-item">
+		<button class="dropdown-action" onclick={toggleTheme} aria-label="Toggle light/dark mode">
+			{isDark() ? '\u2600 Light mode' : '\u263E Dark mode'}
+			</button>
+	</div>
+</div>
 
 <style>
 	main {
@@ -1157,7 +1172,7 @@
 
 	header button:focus-visible,
 	.room-info-btn:focus-visible,
-	.room-info-dropdown .dropdown-action:focus-visible {
+	.room-info-popover .dropdown-action:focus-visible {
 		outline: 2px solid var(--accent-default);
 		outline-offset: 2px;
 	}
@@ -1237,16 +1252,6 @@
 
 	.invite-btn:hover { background: var(--accent-strong); }
 
-	.member-count {
-		font-size: 0.8rem;
-		color: var(--text-secondary);
-	}
-
-	.display-name-tag {
-		font-size: 0.8rem;
-		color: var(--text-secondary);
-	}
-
 	.connection-dot {
 		width: 8px;
 		height: 8px;
@@ -1286,19 +1291,46 @@
 
 	.room-info-btn:hover { border-color: var(--border-strong); color: var(--btn-secondary-hover-text); }
 
-	.room-info-dropdown {
-		position: absolute;
-		top: 100%;
-		right: 0;
-		margin-top: 0.25rem;
-		background: var(--surface-default);
+	.room-info-popover {
+		position: fixed;
+		margin: 0;
+		padding: 0.25rem 0;
 		border: 1px solid var(--border-default);
 		border-radius: 6px;
+		background: var(--bg-surface);
 		box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 		min-width: 180px;
-		z-index: 100;
-		padding: 0.25rem 0;
+		inset: auto;
 	}
+
+	.dropdown-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.4rem 0.75rem;
+		border-bottom: 1px solid var(--border-subtle);
+		margin-bottom: 0.25rem;
+	}
+
+	.dropdown-title {
+		font-size: 0.75rem;
+		font-weight: 500;
+		color: var(--text-muted);
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+	}
+
+	.dropdown-close {
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		font-size: 1.1rem;
+		padding: 0;
+		line-height: 1;
+	}
+
+	.dropdown-close:hover { color: var(--text-primary); }
 
 	.dropdown-item {
 		padding: 0.5rem 0.75rem;
@@ -1706,31 +1738,4 @@
 		line-height: 1.4;
 	}
 
-	.task-prompt {
-		padding: 0.5rem 1rem;
-		text-align: center;
-		border-bottom: 1px solid var(--border-subtle);
-	}
-
-	.task-prompt-btn {
-		background: none;
-		border: 1px dashed var(--border-default);
-		color: var(--text-secondary);
-		padding: 0.5rem 1rem;
-		border-radius: 6px;
-		cursor: pointer;
-		font-size: 0.85rem;
-		width: 100%;
-		max-width: 400px;
-	}
-
-	.task-prompt-btn:hover {
-		border-color: var(--accent-default);
-		color: var(--accent-default);
-	}
-
-	.task-prompt-btn:focus-visible {
-		outline: 2px solid var(--accent-default);
-		outline-offset: 2px;
-	}
 </style>
