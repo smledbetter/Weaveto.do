@@ -7,7 +7,10 @@ import type { Task, TaskEvent, TaskId } from "./types";
  * - Reject update events with timestamp older than task's updatedAt
  * - Ties broken by actorId lexicographic order (higher wins)
  * - Duplicate detection: skip events matching taskId + type + timestamp + actorId
+ * - Reject events with timestamps too far in the future (clock skew protection)
  */
+
+const MAX_FUTURE_DRIFT_MS = 5 * 60 * 1000; // 5 minutes
 
 type EventKey = string;
 
@@ -21,6 +24,9 @@ class TaskStore {
   private lastActorByTask = new Map<TaskId, string>();
 
   applyEvent(event: TaskEvent): void {
+    // Reject events with timestamps too far in the future
+    if (event.timestamp > Date.now() + MAX_FUTURE_DRIFT_MS) return;
+
     const key = eventKey(event);
 
     if (this.seenEvents.has(key)) return;
