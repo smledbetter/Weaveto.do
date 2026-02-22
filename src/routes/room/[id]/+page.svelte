@@ -52,7 +52,17 @@
 	let error = $state('');
 	let showKeyWarning = $state(false);
 	let usingTempIdentity = $state(false);
-	let roomUrl = $derived(browser ? `${window.location.origin}/room/${roomId}` : '');
+	let roomUrl = $derived(browser ? (() => {
+		const base = `${window.location.origin}/room/${roomId}`;
+		const params = new URLSearchParams();
+		if ($page.url.searchParams.has('pinRequired')) {
+			params.set('pinRequired', 'true');
+			const timeout = $page.url.searchParams.get('pinTimeout');
+			if (timeout) params.set('pinTimeout', timeout);
+		}
+		const qs = params.toString();
+		return qs ? `${base}?${qs}` : base;
+	})() : '');
 
 	// PIN state
 	let pinRequired = $derived($page.url.searchParams.has('pinRequired'));
@@ -102,6 +112,9 @@
 	let autoDeleteCancelled = $state(false);
 	let burnError = $state('');
 	let roomDeleted = $state(false);
+
+	// M11 encryption reestablishment
+	let reestablishing = $state(false);
 
 	// Reminder scheduler — fires 5 min before due, in-tab only
 	const reminderScheduler = new ReminderScheduler((task) => {
@@ -517,6 +530,10 @@
 				}
 			});
 
+			roomSession.setReestablishingHandler((active: boolean) => {
+				reestablishing = active;
+			});
+
 			await roomSession.connect();
 			session = roomSession;
 
@@ -902,6 +919,12 @@
 						onKeepRoom={handleKeepRoom}
 						onDeleteNow={handleDeleteNow}
 					/>
+				</div>
+			{/if}
+
+			{#if reestablishing}
+				<div class="reestablishing-banner" role="status" aria-live="polite">
+					Re-establishing encryption...
 				</div>
 			{/if}
 
@@ -1485,6 +1508,10 @@
 			padding: 0.25rem 0.5rem;
 			font-size: 0.75rem;
 		}
+
+		.composer input {
+			font-size: 1rem; /* ≥16px prevents iOS Safari auto-zoom on focus */
+		}
 	}
 
 	.empty-hint {
@@ -1738,6 +1765,17 @@
 	/* Invite banner container */
 	.invite-banner-container {
 		padding: 0 1rem;
+		flex-shrink: 0;
+	}
+
+	/* Re-establishing encryption banner */
+	.reestablishing-banner {
+		background: var(--status-caution-bg);
+		border-bottom: 1px solid var(--status-caution-border);
+		padding: 0.6rem 1rem;
+		text-align: center;
+		font-size: 0.85rem;
+		color: var(--status-caution);
 		flex-shrink: 0;
 	}
 
