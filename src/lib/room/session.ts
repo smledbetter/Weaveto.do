@@ -24,6 +24,7 @@ import {
   createInboundGroupSession,
   megolmEncrypt,
   megolmDecrypt,
+  getOneTimeKeyCount,
   type OlmEncryptedMessage,
 } from "$lib/crypto/engine";
 
@@ -124,6 +125,11 @@ type ServerMessage =
   | RoomNotFoundMessage
   | RoomDestroyedMessage
   | PurgeUnauthorizedMessage;
+
+// --- OTK replenishment thresholds ---
+
+const OTK_REPLENISH_THRESHOLD = 5;
+const OTK_REPLENISH_COUNT = 10;
 
 // --- Room Session ---
 
@@ -762,6 +768,8 @@ export class RoomSession {
         );
         this.olmSessions.set(msg.senderIdentityKey, result.session);
         plaintext = result.plaintext;
+        // A peer consumed one of our OTKs to create this session — replenish if low.
+        this.checkAndReplenishOTKs();
       }
 
       // Parse the Megolm session key
@@ -936,6 +944,21 @@ export class RoomSession {
       }
     }
     this.onMembersChanged?.(this.members);
+  }
+
+  /**
+   * Check whether the account has fallen below the OTK replenishment threshold
+   * and, if so, generate a fresh batch and mark them published.
+   * Called after each successful inbound Olm session creation so that the pool
+   * stays healthy as peers consume keys.
+   */
+  private checkAndReplenishOTKs(): void {
+    if (!this.account) return;
+    const count = getOneTimeKeyCount(this.account);
+    if (count < OTK_REPLENISH_THRESHOLD) {
+      generateOneTimeKeys(this.account, OTK_REPLENISH_COUNT);
+      markKeysAsPublished(this.account);
+    }
   }
 
   private getWebSocketUrl(): string {

@@ -147,6 +147,19 @@ export function markKeysAsPublished(account: OlmAccount): void {
   account.mark_keys_as_published();
 }
 
+/**
+ * Return the number of unpublished one-time keys currently held by the account.
+ * vodozemac returns a JS Map from one_time_keys() — we iterate to count entries.
+ */
+export function getOneTimeKeyCount(account: OlmAccount): number {
+  const keys = account.one_time_keys();
+  let count = 0;
+  keys.forEach(() => {
+    count++;
+  });
+  return count;
+}
+
 // --- Olm Sessions (1:1 key exchange) ---
 
 export function createOutboundSession(

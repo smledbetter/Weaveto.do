@@ -48,6 +48,9 @@ vi.mock("$lib/crypto/engine", () => ({
   megolmDecrypt: vi
     .fn()
     .mockReturnValue({ plaintext: '{"text":"hi","sender":"x","senderName":"X"}' }),
+  // Return a count above the replenishment threshold so OTK replenishment
+  // never fires as a side effect inside handleKeyShare during these tests.
+  getOneTimeKeyCount: vi.fn().mockReturnValue(10),
 }));
 
 // Padding is a no-op in tests
