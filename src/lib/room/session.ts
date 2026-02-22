@@ -60,6 +60,8 @@ export type MessageHandler = (message: DecryptedMessage) => void;
 export type MemberHandler = (members: Map<string, RoomMember>) => void;
 export type ConnectionHandler = (connected: boolean) => void;
 export type ErrorHandler = (error: string) => void;
+export type ReestablishingHandler = (active: boolean) => void;
+export type DecryptFailureHandler = (senderId: string) => void;
 
 // --- Protocol message types ---
 
@@ -141,6 +143,8 @@ export class RoomSession {
   private static readonly MAX_RECONNECT_ATTEMPTS = 5;
   private static readonly RECONNECT_BASE_DELAY = 1000;
   private intentionalClose = false;
+  private reestablishing = false;
+  private pendingKeyExchanges = new Set<string>();
 
   // Olm sessions with other members (keyed by their identity key)
   private olmSessions = new Map<string, OlmSession>();
@@ -163,6 +167,8 @@ export class RoomSession {
   private onMembersChanged: MemberHandler | null = null;
   private onConnectionChanged: ConnectionHandler | null = null;
   private onError: ErrorHandler | null = null;
+  private onReestablishing: ReestablishingHandler | null = null;
+  private onDecryptFailure: DecryptFailureHandler | null = null;
 
   constructor(
     roomId: string,
@@ -191,6 +197,12 @@ export class RoomSession {
   }
   setErrorHandler(handler: ErrorHandler) {
     this.onError = handler;
+  }
+  setReestablishingHandler(handler: ReestablishingHandler) {
+    this.onReestablishing = handler;
+  }
+  setDecryptFailureHandler(handler: DecryptFailureHandler) {
+    this.onDecryptFailure = handler;
   }
 
   getIdentityKey(): string {
@@ -334,6 +346,20 @@ export class RoomSession {
       this.reconnecting = false;
       this.reconnectAttempts = 0;
       this.onConnectionChanged?.(true);
+
+      // Clear stale Olm sessions — they are invalid after a disconnect because
+      // the server's OTK registry has been refreshed. New inbound sessions will
+      // be established via key_share messages after the member list arrives.
+      this.olmSessions.clear();
+      for (const member of this.members.values()) {
+        member.olmSession = undefined;
+      }
+
+      // Enter re-establishing mode: we must wait for fresh key shares from all
+      // known members before encryption is fully operational again.
+      this.reestablishing = true;
+      this.pendingKeyExchanges.clear();
+      this.onReestablishing?.(true);
 
       // Re-generate one-time keys for key exchange with existing members
       generateOneTimeKeys(this.account!, 10);
@@ -756,6 +782,16 @@ export class RoomSession {
       const inbound = createInboundGroupSession(keyData.sessionKey);
       this.inboundSessions.set(keyData.sessionId, inbound);
 
+      // Key exchange with this member succeeded — remove from pending set and
+      // check whether re-establishment is complete.
+      if (this.reestablishing) {
+        this.pendingKeyExchanges.delete(msg.senderIdentityKey);
+        if (this.pendingKeyExchanges.size === 0) {
+          this.reestablishing = false;
+          this.onReestablishing?.(false);
+        }
+      }
+
       // Reciprocate: share our Megolm key back so they can decrypt our messages.
       // Only do this if we didn't initiate the exchange (to prevent infinite loops).
       if (
@@ -787,7 +823,9 @@ export class RoomSession {
         }
       }
     } catch {
-      // Key share decryption failed — ignore silently
+      // Key share decryption failed — report via callback so the UI can surface
+      // the failure without exposing internal error details.
+      this.onDecryptFailure?.(msg.senderIdentityKey);
     }
   }
 
@@ -890,6 +928,11 @@ export class RoomSession {
           identityKey: member.identityKey,
           displayName: member.displayName,
         });
+        // During re-establishment, track which members we need fresh key
+        // exchanges with so we can signal when all channels are restored.
+        if (this.reestablishing) {
+          this.pendingKeyExchanges.add(member.identityKey);
+        }
       }
     }
     this.onMembersChanged?.(this.members);
