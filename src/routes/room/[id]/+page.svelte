@@ -1429,25 +1429,35 @@
 
 	/* Mobile layout */
 	@media (max-width: 767px) {
-		.room {
+		main {
+			min-height: 0;
+			height: 100dvh;
+			height: 100vh; /* fallback */
 			overflow: hidden;
+		}
+
+		.room {
+			height: 100%;
+			overflow: hidden;
+		}
+
+		.room-body {
+			flex: 1;
+			min-height: 0; /* critical: allow flex shrink */
+			overflow: hidden;
+		}
+
+		.messages-col {
+			min-height: 0;
+		}
+
+		.messages {
+			min-height: 0;
 		}
 
 		.tasks-toggle,
 		.agents-toggle {
 			display: none;
-		}
-
-		.room-body {
-			padding-bottom: 0;
-		}
-
-		.messages-col {
-			min-height: 0; /* allow flex shrink inside overflow:hidden parent */
-		}
-
-		.messages {
-			min-height: 0;
 		}
 
 		.tasks-col,
