@@ -35,7 +35,17 @@
 
 ## Upcoming
 
-### M12 — Mobile Identity Persistence
+### M12 — Mobile UX Improvements
+
+Consolidate the first-visit experience and fix mobile navigation.
+
+- **Banner consolidation**: Merge 3 informational banners (key warning, temp identity, solo member) into the CoachMarks walkthrough. One guided flow replaces 3 stacked banners. Urgent banners (auto-delete, re-establishing encryption) remain independent.
+- **Mobile bottom nav**: Replace the header toggle buttons + mobile tab bar with a single bottom navigation bar (Chat / Tasks / Automation). Eliminates the confusing "toggle creates a second tab bar" pattern. Desktop side panels unchanged.
+- **Background color fix**: Set `html`/`body` background to `--bg-base` so the app fills the viewport with no white border in either theme.
+
+**Done when**: New users see a single walkthrough (no stacked banners). Mobile users navigate via bottom nav bar (no double tab bar). No white border around the app. Desktop layout unchanged. No new dependencies.
+
+### M13 — Mobile Identity Persistence
 
 Replace the temporary random-seed fallback with IndexedDB-persisted crypto identity for devices without WebAuthn PRF support (iOS Safari, Android Chrome, most mobile browsers).
 
@@ -50,7 +60,7 @@ Replace the temporary random-seed fallback with IndexedDB-persisted crypto ident
 
 **Done when**: Mobile users get a persistent crypto identity across sessions. PIN-protected rooms work on mobile. E2E encryption unchanged. PRF users unaffected.
 
-### M13 — Local Notifications
+### M14 — Local Notifications
 
 Expand service worker notifications without external push infrastructure.
 
@@ -62,7 +72,7 @@ Expand service worker notifications without external push infrastructure.
 
 **Done when**: Notifications fire for assignments and due dates when tab is backgrounded. Contextual opt-in prompt appears on first due-date task. Bell popover controls on/off + quiet hours. E2E tests cover notification triggers.
 
-### M14 — Trust & Verification
+### M15 — Trust & Verification
 
 Close the open gaps in the threat model (see `docs/THREAT-MODEL.md`).
 
@@ -73,7 +83,7 @@ Close the open gaps in the threat model (see `docs/THREAT-MODEL.md`).
 
 **Done when**: Emoji strings visible in room info for all members. Room migration on kick creates new room with task state preserved and banner shown. Shield icon reflects delivery health. E2E tests cover verification display and room migration.
 
-### M15 — Web Push
+### M16 — Web Push
 
 Add VAPID-based push notifications via the relay server.
 
@@ -83,7 +93,7 @@ Add VAPID-based push notifications via the relay server.
 
 **Done when**: Push notifications arrive when browser is closed. All payloads are generic (no task content). Subscriptions cleaned up on room destruction.
 
-### M16 — Offline Task Store
+### M17 — Offline Task Store
 
 IndexedDB-backed offline storage for tasks.
 
@@ -94,7 +104,7 @@ IndexedDB-backed offline storage for tasks.
 
 **Done when**: Tasks persist across page reloads without network. Connection status unified into single indicator. Events queued for sync. Tasks can be created while offline.
 
-### M17 — Sync and Conflict Resolution
+### M18 — Sync and Conflict Resolution
 
 Reconnect and merge offline changes.
 
@@ -104,7 +114,7 @@ Reconnect and merge offline changes.
 
 **Done when**: Two users can edit tasks offline, reconnect, and see merged state. No data loss. E2E test covers offline-edit-reconnect flow.
 
-### M18 — Multi-Room Tabs
+### M19 — Multi-Room Tabs
 
 Securely participate in multiple rooms across multiple browser tabs simultaneously.
 
@@ -116,7 +126,7 @@ Securely participate in multiple rooms across multiple browser tabs simultaneous
 
 **Done when**: User can open 3+ rooms in separate tabs, send/receive messages in each independently. Closing one tab does not disrupt others. PIN lock in one tab locks all tabs. E2E tests cover multi-tab room isolation.
 
-### M19 — Tor Hidden Service (deployment)
+### M20 — Tor Hidden Service (deployment)
 
 Run the relay as an optional .onion hidden service alongside the normal endpoint. Closes the IP metadata gap for users who need metadata protection without affecting the default experience.
 

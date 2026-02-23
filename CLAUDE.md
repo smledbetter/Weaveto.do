@@ -57,7 +57,7 @@ Also load research artifacts:
 - Crypto waves stay serial -- no parallelism on waves that modify key management chains
 - Run quality gates IN ORDER after all waves:
   1. `npm run check`
-  2. `npm run test:unit`
+  2. `npm run test:unit -- --coverage`
   3. `npm run test:e2e`
   4. `npm run build`
 - Optional preventive gates (run after core gates pass):
