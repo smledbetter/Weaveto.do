@@ -7,7 +7,7 @@ import { test as base } from '@playwright/test';
 export const test = base.extend({
 	page: async ({ page }, use) => {
 		await page.addInitScript(() => {
-			sessionStorage.setItem('weave-walkthrough-seen', 'true');
+			localStorage.setItem('weave-walkthrough-seen', 'true');
 		});
 		await use(page);
 	},

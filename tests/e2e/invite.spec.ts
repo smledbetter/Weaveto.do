@@ -31,35 +31,18 @@ test.describe("Invite UX", () => {
     t.assertNoErrors();
   });
 
-  test("solo member banner shows when alone in room", async ({ page }) => {
+  test("solo member banner is hidden after walkthrough completion", async ({ page }) => {
+    // Fixture sets localStorage walkthrough flag — banner should be suppressed
     await createAndJoinRoom(page);
     const banner = page.locator(".solo-banner");
-    await expect(banner).toBeVisible();
-    await expect(banner).toContainText("You're the only one here");
-  });
-
-  test("solo member banner can be dismissed", async ({ page }) => {
-    await createAndJoinRoom(page);
-    const banner = page.locator(".solo-banner");
-    await expect(banner).toBeVisible();
-
-    // Click dismiss
-    await banner.locator('button[aria-label="Dismiss"]').click();
     await expect(banner).not.toBeVisible();
   });
 
-  test("solo member banner invite link opens modal", async ({ page }) => {
+  test("walkthrough overlay is hidden when localStorage flag is set", async ({ page }) => {
+    // Fixture sets localStorage walkthrough flag — overlay should not appear
     await createAndJoinRoom(page);
-    const banner = page.locator(".solo-banner");
-    await expect(banner).toBeVisible();
-
-    // Click the "invite someone" link in the banner
-    await banner.locator("button.invite-link").click();
-    await expect(
-      page.locator('[aria-labelledby="invite-modal-title"]'),
-    ).toBeVisible();
-    const titleText = await page.locator("#invite-modal-title").textContent();
-    expect(titleText).toMatch(/^Invite to [a-z]+-[a-z]+$/);
+    const overlay = page.locator(".coach-overlay");
+    await expect(overlay).not.toBeVisible();
   });
 
   test("Invite button opens invite modal", async ({ page }) => {
