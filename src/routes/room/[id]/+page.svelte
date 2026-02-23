@@ -1503,7 +1503,8 @@
 			font-size: 0.75rem;
 		}
 
-		.center-card input {
+		.center-card input,
+		.composer input {
 			font-size: 16px; /* prevents iOS Safari auto-zoom on focus */
 		}
 	}
@@ -1582,7 +1583,7 @@
 		border: 1px solid var(--border-default);
 		border-radius: 6px;
 		color: var(--text-primary);
-		font-size: 16px; /* >=16px prevents iOS Safari auto-zoom on focus */
+		font-size: 0.95rem;
 		outline: none;
 	}
 

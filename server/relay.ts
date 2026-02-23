@@ -396,32 +396,21 @@ function handleJoin(
   // key_share responses targeting this client can be routed immediately.
   room.clients.set(msg.identityKey, client);
 
-  // Notify existing members about the new member.
-  // Each existing member gets a UNIQUE one-time key so that multiple members
-  // can each establish independent Olm sessions with the new joiner.
-  // Without this, all members would try to use the same OTK and only the
-  // first to complete the handshake would succeed (vodozemac invalidates
-  // used OTKs), breaking key exchange in 3+ member rooms.
-  const otkEntries = Object.entries(msg.oneTimeKeys);
-  let otkIndex = 0;
+  // Notify existing members about the new member
+  const newMemberMsg = JSON.stringify({
+    type: "new_member",
+    identityKey: msg.identityKey,
+    ed25519Key: msg.ed25519Key,
+    oneTimeKeys: msg.oneTimeKeys,
+    displayName: msg.displayName,
+  });
 
   for (const [, existingClient] of room.clients) {
     // Skip the new client — they don't need their own new_member notification
     if (existingClient.identityKey === msg.identityKey) continue;
-    if (existingClient.ws.readyState !== WebSocket.OPEN) continue;
-
-    // Assign a unique OTK to this member (round-robin if more members than OTKs)
-    const [otkId, otkValue] = otkEntries[otkIndex % otkEntries.length];
-    otkIndex++;
-
-    const newMemberMsg = JSON.stringify({
-      type: "new_member",
-      identityKey: msg.identityKey,
-      ed25519Key: msg.ed25519Key,
-      oneTimeKeys: { [otkId]: otkValue },
-      displayName: msg.displayName,
-    });
-    existingClient.ws.send(newMemberMsg);
+    if (existingClient.ws.readyState === WebSocket.OPEN) {
+      existingClient.ws.send(newMemberMsg);
+    }
   }
 
   ws.send(
