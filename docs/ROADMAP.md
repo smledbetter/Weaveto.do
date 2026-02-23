@@ -2,14 +2,14 @@
 
 ## Current State
 
-- **Git SHA**: b3c0fee
-- **Unit tests**: 419 (Vitest, jsdom)
-- **E2E tests**: 181 (Playwright, Chromium) — 46 pre-existing failures
-- **Coverage**: 75%+ lines, 73%+ functions/branches
+- **Git SHA**: 558adb1
+- **Unit tests**: 441 (Vitest, jsdom)
+- **E2E tests**: 134 (Playwright, Chromium) — 0 pre-existing failures
+- **Coverage**: 57.19% lines (overall), 100% on new components
 - **Lint**: clean (`npm run check` passes)
 - **Build**: clean (`npm run build` passes)
-- **Milestones complete**: M0-M11 (13 milestones shipped)
-- **LOC**: ~14K (src/ + tests/ + server/)
+- **Milestones complete**: M0-M12 (14 milestones shipped)
+- **LOC**: ~15K (src/ + tests/ + server/)
 
 ## Completed Milestones
 
@@ -30,20 +30,11 @@
 - ~~M9: Vulnerability Scanning~~ ✅ (Sprint 1) — Security audit across all shipped milestones. 2 critical, 9 high, 18 medium findings. All critical + high fixed. Security report: `docs/milestones/M8-vulnerability-scanning/SECURITY-REPORT.md`
 - ~~M10: UX & Accessibility~~ ✅ (Sprint 2) — Header decluttered, coach marks, ARIA fixes, focus-visible rings, connection status label, task empty-state prompt. +13 unit tests.
 - ~~M11: Reconnect & Hardening~~ ✅ (Sprint 3) — Stale Olm session clearing on reconnect, re-establishment tracking with UI indicator, timestamp clamping (5-min future window), OTK replenishment (threshold-based). +27 unit tests.
+- ~~M12: Mobile UX Improvements~~ ✅ (Sprint 4) — Banner consolidation into CoachMarks walkthrough, MobileNav bottom navigation (Chat/Tasks/Auto), background color fix. +22 unit tests. 1 dev dependency added (@testing-library/svelte).
 
 ---
 
 ## Upcoming
-
-### M12 — Mobile UX Improvements
-
-Consolidate the first-visit experience and fix mobile navigation.
-
-- **Banner consolidation**: Merge 3 informational banners (key warning, temp identity, solo member) into the CoachMarks walkthrough. One guided flow replaces 3 stacked banners. Urgent banners (auto-delete, re-establishing encryption) remain independent.
-- **Mobile bottom nav**: Replace the header toggle buttons + mobile tab bar with a single bottom navigation bar (Chat / Tasks / Automation). Eliminates the confusing "toggle creates a second tab bar" pattern. Desktop side panels unchanged.
-- **Background color fix**: Set `html`/`body` background to `--bg-base` so the app fills the viewport with no white border in either theme.
-
-**Done when**: New users see a single walkthrough (no stacked banners). Mobile users navigate via bottom nav bar (no double tab bar). No white border around the app. Desktop layout unchanged. No new dependencies.
 
 ### M13 — Mobile Identity Persistence
 
