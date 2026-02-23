@@ -3,32 +3,52 @@
 
 	const STORAGE_KEY = 'weave-walkthrough-seen';
 
-	let { active = $bindable(false) }: { active?: boolean } = $props();
+	let {
+		active = $bindable(false),
+		usingTempIdentity = false,
+		isSoloMember = false,
+		oncomplete
+	}: {
+		active?: boolean;
+		usingTempIdentity?: boolean;
+		isSoloMember?: boolean;
+		oncomplete?: () => void;
+	} = $props();
 
 	let currentStep = $state(0);
 	let dismissed = $state(false);
 
-	const seen = browser && sessionStorage.getItem(STORAGE_KEY) === 'true';
+	const seen = browser && localStorage.getItem(STORAGE_KEY) === 'true';
 	if (seen) {
 		dismissed = true;
 	} else {
 		active = true;
 	}
 
-	const steps = [
+	const steps = $derived([
 		{
 			title: 'Your encrypted room',
-			body: 'Messages and tasks are end-to-end encrypted. Only people with the room link can join.'
+			body: 'Messages and tasks are end-to-end encrypted. Your keys live in this tab — if you close it, you\'ll need to rejoin. Only people with the room link can join.'
 		},
+		...(usingTempIdentity
+			? [
+					{
+						title: 'Temporary identity',
+						body: 'You\'re using a temporary identity. Your name will change next session.'
+					}
+				]
+			: []),
 		{
 			title: 'Manage tasks',
 			body: 'Open the Tasks panel to create, assign, and track work together.'
 		},
 		{
 			title: 'Invite your team',
-			body: 'Click Invite to share a link or QR code. No accounts needed.'
+			body: isSoloMember
+				? 'You\'re the only one here. Click Invite to share a link or QR code — no accounts needed.'
+				: 'Click Invite to share a link or QR code. No accounts needed.'
 		}
-	];
+	]);
 
 	function next() {
 		if (currentStep < steps.length - 1) {
@@ -41,7 +61,8 @@
 	function finish() {
 		dismissed = true;
 		active = false;
-		if (browser) sessionStorage.setItem(STORAGE_KEY, 'true');
+		if (browser) localStorage.setItem(STORAGE_KEY, 'true');
+		oncomplete?.();
 	}
 </script>
 

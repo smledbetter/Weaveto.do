@@ -33,6 +33,7 @@
 	import type { AutoDeleteState } from '$lib/room/types';
 	import PinSetup from '$lib/components/PinSetup.svelte';
 	import PinEntry from '$lib/components/PinEntry.svelte';
+	import MobileNav from '$lib/components/MobileNav.svelte';
 	import type { PinState } from '$lib/pin/types';
 	import { generatePinSalt, derivePinKey, derivePinKeyRaw, hashPinKey, verifyPin } from '$lib/pin/derive';
 	import { storePinKey, loadPinKey, clearPinKey } from '$lib/pin/store';
@@ -80,7 +81,7 @@
 	const taskStore = createTaskStore();
 	let taskList = $state<Task[]>([]);
 	let showTaskPanel = $state(false);
-	let mobileTab: 'messages' | 'tasks' | 'agents' = $state('messages');
+	let mobileView: 'chat' | 'tasks' | 'automation' = $state('chat');
 	let taskCount = $derived(taskList.filter((t) => t.status !== 'completed').length);
 	let lastMessageTimes = $state<Map<string, number>>(new Map());
 	let reminderNotice = $state('');
@@ -105,6 +106,7 @@
 	let inviteBannerDismissed = $state(false);
 	let isSoloMember = $derived(members.size === 0);
 	let coachMarksActive = $state(false);
+	let walkthroughCompleted = $state(browser ? localStorage.getItem('weave-walkthrough-seen') === 'true' : false);
 
 	// M5 burn features
 	let showBurnModal = $state(false);
@@ -445,6 +447,18 @@
 		sessionStorage.setItem('weave-key-warning-shown', 'true');
 	}
 
+	function handleWalkthroughComplete() {
+		walkthroughCompleted = true;
+		// Also set the individual banner flags for backward compat
+		if (browser) {
+			sessionStorage.setItem('weave-key-warning-shown', 'true');
+			sessionStorage.setItem(`weave-invite-dismissed:${roomId}`, 'true');
+		}
+		showKeyWarning = false;
+		inviteBannerDismissed = true;
+		usingTempIdentity = false;
+	}
+
 	async function generateRandomSeed(roomId: string): Promise<Uint8Array> {
 		const encoder = new TextEncoder();
 		const nonce = crypto.randomUUID();
@@ -709,13 +723,6 @@
 />
 
 <main>
-	{#if showKeyWarning && phase !== 'connected' && phase !== 'error'}
-		<div class="warning-banner" role="alert">
-			<p>Your encryption keys live only in this tab. If you close it, you'll need to rejoin.</p>
-			<button onclick={dismissKeyWarning}>Got it</button>
-		</div>
-	{/if}
-
 	{#if phase === 'name'}
 		<div class="center-card">
 			<h2>Join Room</h2>
@@ -803,13 +810,13 @@
 		{/if}
 
 		<div class="room" class:panel-open={showTaskPanel}>
-			{#if showKeyWarning && !coachMarksActive}
+			{#if showKeyWarning && !coachMarksActive && !walkthroughCompleted}
 				<div class="warning-banner" role="alert">
 					<p>Your encryption keys live only in this tab. If you close it, you'll need to rejoin.</p>
 					<button onclick={dismissKeyWarning}>Got it</button>
 				</div>
 			{/if}
-			{#if usingTempIdentity}
+			{#if usingTempIdentity && !walkthroughCompleted}
 				<div class="warning-banner temp-identity" role="status">
 					<p>Using temporary identity — your identity will change next session.</p>
 					<button onclick={() => { usingTempIdentity = false; }}>Dismiss</button>
@@ -882,34 +889,6 @@
 				</div>
 			</header>
 
-			<!-- Mobile tab bar (visible <768px when panel is open) -->
-			{#if showTaskPanel || showAgentPanel}
-				<div class="mobile-tabs" role="tablist" aria-label="Room sections">
-					<button
-						role="tab"
-						aria-selected={mobileTab === 'messages'}
-						class:active={mobileTab === 'messages'}
-						onclick={() => { mobileTab = 'messages'; }}
-					>Messages</button>
-					{#if showTaskPanel}
-						<button
-							role="tab"
-							aria-selected={mobileTab === 'tasks'}
-							class:active={mobileTab === 'tasks'}
-							onclick={() => { mobileTab = 'tasks'; }}
-						>Tasks{#if taskCount > 0} ({taskCount}){/if}</button>
-					{/if}
-					{#if showAgentPanel}
-						<button
-							role="tab"
-							aria-selected={mobileTab === 'agents'}
-							class:active={mobileTab === 'agents'}
-							onclick={() => { mobileTab = 'agents'; }}
-						>Automation</button>
-					{/if}
-				</div>
-			{/if}
-
 
 			{#if autoDeleteExpiresAt}
 				<div class="auto-delete-container">
@@ -928,7 +907,7 @@
 				</div>
 			{/if}
 
-			{#if isSoloMember && !inviteBannerDismissed && !coachMarksActive}
+			{#if isSoloMember && !inviteBannerDismissed && !coachMarksActive && !walkthroughCompleted}
 				<div class="invite-banner-container">
 					<SoloMemberBanner
 						onInvite={() => { showInviteModal = true; }}
@@ -943,7 +922,7 @@
 			{/if}
 
 			<div class="room-body">
-				<div class="messages-col" class:mobile-hidden={(showTaskPanel && mobileTab === 'tasks') || (showAgentPanel && mobileTab === 'agents')}>
+				<div class="messages-col" class:mobile-hidden={mobileView !== 'chat'}>
 					<div class="messages">
 						{#if messages.length === 0}
 							<p class="empty-hint">This room is end-to-end encrypted. Click Invite to share it.</p>
@@ -965,7 +944,7 @@
 						{/each}
 					</div>
 
-					<div class="composer">
+					<div class="composer" class:mobile-hidden={mobileView !== 'chat'}>
 						<input
 							type="text"
 							bind:value={messageInput}
@@ -976,8 +955,8 @@
 					</div>
 				</div>
 
-				{#if showTaskPanel}
-					<div class="tasks-col" class:mobile-hidden={mobileTab !== 'tasks'}>
+				{#if showTaskPanel || mobileView === 'tasks'}
+					<div class="tasks-col" class:mobile-hidden={mobileView !== 'tasks'}>
 						<TaskPanel
 							tasks={taskList}
 							{members}
@@ -990,8 +969,8 @@
 					</div>
 				{/if}
 
-				{#if showAgentPanel}
-					<div class="agents-col" class:mobile-hidden={mobileTab !== 'agents'}>
+				{#if showAgentPanel || mobileView === 'automation'}
+					<div class="agents-col" class:mobile-hidden={mobileView !== 'automation'}>
 						<AgentPanel
 							modules={agentModules}
 							activeAgents={activeAgentIds}
@@ -1003,6 +982,12 @@
 					</div>
 				{/if}
 			</div>
+			<MobileNav
+				activeView={mobileView}
+				{taskCount}
+				agentCount={activeAgentIds.length}
+				onnavigate={(view) => { mobileView = view; }}
+			/>
 		</div>
 
 		{#if pinState.status === 'locked'}
@@ -1040,7 +1025,12 @@
 			<div class="burn-error" role="alert">{burnError}</div>
 		{/if}
 
-		<CoachMarks bind:active={coachMarksActive} />
+		<CoachMarks
+		bind:active={coachMarksActive}
+		{usingTempIdentity}
+		{isSoloMember}
+		oncomplete={handleWalkthroughComplete}
+	/>
 	{/if}
 
 </main>
@@ -1399,29 +1389,6 @@
 
 	.dropdown-action:hover { color: var(--accent-default); }
 
-	/* Mobile tab bar */
-	.mobile-tabs {
-		display: none;
-		border-bottom: 1px solid var(--border-subtle);
-		flex-shrink: 0;
-	}
-
-	.mobile-tabs button {
-		flex: 1;
-		padding: 0.5rem;
-		background: none;
-		border: none;
-		border-bottom: 2px solid transparent;
-		color: var(--text-secondary);
-		cursor: pointer;
-		font-size: 0.85rem;
-	}
-
-	.mobile-tabs button.active {
-		color: var(--text-primary);
-		border-bottom-color: var(--accent-default);
-	}
-
 	/* Room body: messages + optional task panel */
 	.room-body {
 		flex: 1;
@@ -1462,8 +1429,13 @@
 
 	/* Mobile layout */
 	@media (max-width: 767px) {
-		.mobile-tabs {
-			display: flex;
+		.tasks-toggle,
+		.agents-toggle {
+			display: none;
+		}
+
+		.room-body {
+			padding-bottom: 0;
 		}
 
 		.tasks-col,
