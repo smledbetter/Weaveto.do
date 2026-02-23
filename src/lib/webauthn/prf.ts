@@ -170,21 +170,28 @@ export async function assertWithPrf(
 }
 
 /**
- * Store credential ID in sessionStorage (memory-only, lost on tab close).
- * This is intentional — keys are ephemeral per the security model.
+ * Store credential ID in both sessionStorage (fast access within tab) and
+ * localStorage (persists across sessions for PRF assertion on return visits).
  */
 function storeCredentialId(id: Uint8Array): void {
+  const encoded = btoa(String.fromCharCode(...id));
   if (typeof sessionStorage !== "undefined") {
-    sessionStorage.setItem(
-      "weave-credential-id",
-      btoa(String.fromCharCode(...id)),
-    );
+    sessionStorage.setItem("weave-credential-id", encoded);
+  }
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem("weave-credential-id", encoded);
   }
 }
 
 export function getStoredCredentialId(): Uint8Array | null {
-  if (typeof sessionStorage === "undefined") return null;
-  const stored = sessionStorage.getItem("weave-credential-id");
+  // Check sessionStorage first (faster, same tab), then localStorage (cross-session)
+  const stored =
+    (typeof sessionStorage !== "undefined"
+      ? sessionStorage.getItem("weave-credential-id")
+      : null) ??
+    (typeof localStorage !== "undefined"
+      ? localStorage.getItem("weave-credential-id")
+      : null);
   if (!stored) return null;
   return Uint8Array.from(atob(stored), (c) => c.charCodeAt(0));
 }

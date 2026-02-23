@@ -5,6 +5,7 @@
 	import { browser } from '$app/environment';
 	import { RoomSession, type DecryptedMessage, type RoomMember } from '$lib/room/session';
 	import { createCredential, assertWithPrf, getStoredCredentialId, WebAuthnUnsupportedError } from '$lib/webauthn/prf';
+	import { loadIdentitySeed, storeIdentitySeed } from '$lib/identity/store';
 	import { isDark, toggleTheme } from '$lib/theme.svelte';
 	import { createTaskStore } from '$lib/tasks/store.svelte';
 	import { parseTaskCommand } from '$lib/tasks/parser';
@@ -489,10 +490,18 @@
 					}
 					prfSeed = result.seed;
 				} catch {
-					// WebAuthn PRF not supported (e.g. mobile browsers) — fall back to random seed.
-					// Identity will be ephemeral (unique per session) but encryption still works.
-					prfSeed = await generateRandomSeed(roomId);
-					usingTempIdentity = true;
+					// WebAuthn PRF not supported — try IndexedDB-persisted identity
+					const storedSeed = await loadIdentitySeed(roomId);
+					if (storedSeed) {
+						prfSeed = storedSeed;
+					} else {
+						prfSeed = await generateRandomSeed(roomId);
+						try {
+							await storeIdentitySeed(roomId, prfSeed);
+						} catch {
+							usingTempIdentity = true;
+						}
+					}
 				}
 			}
 
