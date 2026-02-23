@@ -120,57 +120,18 @@ import { RoomSession } from "$lib/room/session";
 // Part A: getOneTimeKeyCount
 // ---------------------------------------------------------------------------
 
-describe("getOneTimeKeyCount", () => {
-  it("returns 0 for an account with an empty OTK Map", () => {
-    const account = {
-      one_time_keys: () => new Map<string, string>(),
-    };
-    // Call the real implementation imported from engine (not the mock)
-    // We test it by restoring the original and calling it directly.
-    // Since we cannot easily un-mock it, we replicate the logic inline and
-    // verify the mock delegates correctly.
-
-    // Reset so the spy reflects the real call behaviour:
-    mockGetOneTimeKeyCount.mockImplementation((acc: { one_time_keys(): Map<string, string> }) => {
-      const keys = acc.one_time_keys();
-      let count = 0;
-      keys.forEach(() => { count++; });
-      return count;
-    });
-
-    expect(getOneTimeKeyCount(account as never)).toBe(0);
+// NOTE: getOneTimeKeyCount real implementation is tested in otk-count.test.ts
+// (without module mock, verifying property-access API contract with vodozemac).
+// These tests only verify the mock integration used by checkAndReplenishOTKs.
+describe("getOneTimeKeyCount (mock integration)", () => {
+  it("mock returns configured value for checkAndReplenishOTKs tests", () => {
+    mockGetOneTimeKeyCount.mockReturnValue(3);
+    expect(getOneTimeKeyCount({} as never)).toBe(3);
   });
 
-  it("returns the correct count for a Map with N entries", () => {
-    const map = new Map<string, string>([
-      ["key-id-1", "key-value-1"],
-      ["key-id-2", "key-value-2"],
-      ["key-id-3", "key-value-3"],
-    ]);
-    const account = { one_time_keys: () => map };
-
-    mockGetOneTimeKeyCount.mockImplementation((acc: { one_time_keys(): Map<string, string> }) => {
-      const keys = acc.one_time_keys();
-      let count = 0;
-      keys.forEach(() => { count++; });
-      return count;
-    });
-
-    expect(getOneTimeKeyCount(account as never)).toBe(3);
-  });
-
-  it("counts only Map entries, ignoring Map metadata", () => {
-    const map = new Map<string, string>([["only-key", "only-value"]]);
-    const account = { one_time_keys: () => map };
-
-    mockGetOneTimeKeyCount.mockImplementation((acc: { one_time_keys(): Map<string, string> }) => {
-      const keys = acc.one_time_keys();
-      let count = 0;
-      keys.forEach(() => { count++; });
-      return count;
-    });
-
-    expect(getOneTimeKeyCount(account as never)).toBe(1);
+  it("mock returns 0 to trigger replenishment path", () => {
+    mockGetOneTimeKeyCount.mockReturnValue(0);
+    expect(getOneTimeKeyCount({} as never)).toBe(0);
   });
 });
 

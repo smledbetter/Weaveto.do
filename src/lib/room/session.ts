@@ -769,7 +769,8 @@ export class RoomSession {
         this.olmSessions.set(msg.senderIdentityKey, result.session);
         plaintext = result.plaintext;
         // A peer consumed one of our OTKs to create this session — replenish if low.
-        this.checkAndReplenishOTKs();
+        // Wrapped in try/catch so OTK housekeeping never breaks key exchange.
+        try { this.checkAndReplenishOTKs(); } catch { /* non-critical */ }
       }
 
       // Parse the Megolm session key
