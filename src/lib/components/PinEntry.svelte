@@ -341,4 +341,10 @@
 		line-height: 1.4;
 		font-weight: 500;
 	}
+
+	@media (max-width: 767px) {
+		.pin-input {
+			font-size: 16px; /* prevents iOS Safari auto-zoom on focus */
+		}
+	}
 </style>

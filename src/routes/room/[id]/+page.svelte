@@ -1429,6 +1429,10 @@
 
 	/* Mobile layout */
 	@media (max-width: 767px) {
+		.room {
+			overflow: hidden;
+		}
+
 		.tasks-toggle,
 		.agents-toggle {
 			display: none;
@@ -1436,6 +1440,14 @@
 
 		.room-body {
 			padding-bottom: 0;
+		}
+
+		.messages-col {
+			min-height: 0; /* allow flex shrink inside overflow:hidden parent */
+		}
+
+		.messages {
+			min-height: 0;
 		}
 
 		.tasks-col,
@@ -1481,8 +1493,9 @@
 			font-size: 0.75rem;
 		}
 
+		.center-card input,
 		.composer input {
-			font-size: 1rem; /* ≥16px prevents iOS Safari auto-zoom on focus */
+			font-size: 16px; /* prevents iOS Safari auto-zoom on focus */
 		}
 	}
 
