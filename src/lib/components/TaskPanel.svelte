@@ -4,6 +4,8 @@
 	import type { RoomMember } from '$lib/room/session';
 	import { parseNaturalDate, formatDueDate } from '$lib/tasks/date-parser';
 	import TaskCreateModal from './TaskCreateModal.svelte';
+	import NotificationOptIn from './NotificationOptIn.svelte';
+	import NotificationBell from './NotificationBell.svelte';
 
 	interface Props {
 		tasks: Task[];
@@ -13,6 +15,15 @@
 		onTaskEvent: (event: TaskEvent) => void;
 		onAutoAssign: (events: TaskEvent[]) => void;
 		onClose: () => void;
+		notificationsEnabled: boolean;
+		notificationPermission: NotificationPermission;
+		hasDueDateTasks: boolean;
+		quietStart: string;
+		quietEnd: string;
+		onNotificationOptIn: () => void;
+		onNotificationOptInDismiss: () => void;
+		onNotificationToggle: (enabled: boolean) => void;
+		onQuietHoursChange: (start: string, end: string) => void;
 	}
 
 	let {
@@ -23,7 +34,18 @@
 		onTaskEvent,
 		onAutoAssign,
 		onClose,
+		notificationsEnabled,
+		notificationPermission,
+		hasDueDateTasks,
+		quietStart,
+		quietEnd,
+		onNotificationOptIn,
+		onNotificationOptInDismiss,
+		onNotificationToggle,
+		onQuietHoursChange,
 	}: Props = $props();
+
+	let optInDismissed = $state(false);
 
 	let showCreateModal = $state(false);
 	let showCompleted = $state(false);
@@ -343,6 +365,15 @@
 				aria-label="Sort tasks"
 				title={sortLabel}
 			>{sortIcon}</button>
+			{#if notificationPermission === 'granted'}
+				<NotificationBell
+					enabled={notificationsEnabled}
+					{quietStart}
+					{quietEnd}
+					onToggle={onNotificationToggle}
+					{onQuietHoursChange}
+				/>
+			{/if}
 			<button
 				class="new-task-btn"
 				onclick={() => { showCreateModal = true; }}
@@ -398,6 +429,16 @@
 						{/if}
 					</div>
 				</div>
+			{/if}
+
+			{#if notificationPermission === 'default' && hasDueDateTasks && !optInDismissed}
+				<NotificationOptIn
+					onOptIn={onNotificationOptIn}
+					onDismiss={() => {
+						optInDismissed = true;
+						onNotificationOptInDismiss();
+					}}
+				/>
 			{/if}
 
 			{#if pendingCount > 0}

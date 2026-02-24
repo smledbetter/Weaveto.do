@@ -39,6 +39,7 @@
 	import { generatePinSalt, derivePinKey, derivePinKeyRaw, hashPinKey, verifyPin } from '$lib/pin/derive';
 	import { storePinKey, loadPinKey, clearPinKey } from '$lib/pin/store';
 	import { SessionGate } from '$lib/pin/gate';
+	import { DEFAULT_QUIET_START, DEFAULT_QUIET_END } from '$lib/notifications/types';
 
 	let roomId = $derived($page.params.id ?? '');
 	let roomName = $derived(roomId ? getRoomName(roomId) : '');
@@ -118,6 +119,37 @@
 
 	// M11 encryption reestablishment
 	let reestablishing = $state(false);
+
+	// M14 notification state
+	let notificationPermission = $state<NotificationPermission>(
+		browser && 'Notification' in window ? Notification.permission : 'denied'
+	);
+	let notificationsEnabled = $state(false);
+	let notifQuietStart = $state(DEFAULT_QUIET_START);
+	let notifQuietEnd = $state(DEFAULT_QUIET_END);
+	let hasDueDateTasks = $derived(taskList.some((t) => t.dueAt !== undefined && t.status !== 'completed'));
+
+	async function handleNotificationOptIn() {
+		if (!browser || !('Notification' in window)) return;
+		const result = await Notification.requestPermission();
+		notificationPermission = result;
+		if (result === 'granted') {
+			notificationsEnabled = true;
+		}
+	}
+
+	function handleNotificationOptInDismiss() {
+		// no-op: dismissal state tracked in TaskPanel via optInDismissed
+	}
+
+	function handleNotificationToggle(enabled: boolean) {
+		notificationsEnabled = enabled;
+	}
+
+	function handleQuietHoursChange(start: string, end: string) {
+		notifQuietStart = start;
+		notifQuietEnd = end;
+	}
 
 	// Reminder scheduler — fires 5 min before due, in-tab only
 	const reminderScheduler = new ReminderScheduler((task) => {
@@ -1014,6 +1046,15 @@
 							onTaskEvent={handleTaskEvent}
 							onAutoAssign={handleAutoAssign}
 							onClose={toggleTaskPanel}
+							{notificationsEnabled}
+							{notificationPermission}
+							{hasDueDateTasks}
+							quietStart={notifQuietStart}
+							quietEnd={notifQuietEnd}
+							onNotificationOptIn={handleNotificationOptIn}
+							onNotificationOptInDismiss={handleNotificationOptInDismiss}
+							onNotificationToggle={handleNotificationToggle}
+							onQuietHoursChange={handleQuietHoursChange}
 						/>
 					</div>
 				{/if}
