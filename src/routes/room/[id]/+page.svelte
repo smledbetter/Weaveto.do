@@ -42,6 +42,9 @@
 	import { DEFAULT_QUIET_START, DEFAULT_QUIET_END } from '$lib/notifications/types';
 	import { initNotificationPrefsDB, saveNotificationPrefs, loadNotificationPrefs, clearNotificationPrefs } from '$lib/notifications/store';
 	import { shouldNotifyForEvent, getNotificationPayload, postNotifyToSW, postPrefsToSW } from '$lib/notifications/triggers';
+import { deriveEmojiString } from '$lib/room/verification';
+import ShieldIcon from '$lib/components/ShieldIcon.svelte';
+import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 
 	let roomId = $derived($page.params.id ?? '');
 	let roomName = $derived(roomId ? getRoomName(roomId) : '');
@@ -122,6 +125,11 @@
 	// M11 encryption reestablishment
 	let reestablishing = $state(false);
 
+	// M15 trust & verification state
+	let deliveryHealthy = $state(true);
+	let showMigrationBanner = $state(false);
+	let memberEmoji = $state<Map<string, string>>(new Map());
+
 	// M14 notification state
 	let notificationPermission = $state<NotificationPermission>(
 		browser && 'Notification' in window ? Notification.permission : 'denied'
@@ -190,6 +198,13 @@
 		if (browser) {
 			const stored = sessionStorage.getItem('weave-task-panel-open');
 			showTaskPanel = stored !== 'false';
+
+			// M15: Check for migration banner from previous room
+			const migrated = sessionStorage.getItem('weave-migration-banner');
+			if (migrated) {
+				showMigrationBanner = true;
+				sessionStorage.removeItem('weave-migration-banner');
+			}
 
 			// Initialize shortcuts
 			shortcutManager = new ShortcutManager();
@@ -671,6 +686,11 @@
 				reestablishing = active;
 			});
 
+			roomSession.setMigrationHandler((newRoomUrl: string, _tasks: any[]) => {
+				sessionStorage.setItem('weave-migration-banner', 'true');
+				window.location.href = newRoomUrl;
+			});
+
 			await roomSession.connect();
 			session = roomSession;
 
@@ -704,6 +724,27 @@
 			} else {
 				// PIN not required, proceed to connected
 				phase = 'connected';
+			}
+
+			// M15: Replay migrated tasks from previous room (after kick migration)
+			if (browser) {
+				const migratedTasksJson = sessionStorage.getItem('weave-migration-tasks');
+				if (migratedTasksJson) {
+					sessionStorage.removeItem('weave-migration-tasks');
+					try {
+						const tasks = JSON.parse(migratedTasksJson);
+						for (const task of tasks) {
+							const event = {
+								type: 'task_created' as const,
+								taskId: task.id,
+								task,
+								timestamp: Date.now(),
+								actorId: roomSession.getIdentityKey()
+							};
+							handleTaskEvent(event);
+						}
+					} catch { /* migration task replay failed silently */ }
+				}
 			}
 		} catch (e) {
 			if (e instanceof WebAuthnUnsupportedError) {
@@ -823,6 +864,70 @@
 			burnError = e instanceof Error ? e.message : 'Failed to delete room';
 		}
 	}
+
+	// M15: Kick a member by migrating the room to a new ID (creator only)
+	async function handleKickMember(targetKey: string) {
+		if (!session || !session.getIsCreator()) return;
+
+		const newRoomId = crypto.randomUUID().replace(/-/g, '');
+		const newRoomUrl = `/room/${newRoomId}`;
+
+		const tasks = taskList.map(t => ({
+			id: t.id,
+			title: t.title,
+			status: t.status,
+			assignee: t.assignee === targetKey ? undefined : t.assignee,
+			parentId: t.parentId,
+			createdBy: t.createdBy,
+			createdAt: t.createdAt,
+			updatedAt: t.updatedAt,
+			dueAt: t.dueAt,
+			blockedBy: t.blockedBy,
+			description: t.description,
+			urgent: t.urgent
+		}));
+
+		await session.sendMigrationMessage(newRoomUrl, tasks);
+
+		// Brief delay for message delivery
+		await new Promise(r => setTimeout(r, 200));
+
+		// Purge old room
+		await session.sendPurgeRequest();
+
+		// Store migration flag and tasks for replay in the new room
+		sessionStorage.setItem('weave-migration-banner', 'true');
+		sessionStorage.setItem('weave-migration-tasks', JSON.stringify(tasks));
+
+		window.location.href = newRoomUrl;
+	}
+
+	// M15: Derive emoji verification strings whenever member list changes
+	$effect(() => {
+		if (!session || !connected) return;
+		const myKey = session.getIdentityKey();
+		const memberKeys = [...(members?.keys() ?? [])].filter(k => k !== myKey);
+
+		const newEmoji = new Map<string, string>();
+		Promise.all(
+			memberKeys.map(async (theirKey) => {
+				const emoji = await deriveEmojiString(myKey, theirKey);
+				newEmoji.set(theirKey, emoji);
+			})
+		).then(() => {
+			memberEmoji = newEmoji;
+		});
+	});
+
+	// M15: Poll delivery tracker health every 2 seconds
+	$effect(() => {
+		if (!session || !connected) return;
+		const tracker = session.getDeliveryTracker();
+		const interval = setInterval(() => {
+			deliveryHealthy = !tracker.hasGap();
+		}, 2000);
+		return () => clearInterval(interval);
+	});
 
 	// Auto-delete detection: when all tasks are complete, start 24h countdown
 	$effect(() => {
@@ -963,6 +1068,7 @@
 					{#if session?.getEphemeralMode()}
 						<EphemeralIndicator memberCount={members.size + 1} />
 					{/if}
+					<ShieldIcon healthy={deliveryHealthy} />
 				</div>
 				<div class="room-meta">
 					<button
@@ -1020,6 +1126,8 @@
 				</div>
 			</header>
 
+
+			<MigrationBanner visible={showMigrationBanner} onDismiss={() => { showMigrationBanner = false; }} />
 
 			{#if autoDeleteExpiresAt}
 				<div class="auto-delete-container">
@@ -1196,6 +1304,24 @@
 	{#if displayName}
 		<div class="dropdown-item info-item">
 			<span>You: {displayName}</span>
+		</div>
+	{/if}
+	{#if members && members.size > 0}
+		<div class="dropdown-item members-section">
+			{#each [...(members?.entries() ?? [])] as [key, member]}
+				<div class="member-row">
+					<span class="member-name">{member.displayName}</span>
+					{#if key !== session?.getIdentityKey() && memberEmoji.get(key)}
+						<span class="member-emoji" title="Key verification emoji">{memberEmoji.get(key)}</span>
+					{/if}
+					{#if session?.getIsCreator() && key !== session?.getIdentityKey()}
+						<button class="kick-btn" onclick={() => handleKickMember(key)} aria-label="Remove {member.displayName}">Remove</button>
+					{/if}
+				</div>
+			{/each}
+			{#if members && members.size > 0}
+				<p class="verification-hint">Ask members to confirm these match on their screen.</p>
+			{/if}
 		</div>
 	{/if}
 	<div class="dropdown-item">
@@ -1961,6 +2087,64 @@
 		margin: 0;
 		color: var(--text-secondary);
 		line-height: 1.4;
+	}
+
+	/* M15: Trust & Verification styles */
+	.members-section {
+		border-top: 1px solid var(--border-subtle);
+		padding-top: 0.5rem;
+	}
+
+	.member-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.2rem 0;
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.member-name {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.member-emoji {
+		font-size: 0.75rem;
+		letter-spacing: 0.15em;
+		opacity: 0.8;
+		flex-shrink: 0;
+	}
+
+	.verification-hint {
+		font-size: 0.75rem;
+		color: var(--color-text-muted, #888);
+		margin-top: 0.5rem;
+		font-style: italic;
+	}
+
+	.kick-btn {
+		background: none;
+		border: 1px solid #dc2626;
+		color: #dc2626;
+		font-size: 0.75rem;
+		padding: 0.125rem 0.375rem;
+		border-radius: 0.25rem;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.kick-btn:hover {
+		background: #dc2626;
+		color: white;
+	}
+
+	.kick-btn:focus-visible {
+		outline: 2px solid var(--color-focus, #4a90d9);
+		outline-offset: 2px;
 	}
 
 </style>
