@@ -40,6 +40,8 @@
 	import { storePinKey, loadPinKey, clearPinKey } from '$lib/pin/store';
 	import { SessionGate } from '$lib/pin/gate';
 	import { DEFAULT_QUIET_START, DEFAULT_QUIET_END } from '$lib/notifications/types';
+	import { initNotificationPrefsDB, saveNotificationPrefs, loadNotificationPrefs, clearNotificationPrefs } from '$lib/notifications/store';
+	import { shouldNotifyForEvent, getNotificationPayload, postNotifyToSW, postPrefsToSW } from '$lib/notifications/triggers';
 
 	let roomId = $derived($page.params.id ?? '');
 	let roomName = $derived(roomId ? getRoomName(roomId) : '');
@@ -127,6 +129,7 @@
 	let notificationsEnabled = $state(false);
 	let notifQuietStart = $state(DEFAULT_QUIET_START);
 	let notifQuietEnd = $state(DEFAULT_QUIET_END);
+	let notifPrefsDb: IDBDatabase | null = $state(null);
 	let hasDueDateTasks = $derived(taskList.some((t) => t.dueAt !== undefined && t.status !== 'completed'));
 
 	async function handleNotificationOptIn() {
@@ -135,6 +138,12 @@
 		notificationPermission = result;
 		if (result === 'granted') {
 			notificationsEnabled = true;
+			// Persist prefs
+			const prefs = { roomId, enabled: true, quietStart: notifQuietStart, quietEnd: notifQuietEnd };
+			if (notifPrefsDb) {
+				try { await saveNotificationPrefs(notifPrefsDb, prefs); } catch { /* silent */ }
+			}
+			postPrefsToSW(prefs);
 		}
 	}
 
@@ -142,13 +151,23 @@
 		// no-op: dismissal state tracked in TaskPanel via optInDismissed
 	}
 
-	function handleNotificationToggle(enabled: boolean) {
+	async function handleNotificationToggle(enabled: boolean) {
 		notificationsEnabled = enabled;
+		const prefs = { roomId, enabled, quietStart: notifQuietStart, quietEnd: notifQuietEnd };
+		if (notifPrefsDb) {
+			try { await saveNotificationPrefs(notifPrefsDb, prefs); } catch { /* silent */ }
+		}
+		postPrefsToSW(prefs);
 	}
 
-	function handleQuietHoursChange(start: string, end: string) {
+	async function handleQuietHoursChange(start: string, end: string) {
 		notifQuietStart = start;
 		notifQuietEnd = end;
+		const prefs = { roomId, enabled: notificationsEnabled, quietStart: start, quietEnd: end };
+		if (notifPrefsDb) {
+			try { await saveNotificationPrefs(notifPrefsDb, prefs); } catch { /* silent */ }
+		}
+		postPrefsToSW(prefs);
 	}
 
 	// Reminder scheduler — fires 5 min before due, in-tab only
@@ -167,7 +186,7 @@
 	// and served by the framework.
 
 	// Restore panel state from sessionStorage and set up keyboard shortcuts
-	onMount(() => {
+	onMount(async () => {
 		if (browser) {
 			const stored = sessionStorage.getItem('weave-task-panel-open');
 			showTaskPanel = stored !== 'false';
@@ -214,6 +233,19 @@
 			});
 
 			shortcutManager.attach();
+
+			// Load notification preferences
+			try {
+				notifPrefsDb = await initNotificationPrefsDB();
+				const prefs = await loadNotificationPrefs(notifPrefsDb, roomId);
+				if (prefs) {
+					notificationsEnabled = prefs.enabled;
+					notifQuietStart = prefs.quietStart;
+					notifQuietEnd = prefs.quietEnd;
+				}
+			} catch {
+				// Silent failure — notification prefs unavailable
+			}
 		}
 	});
 
@@ -240,10 +272,6 @@
 				const task = taskStore.getTask(event.taskId);
 				if (task?.dueAt) {
 					reminderScheduler.scheduleReminder(task);
-					// Request notification permission on first task with due date
-					if (browser && 'Notification' in window && Notification.permission === 'default') {
-						Notification.requestPermission();
-					}
 				}
 			} else if (event.type === 'task_status_changed' && event.task?.status === 'completed') {
 				reminderScheduler.cancelReminder(event.taskId);
@@ -593,6 +621,20 @@
 					refreshTaskList();
 					// Dispatch remote task events to active agents
 					agentExecutor?.dispatchTaskEvent(msg.taskEvent);
+					// M14: Trigger notification for remote task events
+					if (notificationsEnabled) {
+						const shouldNotify = shouldNotifyForEvent(
+							msg.taskEvent,
+							roomSession.getIdentityKey() ?? '',
+							taskStore.getTasks(),
+							notificationsEnabled,
+							!!roomSession.getEphemeralMode(),
+						);
+						if (shouldNotify) {
+							const payload = getNotificationPayload(msg.taskEvent);
+							postNotifyToSW(payload, roomId);
+						}
+					}
 				}
 				// Only show chat messages (non-empty text) in the message feed
 				if (msg.plaintext || msg.decryptionFailed) {
@@ -747,6 +789,10 @@
 				await session.sendPurgeRequest();
 				await cleanupRoom(roomId, session);
 			}
+			// Clear notification preferences on room destruction
+			if (notifPrefsDb) {
+				try { await clearNotificationPrefs(notifPrefsDb, roomId); } catch { /* silent */ }
+			}
 			window.location.href = '/?deleted=true';
 		} catch (e: unknown) {
 			burnError = e instanceof Error ? e.message : 'Failed to delete room';
@@ -767,6 +813,10 @@
 			if (session) {
 				await session.sendPurgeRequest();
 				await cleanupRoom(roomId, session);
+			}
+			// Clear notification preferences on room destruction
+			if (notifPrefsDb) {
+				try { await clearNotificationPrefs(notifPrefsDb, roomId); } catch { /* silent */ }
 			}
 			window.location.href = '/?deleted=auto';
 		} catch (e: unknown) {

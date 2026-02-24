@@ -8,6 +8,7 @@ import type { RoomSession } from "./session";
 import { autoDeleteKey } from "./types";
 import { clearPinKey } from "$lib/pin/store";
 import { clearIdentitySeed } from "$lib/identity/store";
+import { initNotificationPrefsDB, clearNotificationPrefs } from "$lib/notifications/store";
 
 /**
  * Clean up all client-side state for a destroyed room.
@@ -37,6 +38,15 @@ export async function cleanupRoom(
 
   // 6. Clear persisted identity seed from IndexedDB
   await clearIdentitySeed(roomId);
+
+  // 7. Clear notification preferences from IndexedDB
+  try {
+    const notifPrefsDb = await initNotificationPrefsDB();
+    await clearNotificationPrefs(notifPrefsDb, roomId);
+    notifPrefsDb.close();
+  } catch {
+    // IndexedDB not available or error — skip
+  }
 }
 
 /**
