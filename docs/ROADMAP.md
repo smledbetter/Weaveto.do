@@ -2,14 +2,14 @@
 
 ## Current State
 
-- **Git SHA**: 574cd76
-- **Unit tests**: 505 (Vitest, jsdom)
-- **E2E tests**: 200 (Playwright, Chromium) — ~43 pre-existing CSP nonce failures
-- **Coverage**: 58.56% lines (overall), 100% on new components
+- **Git SHA**: ee96a72
+- **Unit tests**: 524 (Vitest, jsdom)
+- **E2E tests**: 213 (Playwright, Chromium) — ~46 pre-existing CSP nonce failures
+- **Coverage**: ~58% lines (overall), 100% on new components
 - **Lint**: clean (`npm run check` passes, 0 errors, 26 warnings)
 - **Build**: clean (`npm run build` passes)
-- **Milestones complete**: M0-M14 (16 milestones shipped)
-- **LOC**: ~17.8K (src/ + tests/ + server/)
+- **Milestones complete**: M0-M15 (17 milestones shipped)
+- **LOC**: ~18.8K (src/ + tests/ + server/)
 
 ## Completed Milestones
 
@@ -33,21 +33,11 @@
 - ~~M12: Mobile UX Improvements~~ ✅ (Sprint 4) — Banner consolidation into CoachMarks walkthrough, MobileNav bottom navigation (Chat/Tasks/Auto), background color fix. +22 unit tests. 1 dev dependency added (@testing-library/svelte).
 - ~~M13: Mobile Identity Persistence~~ ✅ (Sprint 5) — IndexedDB-encrypted identity seed store (AES-GCM-256 via HKDF), PRF-first fallback chain in joinRoom(), cleanup integration, PIN compatibility for IDB-persisted seeds. +16 unit, +11 E2E tests. Production integration test suite.
 - ~~M14: Local Notifications~~ ✅ (Sprint 6) — Contextual opt-in banner, NotificationBell popover with toggle + quiet hours, SW quiet-hours enforcement, notification triggers (assignment, status change), IndexedDB prefs store, cleanup integration. Removed silent requestPermission (H7 violation). +48 unit, +7 E2E tests. Delegation ratio improved 4.9% → 43.0%.
+- ~~M15: Trust & Verification~~ ✅ (Sprint 7) — Emoji key verification (SHA-256 sorted keys → 5 emoji per member pair, ambient in room info). Member revocation via room migration (kick → new room, task state preserved, banner shown). Message delivery confirmation (per-sender sequence counters inside encrypted payload, shield icon green/amber). +19 unit, +13 E2E tests. Gates first pass. Delegation ratio 58.6%.
 
 ---
 
 ## Upcoming
-
-### M15 — Trust & Verification
-
-Close the open gaps in the threat model (see `docs/THREAT-MODEL.md`).
-
-- **Emoji key verification (ambient display)**: In room info popover, add a "Security" section. Each member shows 5 emoji derived from `SHA-256(sorted(identityKeyA, identityKeyB))` — always visible, no "Verify" button. One line of text: *"Ask members to confirm these match on their screen."* Passive — users who care will use it, others ignore it.
-- **Member revocation via room migration**: Creator kicks a member → client creates a new room, migrates task state, sends remaining members a redirect with dismissible banner: *"This room was recreated — your tasks have been carried over."* Old room destroyed. Clean cryptographic break.
-- **Message delivery confirmation (room-level)**: Per-sender sequential counters inside encrypted payload. Shield icon in room header turns green→amber when any gap is detected. Tapping shows: *"Some messages may have been missed."* No per-message warnings, no named members. Resets on reconnect.
-- **Reproducible relay builds** (stretch): Nix-based reproducible builds, publish hashes to transparency log. Community can verify relay matches source.
-
-**Done when**: Emoji strings visible in room info for all members. Room migration on kick creates new room with task state preserved and banner shown. Shield icon reflects delivery health. E2E tests cover verification display and room migration.
 
 ### M16 — Web Push
 

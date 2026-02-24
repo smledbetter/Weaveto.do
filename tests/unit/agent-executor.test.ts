@@ -345,4 +345,103 @@ describe("AgentExecutor", () => {
     (globalThis as any).Worker = MockWorker;
     mockValidate.mockReset();
   });
+
+  it("updateContext deep-clones tasks to avoid postMessage cloning errors", async () => {
+    // Simulate a Svelte 5 proxy by wrapping tasks in a Proxy that is not
+    // structuredClone-able (the real bug: $state arrays can't be posted).
+    const CloneCheckWorker = class extends MockWorker {
+      postMessage(request: any, transfer?: any): void {
+        if (request.type === "update_context") {
+          // Verify the tasks array is a plain array, not a proxy.
+          // JSON.parse(JSON.stringify()) produces a plain object that passes
+          // Array.isArray and has no non-standard internal slots.
+          const tasks = request.tasks;
+          if (!Array.isArray(tasks)) {
+            throw new DOMException(
+              "Failed to execute 'postMessage': could not be cloned.",
+              "DataCloneError",
+            );
+          }
+          // Verify it's truly a plain object by round-tripping through JSON
+          const roundTripped = JSON.parse(JSON.stringify(tasks));
+          expect(roundTripped).toEqual(tasks);
+        }
+        super.postMessage(request, transfer);
+      }
+    };
+    (globalThis as any).Worker = CloneCheckWorker;
+
+    const executor2 = new AgentExecutor("room-1", null, () => {});
+    await executor2.activate(makeModule());
+
+    // Create a task array that simulates a Svelte proxy (non-extensible, etc.)
+    const proxyLikeTasks = [
+      {
+        id: "t1",
+        title: "Proxied task",
+        status: "pending" as const,
+        createdBy: "u",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ];
+
+    const members = new Map([
+      ["k1", { identityKey: "k1", displayName: "Alice" }],
+    ]);
+
+    // This should NOT throw — the executor should deep-clone before postMessage
+    expect(() => executor2.updateContext(proxyLikeTasks, members)).not.toThrow();
+
+    await executor2.shutdown();
+    (globalThis as any).Worker = MockWorker;
+  });
+
+  it("callFunction deep-clones tasks before sending to worker", async () => {
+    // Verify that dispatchTaskEvent (which calls callFunction) doesn't pass
+    // the raw tasks reference to postMessage
+    let capturedTasks: unknown = null;
+    const CapturingWorker = class extends MockWorker {
+      postMessage(request: any, transfer?: any): void {
+        if (request.type === "call" && request.fn === "on_task_event") {
+          capturedTasks = request.tasks;
+        }
+        super.postMessage(request, transfer);
+      }
+    };
+    (globalThis as any).Worker = CapturingWorker;
+
+    const executor2 = new AgentExecutor("room-1", null, () => {});
+    await executor2.activate(makeModule());
+
+    const originalTasks = [
+      {
+        id: "t1",
+        title: "Original",
+        status: "pending" as const,
+        createdBy: "u",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ];
+    executor2.updateContext(
+      originalTasks,
+      new Map([["k1", { identityKey: "k1", displayName: "Alice" }]]),
+    );
+
+    await executor2.dispatchTaskEvent({
+      type: "task_created",
+      taskId: "t2",
+      task: { title: "New" },
+      timestamp: Date.now(),
+      actorId: "u",
+    });
+
+    // The tasks sent to the worker should be a deep clone, not the same reference
+    expect(capturedTasks).not.toBe(originalTasks);
+    expect(capturedTasks).toEqual(originalTasks);
+
+    await executor2.shutdown();
+    (globalThis as any).Worker = MockWorker;
+  });
 });

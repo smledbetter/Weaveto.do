@@ -81,4 +81,12 @@
 		outline: 2px solid var(--accent-default);
 		outline-offset: 2px;
 	}
+
+	@media (max-width: 767px) {
+		.theme-toggle-inline {
+			width: 2.75rem;
+			height: 2.75rem;
+			font-size: 1.2rem;
+		}
+	}
 </style>
