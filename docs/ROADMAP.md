@@ -2,14 +2,14 @@
 
 ## Current State
 
-- **Git SHA**: 558adb1
-- **Unit tests**: 441 (Vitest, jsdom)
-- **E2E tests**: 134 (Playwright, Chromium) — 0 pre-existing failures
-- **Coverage**: 57.19% lines (overall), 100% on new components
+- **Git SHA**: 36f17f7
+- **Unit tests**: 457 (Vitest, jsdom)
+- **E2E tests**: 188 (Playwright, Chromium) — 0 pre-existing failures
+- **Coverage**: 57.21% lines (overall), 100% on new components
 - **Lint**: clean (`npm run check` passes)
 - **Build**: clean (`npm run build` passes)
-- **Milestones complete**: M0-M12 (14 milestones shipped)
-- **LOC**: ~15K (src/ + tests/ + server/)
+- **Milestones complete**: M0-M13 (15 milestones shipped)
+- **LOC**: ~16K (src/ + tests/ + server/)
 
 ## Completed Milestones
 
@@ -31,25 +31,11 @@
 - ~~M10: UX & Accessibility~~ ✅ (Sprint 2) — Header decluttered, coach marks, ARIA fixes, focus-visible rings, connection status label, task empty-state prompt. +13 unit tests.
 - ~~M11: Reconnect & Hardening~~ ✅ (Sprint 3) — Stale Olm session clearing on reconnect, re-establishment tracking with UI indicator, timestamp clamping (5-min future window), OTK replenishment (threshold-based). +27 unit tests.
 - ~~M12: Mobile UX Improvements~~ ✅ (Sprint 4) — Banner consolidation into CoachMarks walkthrough, MobileNav bottom navigation (Chat/Tasks/Auto), background color fix. +22 unit tests. 1 dev dependency added (@testing-library/svelte).
+- ~~M13: Mobile Identity Persistence~~ ✅ (Sprint 5) — IndexedDB-encrypted identity seed store (AES-GCM-256 via HKDF), PRF-first fallback chain in joinRoom(), cleanup integration, PIN compatibility for IDB-persisted seeds. +16 unit, +11 E2E tests. Production integration test suite.
 
 ---
 
 ## Upcoming
-
-### M13 — Mobile Identity Persistence
-
-Replace the temporary random-seed fallback with IndexedDB-persisted crypto identity for devices without WebAuthn PRF support (iOS Safari, Android Chrome, most mobile browsers).
-
-- Generate crypto seed on first visit, encrypt and store in IndexedDB
-- On return visits, retrieve and decrypt the stored seed (same identity across sessions)
-- Migration path: detect existing PRF users, don't interfere with their flow
-- PIN protection support for persisted-seed users (derive PIN key from stored seed)
-- Clear stored identity on room destruction / burn / ephemeral purge
-- Remove "Using temporary identity" banner when persistent identity is active
-
-**Future consideration (post user feedback)**: Optional passphrase-based seed derivation for cross-device identity recovery. Only pursue if users report losing identity as a pain point.
-
-**Done when**: Mobile users get a persistent crypto identity across sessions. PIN-protected rooms work on mobile. E2E encryption unchanged. PRF users unaffected.
 
 ### M14 — Local Notifications
 
