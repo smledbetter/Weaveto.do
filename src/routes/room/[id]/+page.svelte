@@ -42,6 +42,7 @@
 	import { DEFAULT_QUIET_START, DEFAULT_QUIET_END } from '$lib/notifications/types';
 	import { initNotificationPrefsDB, saveNotificationPrefs, loadNotificationPrefs, clearNotificationPrefs } from '$lib/notifications/store';
 	import { shouldNotifyForEvent, getNotificationPayload, postNotifyToSW, postPrefsToSW } from '$lib/notifications/triggers';
+	import { isPushSupported, subscribeToPush, unsubscribeFromPush, initPushDB, storePushSubscription, clearPushSubscription } from '$lib/notifications/push';
 import { deriveEmojiString } from '$lib/room/verification';
 import ShieldIcon from '$lib/components/ShieldIcon.svelte';
 import MigrationBanner from '$lib/components/MigrationBanner.svelte';
@@ -140,6 +141,10 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 	let notifPrefsDb: IDBDatabase | null = $state(null);
 	let hasDueDateTasks = $derived(taskList.some((t) => t.dueAt !== undefined && t.status !== 'completed'));
 
+	// M16 push state
+	let pushSupported = $state(false);
+	let pushEnabled = $state(false);
+
 	async function handleNotificationOptIn() {
 		if (!browser || !('Notification' in window)) return;
 		const result = await Notification.requestPermission();
@@ -176,6 +181,36 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 			try { await saveNotificationPrefs(notifPrefsDb, prefs); } catch { /* silent */ }
 		}
 		postPrefsToSW(prefs);
+	}
+
+	async function handlePushToggle(enabled: boolean) {
+		if (!session) return;
+
+		if (enabled) {
+			try {
+				const relayOrigin = session.getRelayOrigin();
+				const resp = await fetch(`${relayOrigin}/vapid-key`);
+				const { publicKey } = await resp.json();
+
+				const subscription = await subscribeToPush(publicKey);
+				if (subscription) {
+					pushEnabled = true;
+					const db = await initPushDB();
+					await storePushSubscription(db, roomId, subscription);
+					db.close();
+					session.sendPushSubscription(subscription.toJSON());
+				}
+			} catch { /* push subscription failed silently */ }
+		} else {
+			await unsubscribeFromPush();
+			pushEnabled = false;
+			try {
+				const db = await initPushDB();
+				await clearPushSubscription(db, roomId);
+				db.close();
+			} catch { /* cleanup failed silently */ }
+			session?.sendPushUnsubscription();
+		}
 	}
 
 	// Reminder scheduler — fires 5 min before due, in-tab only
@@ -260,6 +295,16 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 				}
 			} catch {
 				// Silent failure — notification prefs unavailable
+			}
+
+			// Initialize push support
+			pushSupported = isPushSupported();
+			if (pushSupported) {
+				navigator.serviceWorker.ready.then((reg) => {
+					reg.pushManager.getSubscription().then((sub) => {
+						pushEnabled = !!sub;
+					});
+				});
 			}
 		}
 	});
@@ -1213,6 +1258,9 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 							onNotificationOptInDismiss={handleNotificationOptInDismiss}
 							onNotificationToggle={handleNotificationToggle}
 							onQuietHoursChange={handleQuietHoursChange}
+						{pushSupported}
+						{pushEnabled}
+						onPushToggle={handlePushToggle}
 						/>
 					</div>
 				{/if}

@@ -9,6 +9,7 @@ import { autoDeleteKey } from "./types";
 import { clearPinKey } from "$lib/pin/store";
 import { clearIdentitySeed } from "$lib/identity/store";
 import { initNotificationPrefsDB, clearNotificationPrefs } from "$lib/notifications/store";
+import { initPushDB, clearPushSubscription } from "$lib/notifications/push";
 
 /**
  * Clean up all client-side state for a destroyed room.
@@ -44,6 +45,15 @@ export async function cleanupRoom(
     const notifPrefsDb = await initNotificationPrefsDB();
     await clearNotificationPrefs(notifPrefsDb, roomId);
     notifPrefsDb.close();
+  } catch {
+    // IndexedDB not available or error — skip
+  }
+
+  // 8. Clear push subscription from IndexedDB
+  try {
+    const pushDb = await initPushDB();
+    await clearPushSubscription(pushDb, roomId);
+    pushDb.close();
   } catch {
     // IndexedDB not available or error — skip
   }

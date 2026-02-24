@@ -1021,6 +1021,60 @@ export class RoomSession {
     }
   }
 
+  /**
+   * Return the HTTP origin of the relay server (for REST endpoints like /vapid-key).
+   * Derives the origin from the same logic as the WebSocket URL.
+   */
+  getRelayOrigin(): string {
+    const envUrl = import.meta.env.VITE_RELAY_URL;
+    if (envUrl) {
+      // Convert ws(s):// to http(s)://
+      return envUrl.replace(/^ws:/, "http:").replace(/^wss:/, "https:");
+    }
+    const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+    const host = window.location.hostname;
+    const port = 3001;
+    return `${protocol}//${host}:${port}`;
+  }
+
+  /**
+   * Send push subscription to relay for server-side push delivery.
+   */
+  sendPushSubscription(subscription: {
+    endpoint?: string;
+    keys?: { p256dh?: string; auth?: string };
+  }): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(
+      JSON.stringify({
+        type: "push_subscribe",
+        subscription: {
+          endpoint: subscription.endpoint,
+          keys: {
+            p256dh: subscription.keys?.p256dh,
+            auth: subscription.keys?.auth,
+          },
+        },
+        roomId: this.roomId,
+        identityKey: this.identityKey,
+      }),
+    );
+  }
+
+  /**
+   * Tell relay to remove the push subscription for this identity in this room.
+   */
+  sendPushUnsubscription(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(
+      JSON.stringify({
+        type: "push_unsubscribe",
+        roomId: this.roomId,
+        identityKey: this.identityKey,
+      }),
+    );
+  }
+
   private getWebSocketUrl(): string {
     const envUrl = import.meta.env.VITE_RELAY_URL;
     if (envUrl) {

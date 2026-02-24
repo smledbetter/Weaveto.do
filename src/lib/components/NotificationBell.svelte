@@ -5,6 +5,9 @@
 		quietEnd: string;
 		onToggle: (enabled: boolean) => void;
 		onQuietHoursChange: (start: string, end: string) => void;
+		pushSupported?: boolean;
+		pushEnabled?: boolean;
+		onPushToggle?: (enabled: boolean) => void;
 	}
 
 	let {
@@ -13,6 +16,9 @@
 		quietEnd,
 		onToggle,
 		onQuietHoursChange,
+		pushSupported = false,
+		pushEnabled = false,
+		onPushToggle,
 	}: Props = $props();
 
 	let open = $state(false);
@@ -112,6 +118,21 @@
 					aria-label="Quiet hours end"
 				/>
 			</div>
+
+			{#if pushSupported}
+				<div class="setting-row push-row">
+					<label class="setting-label" for="push-toggle">Push when browser closed</label>
+					<label class="toggle-switch" aria-label="Toggle push notifications">
+						<input
+							id="push-toggle"
+							type="checkbox"
+							checked={pushEnabled}
+							onchange={(e) => onPushToggle?.(e.currentTarget.checked)}
+						/>
+						<span class="toggle-slider"></span>
+					</label>
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -278,5 +299,16 @@
 	.time-separator {
 		font-size: 0.75rem;
 		color: var(--text-muted, #888);
+	}
+
+	.push-row {
+		margin-top: 0.75rem;
+		border-top: 1px solid var(--border, #e0e0e0);
+		padding-top: 0.75rem;
+		margin-bottom: 0;
+	}
+
+	:global(body.dark) .push-row {
+		border-top-color: var(--border, #333);
 	}
 </style>

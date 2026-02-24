@@ -24,6 +24,9 @@
 		onNotificationOptInDismiss: () => void;
 		onNotificationToggle: (enabled: boolean) => void;
 		onQuietHoursChange: (start: string, end: string) => void;
+		pushSupported?: boolean;
+		pushEnabled?: boolean;
+		onPushToggle?: (enabled: boolean) => void;
 	}
 
 	let {
@@ -43,6 +46,9 @@
 		onNotificationOptInDismiss,
 		onNotificationToggle,
 		onQuietHoursChange,
+		pushSupported = false,
+		pushEnabled = false,
+		onPushToggle,
 	}: Props = $props();
 
 	let optInDismissed = $state(false);
@@ -372,6 +378,9 @@
 					{quietEnd}
 					onToggle={onNotificationToggle}
 					{onQuietHoursChange}
+					{pushSupported}
+					{pushEnabled}
+					{onPushToggle}
 				/>
 			{/if}
 			<button
