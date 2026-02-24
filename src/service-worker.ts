@@ -364,6 +364,43 @@ self.addEventListener('message', async (event) => {
 });
 
 /**
+ * Push: handle incoming Web Push notifications from the server.
+ * Respects global quiet hours using the same suppression logic as reminders.
+ * Generic body only — no task content in the notification payload.
+ */
+self.addEventListener('push', (event: PushEvent) => {
+  event.waitUntil(handlePush(event));
+});
+
+async function handlePush(_event: PushEvent): Promise<void> {
+  if (await shouldSuppressGlobally()) return;
+
+  await self.registration.showNotification('Weave', {
+    body: 'You have a new notification — open Weave to view details',
+    badge: '/favicon.png',
+    tag: 'weave-push',
+  });
+}
+
+/**
+ * Notification click: close the notification and focus or open the app.
+ * Prefers an existing open tab; opens a new one if none is available.
+ */
+self.addEventListener('notificationclick', (event: NotificationEvent) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window' }).then((clients) => {
+      for (const client of clients) {
+        if ('focus' in client) {
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow('/');
+    }),
+  );
+});
+
+/**
  * Start up: initialize DBs and begin polling for due reminders
  */
 self.addEventListener('activate', () => {
