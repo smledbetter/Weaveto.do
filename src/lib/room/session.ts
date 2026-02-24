@@ -30,6 +30,8 @@ import {
 
 import { padMessage, unpadMessage } from "$lib/crypto/padding";
 
+import { DeliveryTracker } from "./delivery";
+
 import type { TaskEvent } from "$lib/tasks/types";
 
 import type {
@@ -152,6 +154,9 @@ export class RoomSession {
   private reestablishing = false;
   private pendingKeyExchanges = new Set<string>();
 
+  private deliveryTracker = new DeliveryTracker();
+  private onMigrationHandler?: (newRoomUrl: string, tasks: any[]) => void;
+
   // Olm sessions with other members (keyed by their identity key)
   private olmSessions = new Map<string, OlmSession>();
 
@@ -228,6 +233,37 @@ export class RoomSession {
   }
   getIsCreator(): boolean {
     return this.isCreator;
+  }
+  getDeliveryTracker(): DeliveryTracker {
+    return this.deliveryTracker;
+  }
+
+  setMigrationHandler(handler: (newRoomUrl: string, tasks: any[]) => void): void {
+    this.onMigrationHandler = handler;
+  }
+
+  async sendMigrationMessage(newRoomUrl: string, tasks: any[]): Promise<void> {
+    if (!this.ws || !this.outboundSession) return;
+
+    const payload = JSON.stringify({
+      migration: { newRoomUrl, tasks },
+      sender: this.identityKey,
+      senderName: this.displayName,
+      sequence: this.deliveryTracker.nextSequence(),
+    });
+
+    const paddedPayload = padMessage(payload);
+    const ciphertext = megolmEncrypt(this.outboundSession, paddedPayload);
+
+    const msg: EncryptedMessage = {
+      type: "encrypted",
+      senderIdentityKey: this.identityKey,
+      sessionId: getGroupSessionId(this.outboundSession),
+      ciphertext,
+      timestamp: Date.now(),
+    };
+
+    this.ws.send(JSON.stringify(msg));
   }
 
   /**
@@ -353,6 +389,9 @@ export class RoomSession {
       this.reconnectAttempts = 0;
       this.onConnectionChanged?.(true);
 
+      // Reset delivery tracker — sequence numbers restart after every reconnect.
+      this.deliveryTracker.reset();
+
       // Clear stale Olm sessions — they are invalid after a disconnect because
       // the server's OTK registry has been refreshed. New inbound sessions will
       // be established via key_share messages after the member list arrives.
@@ -420,6 +459,7 @@ export class RoomSession {
       text: plaintext,
       sender: this.identityKey,
       senderName: this.displayName,
+      sequence: this.deliveryTracker.nextSequence(),
     });
 
     // Pad to fixed block size before encryption to prevent length correlation
@@ -464,6 +504,7 @@ export class RoomSession {
       sender: this.identityKey,
       senderName: this.displayName,
       taskEvent,
+      sequence: this.deliveryTracker.nextSequence(),
     });
 
     const paddedPayload = padMessage(payload);
@@ -868,10 +909,15 @@ export class RoomSession {
         sender: string;
         senderName: string;
         taskEvent?: TaskEvent;
+        sequence?: number;
         rotateKeys?: {
           newSessionId: string;
           previousSessionId: string;
           reason: string;
+        };
+        migration?: {
+          newRoomUrl: string;
+          tasks: any[];
         };
       };
 
@@ -885,6 +931,19 @@ export class RoomSession {
 
       // Track last message time for recency-weighted assignment
       this.lastMessageTimes.set(trustedSenderId, msg.timestamp);
+
+      // Track incoming sequence numbers to detect gaps
+      if (payload.sequence !== undefined && payload.sender) {
+        this.deliveryTracker.checkReceived(payload.sender, payload.sequence);
+      }
+
+      // Handle migration messages
+      if (payload.migration) {
+        if (this.onMigrationHandler) {
+          this.onMigrationHandler(payload.migration.newRoomUrl, payload.migration.tasks);
+        }
+        return;
+      }
 
       // Check for rotation signal
       if (payload.rotateKeys) {
