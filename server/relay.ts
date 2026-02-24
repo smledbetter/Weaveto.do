@@ -178,6 +178,7 @@ const connectionsPerIp = new Map<string, number>();
 
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:5173",
+  "http://localhost:4173",
   "https://weaveto.do",
   ...(process.env.ALLOWED_ORIGINS?.split(",").filter(Boolean) ?? []),
 ]);

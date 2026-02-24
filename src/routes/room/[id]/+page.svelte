@@ -414,26 +414,66 @@
 			pinKey = key;
 			pinState = { status: 'set' };
 			pinFailedAttempts = 0;
+			clearPinLock();
 			session?.unlockSession();
 			sessionGate?.unlock();
 		} else {
 			pinFailedAttempts += 1;
+			persistPinLock(pinFailedAttempts);
 		}
 	}
 
 	function handlePinLockout() {
 		pinState = { status: 'cleared' };
+		clearPinLock();
 		session?.disconnect();
 		if (prfSeedRef) clearPinKey(roomId);
 		sessionGate?.stop();
 		window.location.href = '/';
 	}
 
+	const pinLockKey = `weave-pin-locked:${roomId}`;
+	const pinAttemptsKey = `weave-pin-attempts:${roomId}`;
+
+	function persistPinLock(failedAttempts: number) {
+		try {
+			sessionStorage.setItem(pinLockKey, 'true');
+			sessionStorage.setItem(pinAttemptsKey, String(failedAttempts));
+		} catch { /* sessionStorage may be unavailable */ }
+	}
+
+	function clearPinLock() {
+		try {
+			sessionStorage.removeItem(pinLockKey);
+			sessionStorage.removeItem(pinAttemptsKey);
+		} catch { /* sessionStorage may be unavailable */ }
+	}
+
+	function getPersistedPinLock(): { locked: boolean; failedAttempts: number } {
+		try {
+			const locked = sessionStorage.getItem(pinLockKey) === 'true';
+			const attempts = parseInt(sessionStorage.getItem(pinAttemptsKey) ?? '0');
+			return { locked, failedAttempts: isNaN(attempts) ? 0 : attempts };
+		} catch {
+			return { locked: false, failedAttempts: 0 };
+		}
+	}
+
 	function startSessionGate() {
 		if (!pinRequired) return;
+
+		// Check if we were locked before a refresh
+		const persisted = getPersistedPinLock();
+		if (persisted.locked) {
+			pinFailedAttempts = persisted.failedAttempts;
+			pinState = { status: 'locked', failedAttempts: persisted.failedAttempts };
+			session?.lockSession();
+		}
+
 		sessionGate = new SessionGate(pinTimeout, {
 			onLock: () => {
 				pinState = { status: 'locked', failedAttempts: 0 };
+				persistPinLock(0);
 				session?.lockSession();
 			},
 			onLockout: () => {
