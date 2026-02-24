@@ -2,14 +2,14 @@
 
 ## Current State
 
-- **Git SHA**: 36f17f7
-- **Unit tests**: 457 (Vitest, jsdom)
-- **E2E tests**: 188 (Playwright, Chromium) — 0 pre-existing failures
-- **Coverage**: 57.21% lines (overall), 100% on new components
-- **Lint**: clean (`npm run check` passes)
+- **Git SHA**: 574cd76
+- **Unit tests**: 505 (Vitest, jsdom)
+- **E2E tests**: 200 (Playwright, Chromium) — ~43 pre-existing CSP nonce failures
+- **Coverage**: 58.56% lines (overall), 100% on new components
+- **Lint**: clean (`npm run check` passes, 0 errors, 26 warnings)
 - **Build**: clean (`npm run build` passes)
-- **Milestones complete**: M0-M13 (15 milestones shipped)
-- **LOC**: ~16K (src/ + tests/ + server/)
+- **Milestones complete**: M0-M14 (16 milestones shipped)
+- **LOC**: ~17.8K (src/ + tests/ + server/)
 
 ## Completed Milestones
 
@@ -32,22 +32,11 @@
 - ~~M11: Reconnect & Hardening~~ ✅ (Sprint 3) — Stale Olm session clearing on reconnect, re-establishment tracking with UI indicator, timestamp clamping (5-min future window), OTK replenishment (threshold-based). +27 unit tests.
 - ~~M12: Mobile UX Improvements~~ ✅ (Sprint 4) — Banner consolidation into CoachMarks walkthrough, MobileNav bottom navigation (Chat/Tasks/Auto), background color fix. +22 unit tests. 1 dev dependency added (@testing-library/svelte).
 - ~~M13: Mobile Identity Persistence~~ ✅ (Sprint 5) — IndexedDB-encrypted identity seed store (AES-GCM-256 via HKDF), PRF-first fallback chain in joinRoom(), cleanup integration, PIN compatibility for IDB-persisted seeds. +16 unit, +11 E2E tests. Production integration test suite.
+- ~~M14: Local Notifications~~ ✅ (Sprint 6) — Contextual opt-in banner, NotificationBell popover with toggle + quiet hours, SW quiet-hours enforcement, notification triggers (assignment, status change), IndexedDB prefs store, cleanup integration. Removed silent requestPermission (H7 violation). +48 unit, +7 E2E tests. Delegation ratio improved 4.9% → 43.0%.
 
 ---
 
 ## Upcoming
-
-### M14 — Local Notifications
-
-Expand service worker notifications without external push infrastructure.
-
-- Expanded notification triggers (assignment, status change, due date approaching)
-- **Contextual opt-in**: When the first task with a due date is created, show inline below it: *"Get reminded when this is due. [Turn on]"* — one sentence, one button, positioned where the user is already looking. No auto-requesting permission.
-- **Bell icon in task panel header**: Appears after opt-in. Filled/unfilled state (on/off). Tapping shows a single popover with two controls only: on/off toggle + quiet hours time range (08:00–22:00 default, editable).
-- Notification grouping happens automatically and silently (no toggle)
-- No urgency filter, no DND setting, no rules UI — defer to post-feedback if users request granularity
-
-**Done when**: Notifications fire for assignments and due dates when tab is backgrounded. Contextual opt-in prompt appears on first due-date task. Bell popover controls on/off + quiet hours. E2E tests cover notification triggers.
 
 ### M15 — Trust & Verification
 
