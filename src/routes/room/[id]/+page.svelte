@@ -2104,17 +2104,6 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 		flex-shrink: 0;
 	}
 
-	/* Re-establishing encryption banner */
-	.reestablishing-banner {
-		background: var(--status-caution-bg);
-		border-bottom: 1px solid var(--status-caution-border);
-		padding: 0.6rem 1rem;
-		text-align: center;
-		font-size: 0.85rem;
-		color: var(--status-caution);
-		flex-shrink: 0;
-	}
-
 	/* Burn error toast */
 	.burn-error {
 		position: fixed;
