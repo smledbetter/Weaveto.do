@@ -48,6 +48,7 @@ import ConnectionIndicator from '$lib/components/ConnectionIndicator.svelte';
 import { deriveEmojiString } from '$lib/room/verification';
 import ShieldIcon from '$lib/components/ShieldIcon.svelte';
 import MigrationBanner from '$lib/components/MigrationBanner.svelte';
+import { TabSync } from '$lib/room/tab-sync';
 
 	let roomId = $derived($page.params.id ?? '');
 	let roomName = $derived(roomId ? getRoomName(roomId) : '');
@@ -86,6 +87,7 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 	let showPinSetup = $state(false);
 	let prfSeedRef: Uint8Array | null = $state(null);
 	let sessionGate: SessionGate | null = $state(null);
+	let tabSync: TabSync | null = $state(null);
 
 	// Task management
 	const taskStore = createTaskStore();
@@ -512,7 +514,7 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 						if (state.expiresAt < Date.now()) {
 							// Expired while away — trigger cleanup
 							if (session) {
-								cleanupRoom(roomId, session);
+								cleanupRoom(roomId, session, tabSync ?? undefined);
 							}
 							window.location.href = '/?deleted=auto';
 						} else {
@@ -533,6 +535,7 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 		shortcutManager?.detach();
 		agentExecutor?.shutdown();
 		sessionGate?.stop();
+		tabSync?.destroy();
 	});
 
 	async function handlePinCreate(pin: string) {
@@ -626,7 +629,7 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 			onLockout: () => {
 				handlePinLockout();
 			},
-		});
+		}, tabSync ?? undefined);
 		sessionGate.start();
 	}
 
@@ -694,6 +697,9 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 
 			phase = 'connecting';
 
+			// Create tab sync for multi-tab coordination
+			tabSync = new TabSync(roomId);
+
 			// Create and connect room session
 			const roomSession = new RoomSession(roomId, displayName.trim(), {
 				prfSeed,
@@ -738,7 +744,7 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 			roomSession.setErrorHandler((err) => {
 				if (err === 'This room has been deleted.') {
 					roomDeleted = true;
-					cleanupRoom(roomId, roomSession);
+					cleanupRoom(roomId, roomSession, tabSync ?? undefined);
 					setTimeout(() => { window.location.href = '/?deleted=true'; }, 3000);
 					return;
 				}
@@ -948,7 +954,7 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 		try {
 			if (session) {
 				await session.sendPurgeRequest();
-				await cleanupRoom(roomId, session);
+				await cleanupRoom(roomId, session, tabSync ?? undefined);
 			}
 			// Clear notification preferences on room destruction
 			if (notifPrefsDb) {
@@ -973,7 +979,7 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 		try {
 			if (session) {
 				await session.sendPurgeRequest();
-				await cleanupRoom(roomId, session);
+				await cleanupRoom(roomId, session, tabSync ?? undefined);
 			}
 			// Clear notification preferences on room destruction
 			if (notifPrefsDb) {
