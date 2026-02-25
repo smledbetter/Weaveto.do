@@ -240,6 +240,26 @@ class TaskStore {
     return this.tasksMap.size;
   }
 
+  /**
+   * Return a serializable snapshot of all tasks.
+   * Used for offline persistence — the returned objects are plain (no Proxy).
+   */
+  getSnapshot(): Task[] {
+    return this.getTasks().map(t => ({ ...t }));
+  }
+
+  /**
+   * Load tasks from an offline snapshot. Existing tasks are preserved;
+   * snapshot tasks are only added if not already present (online data wins).
+   */
+  loadSnapshot(tasks: Task[]): void {
+    for (const task of tasks) {
+      if (!this.tasksMap.has(task.id)) {
+        this.tasksMap.set(task.id, { ...task });
+      }
+    }
+  }
+
   clear(): void {
     this.tasksMap.clear();
     this.seenEvents.clear();
