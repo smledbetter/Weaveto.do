@@ -5,6 +5,7 @@
 
 import type { PinState } from './types';
 import { PIN_MAX_ATTEMPTS, PIN_INITIAL_BACKOFF_MS, PIN_BACKOFF_MULTIPLIER, PIN_LOCKOUT_THRESHOLD } from './types';
+import type { TabSync } from '$lib/room/tab-sync';
 
 export interface GateCallbacks {
   onLock: () => void;       // Called when session should lock (clear Megolm keys)
@@ -18,13 +19,15 @@ export class SessionGate {
   private callbacks: GateCallbacks;
   private locked = false;
   private active = false;
+  private tabSync?: TabSync;
 
   // Grace period for tab switches (60 seconds)
   private static readonly TAB_GRACE_MS = 60_000;
 
-  constructor(timeoutMinutes: number, callbacks: GateCallbacks) {
+  constructor(timeoutMinutes: number, callbacks: GateCallbacks, tabSync?: TabSync) {
     this.timeoutMs = timeoutMinutes * 60 * 1000;
     this.callbacks = callbacks;
+    this.tabSync = tabSync;
   }
 
   /** Start monitoring for inactivity. Call after PIN is verified. */
@@ -33,6 +36,7 @@ export class SessionGate {
     this.locked = false;
     this.resetInactivityTimer();
     this.attachListeners();
+    this.tabSync?.onLock(() => this.lockFromBroadcast());
   }
 
   /** Stop all monitoring. Call on disconnect/cleanup. */
@@ -57,6 +61,16 @@ export class SessionGate {
     this.locked = true;
     this.clearInactivityTimer();
     this.callbacks.onLock();
+    this.tabSync?.broadcastLock();
+  }
+
+  /** Lock locally when triggered by a broadcast from another tab (no re-broadcast). */
+  private lockFromBroadcast(): void {
+    if (this.locked) return;
+    this.locked = true;
+    this.clearInactivityTimer();
+    this.callbacks.onLock();
+    // Note: no broadcastLock() here — avoids infinite loop
   }
 
   /** Unlock the session (after successful PIN verification). */

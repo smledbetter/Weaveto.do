@@ -5,6 +5,7 @@
  */
 
 import type { RoomSession } from "./session";
+import type { TabSync } from "./tab-sync";
 import { autoDeleteKey } from "./types";
 import { clearPinKey } from "$lib/pin/store";
 import { clearIdentitySeed } from "$lib/identity/store";
@@ -19,6 +20,7 @@ import { clearOfflineData } from "$lib/tasks/offline";
 export async function cleanupRoom(
   roomId: string,
   session: RoomSession | null,
+  tabSync?: TabSync,
 ): Promise<void> {
   // 1. Disconnect WebSocket session
   session?.disconnect();
@@ -65,6 +67,9 @@ export async function cleanupRoom(
   } catch {
     // IndexedDB not available or error — skip
   }
+
+  // 10. Deregister this tab: broadcasts tab-deregister and closes the BroadcastChannel
+  tabSync?.destroy();
 }
 
 /**
