@@ -2,14 +2,14 @@
 
 ## Current State
 
-- **Git SHA**: ee96a72
-- **Unit tests**: 524 (Vitest, jsdom)
-- **E2E tests**: 213 (Playwright, Chromium) — ~46 pre-existing CSP nonce failures
+- **Git SHA**: 7232e71
+- **Unit tests**: 562 (Vitest, jsdom)
+- **E2E tests**: 219 (Playwright, Chromium) — ~47 pre-existing CSP nonce failures
 - **Coverage**: ~58% lines (overall), 100% on new components
 - **Lint**: clean (`npm run check` passes, 0 errors, 26 warnings)
 - **Build**: clean (`npm run build` passes)
-- **Milestones complete**: M0-M15 (17 milestones shipped)
-- **LOC**: ~18.8K (src/ + tests/ + server/)
+- **Milestones complete**: M0-M16 (18 milestones shipped)
+- **LOC**: ~20.4K (src/ + tests/ + server/)
 
 ## Completed Milestones
 
@@ -34,20 +34,11 @@
 - ~~M13: Mobile Identity Persistence~~ ✅ (Sprint 5) — IndexedDB-encrypted identity seed store (AES-GCM-256 via HKDF), PRF-first fallback chain in joinRoom(), cleanup integration, PIN compatibility for IDB-persisted seeds. +16 unit, +11 E2E tests. Production integration test suite.
 - ~~M14: Local Notifications~~ ✅ (Sprint 6) — Contextual opt-in banner, NotificationBell popover with toggle + quiet hours, SW quiet-hours enforcement, notification triggers (assignment, status change), IndexedDB prefs store, cleanup integration. Removed silent requestPermission (H7 violation). +48 unit, +7 E2E tests. Delegation ratio improved 4.9% → 43.0%.
 - ~~M15: Trust & Verification~~ ✅ (Sprint 7) — Emoji key verification (SHA-256 sorted keys → 5 emoji per member pair, ambient in room info). Member revocation via room migration (kick → new room, task state preserved, banner shown). Message delivery confirmation (per-sender sequence counters inside encrypted payload, shield icon green/amber). +19 unit, +13 E2E tests. Gates first pass. Delegation ratio 58.6%.
+- ~~M16: Web Push~~ ✅ (Sprint 8) — VAPID JWT signing (ES256 via Node.js crypto, env-configured keys), relay push dispatch (in-memory subscription store, /vapid-key endpoint, push to offline clients), client push manager (IDB subscription store, subscribeToPush/unsubscribe), SW push handler (quiet hours, generic body), push toggle in NotificationBell, cleanup integration. Zero new dependencies. +38 unit, +6 E2E tests. Gates first pass. Delegation ratio 64.4%.
 
 ---
 
 ## Upcoming
-
-### M16 — Web Push
-
-Add VAPID-based push notifications via the relay server.
-
-- Web Push API integration (VAPID key pair, subscription management)
-- Relay push endpoint (encrypted push payloads, generic notification bodies)
-- Push subscription cleanup on room destruction (burn/auto-delete/ephemeral purge)
-
-**Done when**: Push notifications arrive when browser is closed. All payloads are generic (no task content). Subscriptions cleaned up on room destruction.
 
 ### M17 — Offline Task Store
 
