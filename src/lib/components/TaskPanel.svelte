@@ -498,6 +498,9 @@
 											{task.title}
 										</button>
 									{/if}
+									{#if task.pendingSync}
+										<span class="sync-dot" title="Will sync when reconnected"></span>
+									{/if}
 									{#if blocked}
 										<span class="blocked-indicator">Blocked</span>
 									{/if}
@@ -1273,6 +1276,17 @@
 		outline: none;
 		border-color: var(--accent-default);
 		background: var(--bg-base);
+	}
+
+	.sync-dot {
+		display: inline-block;
+		width: 0.375rem;
+		height: 0.375rem;
+		border-radius: 50%;
+		background: var(--text-secondary, #888);
+		opacity: 0.5;
+		margin-left: 0.25rem;
+		flex-shrink: 0;
 	}
 
 	/* Mobile: full width */
