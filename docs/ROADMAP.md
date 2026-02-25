@@ -2,14 +2,14 @@
 
 ## Current State
 
-- **Git SHA**: 7a73ba9
-- **Unit tests**: 611 (Vitest, jsdom)
-- **E2E tests**: 236 (Playwright, Chromium) — ~53 pre-existing CSP nonce failures
-- **Coverage**: ~58% lines (overall), 100% on new components
+- **Git SHA**: c06a06e
+- **Unit tests**: 647 (Vitest, jsdom)
+- **E2E tests**: 246 (Playwright, Chromium) — ~53 pre-existing CSP nonce failures
+- **Coverage**: ~60% lines (overall), 100% on new components
 - **Lint**: clean (`npm run check` passes, 0 errors, 26 warnings)
 - **Build**: clean (`npm run build` passes)
-- **Milestones complete**: M0-M18 (20 milestones shipped)
-- **LOC**: ~22.3K (src/ + tests/ + server/)
+- **Milestones complete**: M0-M19 (21 milestones shipped)
+- **LOC**: ~23.5K (src/ + tests/ + server/)
 
 ## Completed Milestones
 
@@ -37,22 +37,11 @@
 - ~~M16: Web Push~~ ✅ (Sprint 8) — VAPID JWT signing (ES256 via Node.js crypto, env-configured keys), relay push dispatch (in-memory subscription store, /vapid-key endpoint, push to offline clients), client push manager (IDB subscription store, subscribeToPush/unsubscribe), SW push handler (quiet hours, generic body), push toggle in NotificationBell, cleanup integration. Zero new dependencies. +38 unit, +6 E2E tests. Gates first pass. Delegation ratio 64.4%.
 - ~~M17: Offline Task Store~~ ✅ (Sprint 9) — Encrypted IDB task snapshots + event queue (AES-GCM-256 via HKDF), unified ConnectionIndicator (Connected/Reconnecting/Offline/Offline·N pending), offline task creation with sync dot indicator, event replay on reconnect, TaskStore snapshot/loadSnapshot methods, cleanup integration. +30 unit, +7 E2E tests. Gates first pass. Delegation ratio 46.9%.
 - ~~M18: Sync and Conflict Resolution~~ ✅ (Sprint 10) — TaskStore event log with 24h sync window, session sync methods (sendSyncEvents via Megolm channel), reconnect sync flow (send history → wait → replay pending), ConnectionIndicator "Syncing..." state, conflict convergence (timestamp+actorId rules). +19 unit, +10 E2E tests. Gates first pass. Fastest sprint (4m 59s). Delegation ratio 51.7%.
+- ~~M19: Multi-Room Tabs~~ ✅ (Sprint 11) — TabSync BroadcastChannel module for cross-tab coordination, cross-tab PIN lock broadcast with infinite-loop prevention, tab-aware cleanup (deregister on destroy), room page integration (TabSync lifecycle). Per-tab Olm/Megolm isolation (no cross-tab key sharing). Zero new dependencies. +36 unit, +6 E2E tests. Gates first pass. Delegation ratio 28.0%.
 
 ---
 
 ## Upcoming
-
-### M19 — Multi-Room Tabs
-
-Securely participate in multiple rooms across multiple browser tabs simultaneously.
-
-- Shared crypto identity across tabs via `BroadcastChannel` or `SharedWorker` (PRF seed derived once, shared read-only)
-- Per-tab Olm/Megolm session isolation (each tab manages its own room session independently)
-- Tab-aware cleanup: closing one tab only cleans up that tab's room, not other tabs' sessions
-- No cross-tab state leaks: one room's key material never accessible to another tab's room
-- Graceful handling of PRF re-authentication when multiple tabs request it simultaneously (queue or deduplicate)
-
-**Done when**: User can open 3+ rooms in separate tabs, send/receive messages in each independently. Closing one tab does not disrupt others. PIN lock in one tab locks all tabs. E2E tests cover multi-tab room isolation.
 
 ### M20 — Tor Hidden Service (deployment)
 
