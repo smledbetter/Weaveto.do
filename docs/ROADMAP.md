@@ -2,14 +2,14 @@
 
 ## Current State
 
-- **Git SHA**: 3214ce3
-- **Unit tests**: 592 (Vitest, jsdom)
-- **E2E tests**: 226 (Playwright, Chromium) — ~49 pre-existing CSP nonce failures
+- **Git SHA**: 7a73ba9
+- **Unit tests**: 611 (Vitest, jsdom)
+- **E2E tests**: 236 (Playwright, Chromium) — ~53 pre-existing CSP nonce failures
 - **Coverage**: ~58% lines (overall), 100% on new components
 - **Lint**: clean (`npm run check` passes, 0 errors, 26 warnings)
 - **Build**: clean (`npm run build` passes)
-- **Milestones complete**: M0-M17 (19 milestones shipped)
-- **LOC**: ~21.5K (src/ + tests/ + server/)
+- **Milestones complete**: M0-M18 (20 milestones shipped)
+- **LOC**: ~22.3K (src/ + tests/ + server/)
 
 ## Completed Milestones
 
@@ -36,20 +36,11 @@
 - ~~M15: Trust & Verification~~ ✅ (Sprint 7) — Emoji key verification (SHA-256 sorted keys → 5 emoji per member pair, ambient in room info). Member revocation via room migration (kick → new room, task state preserved, banner shown). Message delivery confirmation (per-sender sequence counters inside encrypted payload, shield icon green/amber). +19 unit, +13 E2E tests. Gates first pass. Delegation ratio 58.6%.
 - ~~M16: Web Push~~ ✅ (Sprint 8) — VAPID JWT signing (ES256 via Node.js crypto, env-configured keys), relay push dispatch (in-memory subscription store, /vapid-key endpoint, push to offline clients), client push manager (IDB subscription store, subscribeToPush/unsubscribe), SW push handler (quiet hours, generic body), push toggle in NotificationBell, cleanup integration. Zero new dependencies. +38 unit, +6 E2E tests. Gates first pass. Delegation ratio 64.4%.
 - ~~M17: Offline Task Store~~ ✅ (Sprint 9) — Encrypted IDB task snapshots + event queue (AES-GCM-256 via HKDF), unified ConnectionIndicator (Connected/Reconnecting/Offline/Offline·N pending), offline task creation with sync dot indicator, event replay on reconnect, TaskStore snapshot/loadSnapshot methods, cleanup integration. +30 unit, +7 E2E tests. Gates first pass. Delegation ratio 46.9%.
+- ~~M18: Sync and Conflict Resolution~~ ✅ (Sprint 10) — TaskStore event log with 24h sync window, session sync methods (sendSyncEvents via Megolm channel), reconnect sync flow (send history → wait → replay pending), ConnectionIndicator "Syncing..." state, conflict convergence (timestamp+actorId rules). +19 unit, +10 E2E tests. Gates first pass. Fastest sprint (4m 59s). Delegation ratio 51.7%.
 
 ---
 
 ## Upcoming
-
-### M18 — Sync and Conflict Resolution
-
-Reconnect and merge offline changes.
-
-- Conflict resolution on reconnect (event-sourced merge with existing timestamp+actorId rules)
-- Optimistic UI updates (show pending changes before server confirmation)
-- Sync status indicator
-
-**Done when**: Two users can edit tasks offline, reconnect, and see merged state. No data loss. E2E test covers offline-edit-reconnect flow.
 
 ### M19 — Multi-Room Tabs
 
