@@ -151,6 +151,9 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 	let pendingEvents: TaskEvent[] = $state([]);
 	let pendingCount = $derived(pendingEvents.length);
 
+	// M18 sync state
+	let syncing = $state(false);
+
 	async function handleNotificationOptIn() {
 		if (!browser || !('Notification' in window)) return;
 		const result = await Notification.requestPermission();
@@ -753,24 +756,39 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 
 			roomSession.setReestablishingHandler((active: boolean) => {
 				reestablishing = active;
-				// When re-establishment completes, replay pending events
-				if (!active && connected && pendingEvents.length > 0) {
-					const toReplay = pendingEvents;
-					pendingEvents = [];
-					for (const event of toReplay) {
-						// Clear pendingSync flag before sending
-						if (event.task) {
-							event.task.pendingSync = false;
+				// When re-establishment completes, start sync flow
+				if (!active && connected) {
+					syncing = true;
+					// Send our recent events to peers
+					roomSession.sendSyncEvents(taskStore.getRecentEvents());
+
+					// Allow time for sync responses, then replay pending
+					setTimeout(() => {
+						if (pendingEvents.length > 0) {
+							const toReplay = pendingEvents;
+							pendingEvents = [];
+							for (const event of toReplay) {
+								if (event.task) {
+									event.task.pendingSync = false;
+								}
+								roomSession.sendTaskEvent(event);
+							}
+							clearOfflineData(roomId).then(() => {
+								saveTaskSnapshot(roomId, taskStore.getSnapshot());
+							});
+							refreshTaskList();
 						}
-						roomSession.sendTaskEvent(event);
-					}
-					// Clear persisted queue
-					clearOfflineData(roomId).then(() => {
-						// Re-save snapshot without pendingSync flags
-						saveTaskSnapshot(roomId, taskStore.getSnapshot());
-					});
-					refreshTaskList();
+						syncing = false;
+					}, 500);
 				}
+			});
+
+			roomSession.setSyncHandler((events: TaskEvent[]) => {
+				// Apply received sync events through normal dedup path
+				for (const event of events) {
+					taskStore.applyEvent(event);
+				}
+				refreshTaskList();
 			});
 
 			roomSession.setMigrationHandler((newRoomUrl: string, _tasks: any[]) => {
@@ -1218,7 +1236,7 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 							aria-expanded={showRoomInfo}
 							aria-label="Room info"
 						>
-							<ConnectionIndicator {connected} {reestablishing} {pendingCount} />
+							<ConnectionIndicator {connected} {reestablishing} {pendingCount} {syncing} />
 							{members.size + 1}
 						</button>
 					</div>
@@ -1391,7 +1409,7 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 		<button class="dropdown-close" onclick={() => { roomInfoPopoverEl?.hidePopover(); }} aria-label="Close room info">&times;</button>
 	</div>
 	<div class="dropdown-item info-item">
-		<ConnectionIndicator {connected} {reestablishing} {pendingCount} />
+		<ConnectionIndicator {connected} {reestablishing} {pendingCount} {syncing} />
 	</div>
 	<div class="dropdown-item info-item">
 		<span>{members.size + 1} {members.size + 1 === 1 ? 'member' : 'members'}</span>

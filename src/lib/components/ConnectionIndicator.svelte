@@ -1,13 +1,15 @@
 <script lang="ts">
-  const { connected, reestablishing, pendingCount } = $props<{
+  const { connected, reestablishing, pendingCount, syncing } = $props<{
     connected: boolean;
     reestablishing: boolean;
     pendingCount: number;
+    syncing?: boolean;
   }>();
 
   const label = $derived(() => {
-    if (connected && !reestablishing) return '';
+    if (syncing) return 'Syncing...';
     if (reestablishing) return 'Reconnecting...';
+    if (connected && !reestablishing) return '';
     if (pendingCount > 0) return `Offline · ${pendingCount} pending`;
     return 'Offline';
   });
