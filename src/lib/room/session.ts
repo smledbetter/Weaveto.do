@@ -180,6 +180,7 @@ export class RoomSession {
   private onError: ErrorHandler | null = null;
   private onReestablishing: ReestablishingHandler | null = null;
   private onDecryptFailure: DecryptFailureHandler | null = null;
+  private syncHandler: ((events: TaskEvent[]) => void) | null = null;
 
   constructor(
     roomId: string,
@@ -214,6 +215,9 @@ export class RoomSession {
   }
   setDecryptFailureHandler(handler: DecryptFailureHandler) {
     this.onDecryptFailure = handler;
+  }
+  setSyncHandler(handler: (events: TaskEvent[]) => void): void {
+    this.syncHandler = handler;
   }
 
   getIdentityKey(): string {
@@ -485,6 +489,34 @@ export class RoomSession {
       encrypted: true,
       decryptionFailed: false,
     });
+  }
+
+  /**
+   * Send event history to all room members via encrypted channel.
+   * Used on reconnect to sync missed events.
+   */
+  sendSyncEvents(events: TaskEvent[]): void {
+    if (!this.outboundSession || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (events.length === 0) return;
+
+    const payload = JSON.stringify({
+      sender: this.identityKey,
+      senderName: this.displayName,
+      syncEvents: events,
+      sequence: this.deliveryTracker.nextSequence(),
+    });
+
+    const paddedPayload = padMessage(payload);
+    const ciphertext = megolmEncrypt(this.outboundSession, paddedPayload);
+
+    const msg: EncryptedMessage = {
+      type: "encrypted",
+      senderIdentityKey: this.identityKey,
+      sessionId: this.outboundSessionId,
+      ciphertext,
+      timestamp: Date.now(),
+    };
+    this.ws.send(JSON.stringify(msg));
   }
 
   /**
@@ -909,6 +941,7 @@ export class RoomSession {
         sender: string;
         senderName: string;
         taskEvent?: TaskEvent;
+        syncEvents?: TaskEvent[];
         sequence?: number;
         rotateKeys?: {
           newSessionId: string;
@@ -964,6 +997,10 @@ export class RoomSession {
           decryptionFailed: false,
         });
         return;
+      }
+
+      if (payload.syncEvents && Array.isArray(payload.syncEvents)) {
+        this.syncHandler?.(payload.syncEvents);
       }
 
       this.onMessage?.({
