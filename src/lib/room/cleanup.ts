@@ -10,6 +10,7 @@ import { clearPinKey } from "$lib/pin/store";
 import { clearIdentitySeed } from "$lib/identity/store";
 import { initNotificationPrefsDB, clearNotificationPrefs } from "$lib/notifications/store";
 import { initPushDB, clearPushSubscription } from "$lib/notifications/push";
+import { clearOfflineData } from "$lib/tasks/offline";
 
 /**
  * Clean up all client-side state for a destroyed room.
@@ -54,6 +55,13 @@ export async function cleanupRoom(
     const pushDb = await initPushDB();
     await clearPushSubscription(pushDb, roomId);
     pushDb.close();
+  } catch {
+    // IndexedDB not available or error — skip
+  }
+
+  // 9. Clear offline task store and event queue from IndexedDB
+  try {
+    await clearOfflineData(roomId);
   } catch {
     // IndexedDB not available or error — skip
   }

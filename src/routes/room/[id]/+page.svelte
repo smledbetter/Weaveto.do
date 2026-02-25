@@ -43,6 +43,8 @@
 	import { initNotificationPrefsDB, saveNotificationPrefs, loadNotificationPrefs, clearNotificationPrefs } from '$lib/notifications/store';
 	import { shouldNotifyForEvent, getNotificationPayload, postNotifyToSW, postPrefsToSW } from '$lib/notifications/triggers';
 	import { isPushSupported, subscribeToPush, unsubscribeFromPush, initPushDB, storePushSubscription, clearPushSubscription } from '$lib/notifications/push';
+import { saveTaskSnapshot, loadTaskSnapshot, saveEventQueue, loadEventQueue, clearOfflineData } from '$lib/tasks/offline';
+import ConnectionIndicator from '$lib/components/ConnectionIndicator.svelte';
 import { deriveEmojiString } from '$lib/room/verification';
 import ShieldIcon from '$lib/components/ShieldIcon.svelte';
 import MigrationBanner from '$lib/components/MigrationBanner.svelte';
@@ -144,6 +146,10 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 	// M16 push state
 	let pushSupported = $state(false);
 	let pushEnabled = $state(false);
+
+	// M17 offline state
+	let pendingEvents: TaskEvent[] = $state([]);
+	let pendingCount = $derived(pendingEvents.length);
 
 	async function handleNotificationOptIn() {
 		if (!browser || !('Notification' in window)) return;
@@ -315,13 +321,31 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 		if (agentExecutor) {
 			agentExecutor.updateContext(taskList, members);
 		}
+		// Save offline snapshot (fire-and-forget)
+		if (roomId) {
+			saveTaskSnapshot(roomId, taskStore.getSnapshot());
+		}
 	}
 
 	function handleTaskEvent(event: TaskEvent) {
-		if (!session || !connected) return;
+		if (!session) return;
+		// Mark as pending sync if created offline
+		if (!connected || reestablishing) {
+			if (event.task) {
+				event.task.pendingSync = true;
+			}
+		}
 		taskStore.applyEvent(event);
 		refreshTaskList();
-		session.sendTaskEvent(event);
+
+		if (connected && !reestablishing) {
+			session.sendTaskEvent(event);
+		} else {
+			// Queue for later delivery
+			pendingEvents = [...pendingEvents, event];
+			// Persist queue to IDB
+			saveEventQueue(roomId, pendingEvents);
+		}
 
 		// Dispatch to active agents (they may react to task changes)
 		agentExecutor?.dispatchTaskEvent(event);
@@ -729,6 +753,24 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 
 			roomSession.setReestablishingHandler((active: boolean) => {
 				reestablishing = active;
+				// When re-establishment completes, replay pending events
+				if (!active && connected && pendingEvents.length > 0) {
+					const toReplay = pendingEvents;
+					pendingEvents = [];
+					for (const event of toReplay) {
+						// Clear pendingSync flag before sending
+						if (event.task) {
+							event.task.pendingSync = false;
+						}
+						roomSession.sendTaskEvent(event);
+					}
+					// Clear persisted queue
+					clearOfflineData(roomId).then(() => {
+						// Re-save snapshot without pendingSync flags
+						saveTaskSnapshot(roomId, taskStore.getSnapshot());
+					});
+					refreshTaskList();
+				}
 			});
 
 			roomSession.setMigrationHandler((newRoomUrl: string, _tasks: any[]) => {
@@ -738,6 +780,21 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 
 			await roomSession.connect();
 			session = roomSession;
+
+			// Load offline data (pending events and task snapshot)
+			try {
+				const savedQueue = await loadEventQueue(roomId);
+				if (savedQueue && savedQueue.length > 0) {
+					pendingEvents = savedQueue;
+				}
+				const savedTasks = await loadTaskSnapshot(roomId);
+				if (savedTasks) {
+					taskStore.loadSnapshot(savedTasks);
+					refreshTaskList();
+				}
+			} catch {
+				// Offline data unavailable — continue without it
+			}
 
 			// Initialize agent executor after room connection
 			await initAgentExecutor(prfSeed);
@@ -1161,10 +1218,7 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 							aria-expanded={showRoomInfo}
 							aria-label="Room info"
 						>
-							<span
-								class="connection-dot"
-								class:online={connected}
-							></span>
+							<ConnectionIndicator {connected} {reestablishing} {pendingCount} />
 							{members.size + 1}
 						</button>
 					</div>
@@ -1182,12 +1236,6 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 						onKeepRoom={handleKeepRoom}
 						onDeleteNow={handleDeleteNow}
 					/>
-				</div>
-			{/if}
-
-			{#if reestablishing}
-				<div class="reestablishing-banner" role="status" aria-live="polite">
-					Re-establishing encryption...
 				</div>
 			{/if}
 
@@ -1343,8 +1391,7 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 		<button class="dropdown-close" onclick={() => { roomInfoPopoverEl?.hidePopover(); }} aria-label="Close room info">&times;</button>
 	</div>
 	<div class="dropdown-item info-item">
-		<span class="connection-dot" class:online={connected}></span>
-		<span>{connected ? 'Connected' : 'Reconnecting...'}</span>
+		<ConnectionIndicator {connected} {reestablishing} {pendingCount} />
 	</div>
 	<div class="dropdown-item info-item">
 		<span>{members.size + 1} {members.size + 1 === 1 ? 'member' : 'members'}</span>
@@ -1597,26 +1644,6 @@ import MigrationBanner from '$lib/components/MigrationBanner.svelte';
 	}
 
 	.invite-btn:hover { background: var(--accent-strong); }
-
-	.connection-dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: transparent;
-		border: 2px solid var(--text-muted);
-		box-sizing: border-box;
-	}
-
-	.connection-dot.online {
-		background: var(--accent-default);
-		border-color: var(--accent-default);
-		animation: pulse 2s ease-in-out infinite;
-	}
-
-	@keyframes pulse {
-		0%, 100% { opacity: 1; }
-		50% { opacity: 0.5; }
-	}
 
 .room-info-dropdown-wrapper {
 		position: relative;
