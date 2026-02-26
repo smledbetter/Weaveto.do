@@ -211,6 +211,110 @@ test.describe("M19: Multi-Room Tabs", () => {
 		await tab2.close();
 	});
 
+	test("BroadcastChannel messages flow between tabs", async ({ context }) => {
+		const tab1 = await context.newPage();
+		const tab2 = await context.newPage();
+
+		await suppressOverlays(tab1);
+		await suppressOverlays(tab2);
+
+		const base = Date.now();
+		await openRoom(tab1, `bc-flow-a-${base}`, "Alice");
+		await openRoom(tab2, `bc-flow-b-${base}`, "Bob");
+
+		// Set up a listener on tab2 that records incoming BroadcastChannel messages
+		await tab2.evaluate(() => {
+			const messages: unknown[] = [];
+			const channel = new BroadcastChannel("weave-tab-sync");
+			channel.addEventListener("message", (e) => {
+				messages.push(e.data);
+			});
+			(window as unknown as Record<string, unknown>).__bcMessages = messages;
+		});
+
+		// Send a pin-locked broadcast from tab1 via the same channel
+		await tab1.evaluate(() => {
+			const channel = new BroadcastChannel("weave-tab-sync");
+			channel.postMessage({ type: "pin-locked", tabId: "test-tab-1" });
+			channel.close();
+		});
+
+		// Wait briefly for the message to propagate
+		await tab2.waitForTimeout(500);
+
+		// Verify tab2 received the pin-locked message
+		const messages = await tab2.evaluate(
+			() =>
+				(window as unknown as Record<string, unknown>).__bcMessages as Array<{
+					type: string;
+					tabId: string;
+				}>,
+		);
+
+		const lockMessages = messages.filter((m) => m.type === "pin-locked");
+		expect(lockMessages.length).toBeGreaterThanOrEqual(1);
+		expect(lockMessages[0].tabId).toBe("test-tab-1");
+
+		await tab1.close();
+		await tab2.close();
+	});
+
+	test("TabSync responds to tab-ping with tab-pong", async ({ context }) => {
+		const tab1 = await context.newPage();
+		const tab2 = await context.newPage();
+
+		await suppressOverlays(tab1);
+		await suppressOverlays(tab2);
+
+		const base = Date.now();
+		// Both tabs need to be in rooms so their TabSync instances are active
+		await openRoom(tab1, `ping-test-a-${base}`, "Alice");
+		await openRoom(tab2, `ping-test-b-${base}`, "Bob");
+
+		// Set up a listener on tab1 for tab-pong responses
+		await tab1.evaluate(() => {
+			const pongs: unknown[] = [];
+			const channel = new BroadcastChannel("weave-tab-sync");
+			channel.addEventListener("message", (e) => {
+				if (e.data && e.data.type === "tab-pong") {
+					pongs.push(e.data);
+				}
+			});
+			(window as unknown as Record<string, unknown>).__pongMessages = pongs;
+		});
+
+		// Send a tab-ping from tab1 — tab2's TabSync instance should respond with tab-pong
+		const requestId = `ping-${base}`;
+		await tab1.evaluate((reqId) => {
+			const channel = new BroadcastChannel("weave-tab-sync");
+			channel.postMessage({ type: "tab-ping", requestId: reqId });
+			channel.close();
+		}, requestId);
+
+		// Wait for tab2's TabSync to respond
+		await tab1.waitForTimeout(500);
+
+		// Verify tab1 received a tab-pong
+		const pongs = await tab1.evaluate(
+			() =>
+				(window as unknown as Record<string, unknown>).__pongMessages as Array<{
+					type: string;
+					requestId: string;
+					tabId: string;
+				}>,
+		);
+
+		expect(pongs.length).toBeGreaterThanOrEqual(1);
+		expect(pongs[0].requestId).toBe(requestId);
+		// tabId should be a UUID (from the room page's TabSync instance)
+		expect(pongs[0].tabId).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+		);
+
+		await tab1.close();
+		await tab2.close();
+	});
+
 	test("no JS errors when two tabs are open simultaneously", async ({
 		context,
 	}) => {

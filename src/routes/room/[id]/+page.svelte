@@ -1948,7 +1948,7 @@ import { TabSync } from '$lib/room/tab-sync';
 		border: 1px solid var(--border-default);
 		border-radius: 6px;
 		color: var(--text-primary);
-		font-size: 0.95rem;
+		font-size: 1rem; /* >= 16px prevents iOS Safari auto-zoom on focus */
 		outline: none;
 	}
 
