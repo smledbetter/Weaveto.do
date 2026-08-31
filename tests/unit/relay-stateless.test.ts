@@ -30,8 +30,14 @@ function code(src: string): string {
     .replace(/(^|[^:])\/\/.*$/gm, "$1");
 }
 
+const pageSource = readFileSync(
+  resolve(ROOT, "src/routes/room/[id]/+page.svelte"),
+  "utf8",
+);
+
 const relayCode = code(relaySource);
 const sessionCode = code(sessionSource);
+const pageCode = code(pageSource);
 
 describe("the relay holds no authoritative state", () => {
   it("has no creator identity on a room", () => {
@@ -108,5 +114,13 @@ describe("the client no longer depends on relay-side destruction", () => {
     // After a restart the room is legitimately empty. Only the FIRST
     // member_list may set the flag.
     expect(sessionCode).toMatch(/firstJoinFoundRoom === null/);
+  });
+
+  it("reads the flag somewhere, not just records it", () => {
+    // The first version of this change recorded roomExisted, exposed a getter,
+    // and never called it. Every test above still passed, because they all
+    // assert that an identifier appears in the source. A stale link silently
+    // became a working empty room. Assert consumption, not existence.
+    expect(pageCode).toMatch(/getFirstJoinFoundRoom\(\)\s*===\s*false/);
   });
 });

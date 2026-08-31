@@ -28,7 +28,12 @@ export default defineConfig({
     },
     {
       // Takes the relay port over to kill and restart it, so it cannot share
-      // a relay with anything else. Own project, one worker.
+      // a relay with anything else. Note that its own project and one worker
+      // are NOT what isolates it: Playwright schedules projects concurrently
+      // regardless, and a per-project worker cap does not change that. The
+      // isolation comes from being run in a separate invocation — see the
+      // test:e2e:shared and test:e2e:restart scripts, and the CI job matrix,
+      // both pinned by tests/unit/e2e-project-coverage.test.ts.
       name: 'relay-restart',
       testMatch: /relay-restart/,
       fullyParallel: false,

@@ -104,7 +104,7 @@ Not a match or a mismatch. It cannot fire.
 
 `removeClient()` deletes a room the moment its last client leaves, so a room only exists while it holds at least one connection. Live rooms are therefore bounded by live joined connections, which `MAX_CONNECTIONS` caps at 5,000. `MAX_ROOMS` is 10,000. The check that would enforce it is on a branch that cannot be reached.
 
-Measured rather than only argued: a room created and left occupied is joinable with `create: false`; the same room after its last client disconnects answers `room_not_found`.
+Measured rather than only argued: a room is joinable while it is occupied, and the routing entry for it is dropped once its last client disconnects. Since the relay became stateless a join for an unknown room is not refused. It reconstitutes the routing entry and reports `roomExisted: false` so the client can tell the person nobody else is there.
 
 ---
 

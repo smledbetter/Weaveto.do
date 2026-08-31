@@ -36,7 +36,7 @@ Anyone who completes the Olm key exchange (via room link) can decrypt all room c
 | Stolen room link (late joiner) | Burn-after-use, ephemeral mode, auto-delete limit exposure window | M5 |
 | Device left unlocked | PIN gate locks session after inactivity, clears Megolm keys from memory | M6 |
 | Malicious WASM agent | No-syscall sandbox, Worker preemption, Ed25519 signatures, event validation | M3, M7 |
-| Room data persistence after use | 6-layer cleanup: IndexedDB, memory, Megolm state, relay purge, auto-delete, ephemeral | M5 |
+| Room data persistence after use | 5-layer cleanup: IndexedDB, memory, Megolm state, auto-delete, ephemeral | M5 |
 | Console side-channel | Zero `console.*` policy in client code; generic notification bodies | M8 |
 | Cross-origin WebSocket hijack | Origin validation on upgrade | M8 |
 | Relay DoS / resource exhaustion | Per-connection rate limiting, room/connection/IP caps | M8 |
@@ -55,6 +55,7 @@ Anyone who completes the Olm key exchange (via room link) can decrypt all room c
 | Display name spoofing | Any member can impersonate another by using their display name | No binding between identity key and display name (see Open Gaps) |
 | Timestamp manipulation in task events | Malicious member sends future timestamps, wins every conflict | No timestamp window validation (see Open Gaps) |
 | Reconnect Olm session divergence | Reconnect generates fresh OTKs but keeps stale Olm sessions; decrypt failures swallowed silently | Clear stale sessions on reconnect (see Open Gaps) |
+| Any member can burn the room | A single member destroys every online member's local copy | Accepted. Burn is an encrypted message, so holding the Megolm key is the only bar (see Open Gaps) |
 
 ## Open Gaps & Planned Mitigations
 
@@ -113,6 +114,18 @@ Anyone who completes the Olm key exchange (via room link) can decrypt all room c
 **Planned mitigation**: On reconnect, clear stale Olm sessions and re-establish key exchange with all current members. Surface a transient "Re-establishing encryption..." indicator during re-key. Replace silent catch blocks with user-visible decrypt failure warnings.
 
 **Priority**: High — this affects E2EE reliability under normal network conditions (WiFi drops, mobile switching). Users lose encryption silently.
+
+### 8. Burn Is Authorized By Membership, Not By The Creator
+
+**Risk**: Any member can destroy the room for every other member who is online.
+
+Burn used to be a relay operation. The relay held the creator's identity key and refused a purge from anyone else. Making the relay stateless removed that check, because it removed the state the check read. Burn is now an ordinary encrypted message: a client that receives one over the room's Megolm session deletes its local copy and leaves.
+
+**Why this is accepted rather than fixed**: there is no longer a cryptographic notion of a creator anywhere in the system. `isCreator` is read from a URL parameter and is local to one browser. Restoring creator-only burn means putting durable room state back on the relay, which is the design this project deliberately left, or signing burns against a room key distributed at creation, which does not survive the member set changing.
+
+**Why the exposure is smaller than it looks**: every member can already read everything, and the task list is an event log every member can already write to, so a member who wants to destroy the shared state can do so without a burn. Burn adds the ability to clear other people's *local* copies. It does not reach offline members, and it does not reach anyone's data on a device that is not currently in the room.
+
+**Mitigation path**: if this becomes real, the fix is a signed burn tied to an ed25519 key established at room creation and carried in the invite link, so authorization travels with the link rather than with relay state.
 
 ## Review Cadence
 
