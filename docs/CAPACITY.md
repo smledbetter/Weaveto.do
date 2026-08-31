@@ -267,6 +267,18 @@ The recommendation was to cut `MSG_RATE_LIMIT` from 30 to 5, on the reasoning th
 
 **The budget is averaged over four seconds rather than policed each second.** A one second window charges a client for the arrival pattern of its packets. Measured: senders pacing themselves at 4 per second against a 5 per second budget still collected 6,317 disconnects, and they began at exactly the load where the relay's own p95 crossed a second. The relay slowing down is what bunched the sends that then looked like abuse. Real clients bunch for duller reasons, a GC pause or a backgrounded tab. Averaging keeps the sustained rate, and with it the aggregate bound, identical.
 
+### The cap cut also needed a client change
+
+Cutting the room cap exposed something the relay could not fix on its own. The app sent one relay frame per task event, so creating tasks quickly was indistinguishable from a flood. An end-to-end test that creates 55 tasks failed: the client hit the per-connection limit, was disconnected with 4029 partway through, and lost the rest.
+
+Raising the limit is not a fix. Nothing bounds how many tasks someone creates, so any limit can be exceeded by an ordinary user, and the app is about to add uploaded agents that emit task events faster than a person can type. Sending fewer frames is the fix. Task events are now coalesced into one frame every 250ms, which is 4 broadcast frames per second against a budget of 5, and `sendSyncEvents` already used the same shape.
+
+Two things follow from this that are worth keeping:
+
+**A capacity limit is only as good as the client's willingness to live inside it.** Every declared cap measured as a match while the app was still unusable at those caps. Nothing in the caps profile could have caught it, because the caps were all doing exactly what they said.
+
+**The relay ships the configuration that was measured.** Widening the averaging window to 12 seconds was tried first as a way to absorb the burst. It worked, and it was reverted, because every number in this document was measured against four seconds. The client change removes the need for it.
+
 ### How the two budgets compose
 
 They are not alternatives. Both are charged, so whichever binds first wins.

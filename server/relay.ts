@@ -87,9 +87,16 @@ const BROADCAST_RATE_LIMIT = 5;
  * down is what bunched the sends that then looked like abuse. A real client
  * bunches for duller reasons: a GC pause, a backgrounded tab, a flaky radio.
  *
- * Averaging over four seconds keeps the sustained rate, and with it the
- * aggregate bound, exactly the same. It only stops charging a client for the
- * arrival pattern of its packets.
+ * Averaging keeps the sustained rate, and with it the aggregate bound, exactly
+ * the same. It only stops charging a client for the arrival pattern of its
+ * packets. A burst inside the window is still bounded by MSG_RATE_LIMIT per
+ * second and by MAX_BUFFERED_BYTES per socket, so widening it costs nothing
+ * the caps were relying on.
+ *
+ * Four seconds, which is the configuration every number in docs/CAPACITY.md
+ * was measured against. Widening it was tried as a way to survive bulk task
+ * creation and abandoned: the client sends fewer frames now instead, so the
+ * relay ships the configuration that was actually measured.
  */
 const BROADCAST_WINDOW_MS = 4_000;
 
