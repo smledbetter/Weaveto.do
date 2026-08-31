@@ -224,3 +224,34 @@ test("room name truncates on narrow viewport", async ({ page }) => {
 	});
 	expect(hasEllipsisSupport).toBe(true);
 });
+
+/**
+ * Layout must survive narrower than the narrowest device we claim to support.
+ *
+ * The homepage fit a 320px iPhone SE only because macOS resolves system-ui to a
+ * font narrow enough. Linux WebKit picks a wider one and the brand spilled 5px
+ * past the body — three CI failures that could not be reproduced on macOS at
+ * 320px, because at 320px there was no slack left to lose.
+ *
+ * Testing at 280px gives the layout a margin that font-metric differences fit
+ * inside, so this fails on any platform when the slack disappears again.
+ */
+test("homepage has layout slack below the narrowest supported width", async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 280, height: 568 });
+	await page.goto("/", { waitUntil: "networkidle" });
+
+	const { bodyWidth, viewportWidth } = await page.evaluate(() => ({
+		bodyWidth: document.body.scrollWidth,
+		viewportWidth: document.documentElement.clientWidth,
+	}));
+
+	expect(
+		bodyWidth,
+		"the homepage overflows at 280px, so it has no room for a wider font stack",
+	).toBeLessThanOrEqual(viewportWidth + 1);
+
+	await expect(page.locator("h1")).toBeVisible();
+	await expect(page.locator("button", { hasText: "New Room" })).toBeVisible();
+});
