@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { dismissOverlays } from "./utils/room-helpers";
+import { dismissOverlays, newRoomId } from "./utils/room-helpers";
 
 /**
  * Multi-Room Tabs (M19) E2E tests.
@@ -56,9 +56,8 @@ test.describe("M19: Multi-Room Tabs", () => {
 		await suppressOverlays(tab1);
 		await suppressOverlays(tab2);
 
-		const base = Date.now();
-		const roomId1 = `multi-tab-a-${base}`;
-		const roomId2 = `multi-tab-b-${base}`;
+		const roomId1 = newRoomId();
+		const roomId2 = newRoomId();
 
 		await openRoom(tab1, roomId1, "User1");
 		await openRoom(tab2, roomId2, "User2");
@@ -91,9 +90,8 @@ test.describe("M19: Multi-Room Tabs", () => {
 		await suppressOverlays(tab1);
 		await suppressOverlays(tab2);
 
-		const base = Date.now();
-		await openRoom(tab1, `close-test-a-${base}`, "User1");
-		await openRoom(tab2, `close-test-b-${base}`, "User2");
+		await openRoom(tab1, newRoomId(), "User1");
+		await openRoom(tab2, newRoomId(), "User2");
 
 		// Confirm tab2 is live before closing tab1
 		await expect(tab2.locator(".composer input")).toBeVisible({
@@ -125,9 +123,8 @@ test.describe("M19: Multi-Room Tabs", () => {
 			await suppressOverlays(tab);
 		}
 
-		const base = Date.now();
 		for (let i = 0; i < 3; i++) {
-			await openRoom(tabs[i], `triple-tab-${base}-${i}`, `User${i + 1}`);
+			await openRoom(tabs[i], newRoomId(), `User${i + 1}`);
 		}
 
 		// All three tabs should reach a connected state with the composer
@@ -155,7 +152,7 @@ test.describe("M19: Multi-Room Tabs", () => {
 			localStorage.setItem("weave-walkthrough-seen", "true");
 		});
 
-		const roomId = `tab-sync-init-${Date.now()}`;
+		const roomId = newRoomId();
 		await page.goto(
 			`http://localhost:5173/room/${roomId}?name=TestUser&create=true`,
 			{ waitUntil: "networkidle" },
@@ -188,8 +185,8 @@ test.describe("M19: Multi-Room Tabs", () => {
 		await suppressOverlays(tab2);
 
 		const base = Date.now();
-		await openRoom(tab1, `leak-test-a-${base}`, "Alice");
-		await openRoom(tab2, `leak-test-b-${base}`, "Bob");
+		await openRoom(tab1, newRoomId(), "Alice");
+		await openRoom(tab2, newRoomId(), "Bob");
 
 		// Alice sends a message in her room
 		const secret = `secret-${base}`;
@@ -218,9 +215,8 @@ test.describe("M19: Multi-Room Tabs", () => {
 		await suppressOverlays(tab1);
 		await suppressOverlays(tab2);
 
-		const base = Date.now();
-		await openRoom(tab1, `bc-flow-a-${base}`, "Alice");
-		await openRoom(tab2, `bc-flow-b-${base}`, "Bob");
+		await openRoom(tab1, newRoomId(), "Alice");
+		await openRoom(tab2, newRoomId(), "Bob");
 
 		// Set up a listener on tab2 that records incoming BroadcastChannel messages
 		await tab2.evaluate(() => {
@@ -268,8 +264,8 @@ test.describe("M19: Multi-Room Tabs", () => {
 
 		const base = Date.now();
 		// Both tabs need to be in rooms so their TabSync instances are active
-		await openRoom(tab1, `ping-test-a-${base}`, "Alice");
-		await openRoom(tab2, `ping-test-b-${base}`, "Bob");
+		await openRoom(tab1, newRoomId(), "Alice");
+		await openRoom(tab2, newRoomId(), "Bob");
 
 		// Set up a listener on tab1 for tab-pong responses
 		await tab1.evaluate(() => {
@@ -349,9 +345,8 @@ test.describe("M19: Multi-Room Tabs", () => {
 			});
 		}
 
-		const base = Date.now();
-		await openRoom(tab1, `no-errors-a-${base}`, "Alice");
-		await openRoom(tab2, `no-errors-b-${base}`, "Bob");
+		await openRoom(tab1, newRoomId(), "Alice");
+		await openRoom(tab2, newRoomId(), "Bob");
 
 		// Brief interaction in each tab
 		await tab1.locator(".composer input").fill("ping");

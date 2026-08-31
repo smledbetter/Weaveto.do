@@ -10,7 +10,9 @@ const config = {
         "script-src": [
           "self",
           "wasm-unsafe-eval",
-          "sha256-94yTjVcb5wUAs+UjAs3xcZX3TtmUCmw2go8N7mk2g3Q=",
+          // Hash of the inline theme script in src/app.html. Kept in sync by
+          // `npm run csp:hash:write`; CI fails if it drifts. Do not hand-edit.
+          "sha256-Mz6+g81mrxYafkDnimrpP9cGOS0YzsFEO+xqMgAbvmQ=",
         ],
         "style-src": ["self", "unsafe-inline"],
         "connect-src": ["self", "ws://localhost:3001", "wss://weaveto.do:3001", "wss://weaveto-relay.fly.dev"],

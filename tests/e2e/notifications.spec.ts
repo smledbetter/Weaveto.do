@@ -234,7 +234,7 @@ test.describe('Notifications: Bell icon', () => {
 
 		// The toggle checkbox is visually hidden (opacity:0) but the toggle-switch
 		// wrapper and its slider are visible. Check the wrapper and checkbox existence.
-		await expect(popover.locator('.toggle-switch')).toBeVisible();
+		await expect(popover.locator('.toggle-switch[aria-label="Toggle notifications"]')).toBeVisible();
 		await expect(popover.locator('#notif-toggle')).toBeAttached();
 
 		// Popover should contain quiet-hours time inputs

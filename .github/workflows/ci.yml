@@ -1,0 +1,139 @@
+name: CI
+
+# Every gate that the sprint process claimed to run, actually run.
+#
+# Four sprints recorded "gates first pass" against an E2E suite that was red
+# the entire time, because nothing outside the session ever checked. The point
+# of this workflow is that the claim is now produced by a machine.
+#
+# E2E blocks merge. It is the slowest gate at roughly two minutes, and it is
+# the one that rotted, so it is the one that most needs teeth.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to the same PR cancels the previous run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Fail the build on a Svelte warning being introduced, without blocking on
+  # the 26 that already exist. See the check job.
+  NODE_VERSION: "22"
+
+jobs:
+  static:
+    name: Types, CSP, skips
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: svelte-check
+        run: npm run check
+
+      - name: CSP hash matches the inline script
+        # The allow-listed hash silently went stale once and blocked the theme
+        # script in production for months. It cannot drift again unnoticed.
+        run: npm run csp:hash:check
+
+      - name: Every skipped test states a reason
+        run: npm run check:skips
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Vitest with coverage
+        run: npm run test:unit -- --coverage
+
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+  e2e:
+    name: E2E (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium, mobile-iphone, mobile-pixel]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      # mobile-iphone runs on webkit. It was never installed locally, so 17
+      # failures were mistaken for product bugs. --with-deps installs the
+      # system libraries the browsers need on a bare runner.
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Run E2E
+        run: npx playwright test --project=${{ matrix.project }}
+
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.project }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      # Runtime dependencies only. The relay ships `ws`, and a high-severity
+      # advisory there is a production issue, not a lint nit. Dev-tooling
+      # advisories are reported but do not block.
+      - name: Audit production dependencies
+        run: npm run audit:prod
+
+      - name: Audit dev dependencies (advisory)
+        run: npm audit --audit-level=high || true

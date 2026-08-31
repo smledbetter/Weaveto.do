@@ -17,7 +17,13 @@
     "test:unit:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "csp:hash": "node scripts/csp-hash.mjs",
+    "csp:hash:write": "node scripts/csp-hash.mjs --write",
+    "csp:hash:check": "node scripts/csp-hash.mjs --check",
+    "check:skips": "node scripts/check-test-skips.mjs",
+    "audit:prod": "npm audit --omit=dev --audit-level=high",
+    "gate": "npm run check && npm run csp:hash:check && npm run check:skips && npm run test:unit && npm run build && npm run test:e2e"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
@@ -44,6 +50,6 @@
   "dependencies": {
     "@simplewebauthn/browser": "^13.2.2",
     "vodozemac-wasm-bindings": "^0.8.1",
-    "ws": "^8.19.0"
+    "ws": "^8.21.3"
   }
 }

@@ -81,7 +81,7 @@ test.describe("Room Creation Flow", () => {
     await expect(page.locator("header .room-info h2")).not.toBeEmpty({
       timeout: 15_000,
     });
-    await expect(page.locator(".connection-dot")).toHaveClass(/online/);
+    await expect(page.locator("header .connection-dot")).toHaveClass(/online/);
   });
 
   test("invite modal copy button works", async ({ page, context }) => {

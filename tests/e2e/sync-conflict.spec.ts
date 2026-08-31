@@ -30,7 +30,9 @@ test.describe('Sync & Conflict: Connection indicator', () => {
 		await createAndJoinRoom(page);
 
 		// WebSocket connects shortly after joining; .connection-dot.online appears
-		await expect(page.locator('.connection-dot.online')).toBeVisible({ timeout: 10_000 });
+		// Scoped to the header: ConnectionIndicator also renders inside the
+		// room-info popover, so a bare selector is a strict-mode violation.
+		await expect(page.locator('header .connection-dot.online')).toBeVisible({ timeout: 10_000 });
 
 		t.assertNoErrors();
 	});
@@ -41,7 +43,7 @@ test.describe('Sync & Conflict: Connection indicator', () => {
 		await createAndJoinRoom(page);
 
 		// The .connection-status span is rendered by ConnectionIndicator
-		await expect(page.locator('.connection-status')).toBeAttached({ timeout: 5_000 });
+		await expect(page.locator('header .connection-status')).toBeAttached({ timeout: 5_000 });
 
 		t.assertNoErrors();
 	});
@@ -54,7 +56,7 @@ test.describe('Sync & Conflict: Connection indicator', () => {
 		// Allow connection to stabilise
 		await page.waitForTimeout(1_500);
 
-		const label = page.locator('.connection-label');
+		const label = page.locator('header .connection-label');
 		const isVisible = await label.isVisible().catch(() => false);
 		if (isVisible) {
 			const text = await label.textContent();

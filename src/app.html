@@ -3,6 +3,14 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <!--
+            CSP: this script is allow-listed by SHA-256 hash in svelte.config.js.
+            SvelteKit only auto-nonces the scripts it injects itself, not
+            hand-written ones here, so the hash is the only mechanism.
+            EDITING THIS SCRIPT CHANGES ITS HASH — run `npm run csp:hash` and
+            paste the new value into svelte.config.js, or the browser blocks it
+            and the theme flashes on every load.
+        -->
         <script>
             (function () {
                 var t = localStorage.getItem("weave-theme");

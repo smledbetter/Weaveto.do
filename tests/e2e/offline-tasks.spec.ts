@@ -30,7 +30,9 @@ test.describe('Offline Task Store: Connection Indicator', () => {
 		await createAndJoinRoom(page);
 
 		// The ConnectionIndicator component renders a .connection-status span
-		await expect(page.locator('.connection-status')).toBeAttached({ timeout: 5_000 });
+		// Scoped to the header: ConnectionIndicator also renders inside the
+		// room-info popover, so a bare selector is a strict-mode violation.
+		await expect(page.locator('header .connection-status')).toBeAttached({ timeout: 5_000 });
 
 		t.assertNoErrors();
 	});
@@ -41,7 +43,9 @@ test.describe('Offline Task Store: Connection Indicator', () => {
 		await createAndJoinRoom(page);
 
 		// After joining a room, WebSocket connects and the dot gets the .online class
-		await expect(page.locator('.connection-dot.online')).toBeVisible({ timeout: 10_000 });
+		// Scoped to the header: ConnectionIndicator also renders inside the
+		// room-info popover, so a bare selector is a strict-mode violation.
+		await expect(page.locator('header .connection-dot.online')).toBeVisible({ timeout: 10_000 });
 
 		t.assertNoErrors();
 	});
@@ -54,7 +58,7 @@ test.describe('Offline Task Store: Connection Indicator', () => {
 		// When online, .connection-label should be hidden (empty label → no element)
 		// Allow time for initial connection to establish
 		await page.waitForTimeout(1_000);
-		const label = page.locator('.connection-label');
+		const label = page.locator('header .connection-label');
 		// Either not attached, or not visible — both are acceptable when connected
 		const isVisible = await label.isVisible().catch(() => false);
 		if (isVisible) {

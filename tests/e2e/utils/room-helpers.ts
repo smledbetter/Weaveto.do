@@ -100,3 +100,17 @@ export function trackAppErrors(page: Page) {
 		},
 	};
 }
+
+/**
+ * Generate a valid room ID: 32 lowercase hex characters.
+ *
+ * Must match ROOM_ID_PATTERN in server/relay.ts and src/lib/room/names.ts.
+ * Tests previously used readable ids like `multi-tab-a-${Date.now()}`, which
+ * the relay rejects on upgrade and which now 404 at the route. Readability
+ * belongs in the test name, not the room id.
+ */
+export function newRoomId(): string {
+	const bytes = new Uint8Array(16);
+	globalThis.crypto.getRandomValues(bytes);
+	return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}

@@ -34,19 +34,42 @@ test.describe("Room Page", () => {
     await expect(joinBtn).toBeEnabled();
   });
 
-  test("shows key warning banner", async ({ page }) => {
-    await page.goto(`/room/${testRoomId}`);
-    const banner = page.locator(".warning-banner");
-    await expect(banner).toBeVisible();
-    await expect(banner).toContainText("encryption keys live only in this tab");
-  });
+  // M12 folded the standalone key-warning banner into the CoachMarks
+  // walkthrough. The two tests that lived here asserted `.warning-banner` on a
+  // page that had not joined a room, so the element was never rendered at all —
+  // it sits inside `{:else if phase === 'connected'}`. They were replaced with
+  // a test of where the message actually reaches a first-time user.
+  test("first-time user is told their keys live only in this tab", async ({
+    page,
+  }) => {
+    // utils/fixtures pre-sets weave-walkthrough-seen for every test in this
+    // file, which is what suppresses the walkthrough everywhere else. Undo it
+    // for this test only — init scripts run in registration order, so this one
+    // lands after the fixture's.
+    await page.addInitScript(() => {
+      localStorage.removeItem("weave-walkthrough-seen");
+    });
 
-  test("dismisses warning banner", async ({ page }) => {
-    await page.goto(`/room/${testRoomId}`);
-    const banner = page.locator(".warning-banner");
-    await expect(banner).toBeVisible();
-    await banner.locator("button", { hasText: "Got it" }).click();
-    await expect(banner).not.toBeVisible();
+    await page.goto(`/room/${testRoomId}?create=true`, {
+      waitUntil: "networkidle",
+    });
+    await page
+      .locator('input[placeholder="What should we call you?"]')
+      .fill("Tester");
+    await page.locator("button", { hasText: "Join Securely" }).click();
+
+    const walkthrough = page.locator(".coach-overlay");
+    await expect(walkthrough).toBeVisible({ timeout: 15_000 });
+    await expect(walkthrough).toContainText("keys live in this tab");
+
+    // Dismissing it persists, so the message is shown once and not nagged.
+    // "Next" only advances a step; Skip and the final "Got it" are what call
+    // finish() and write the flag.
+    await walkthrough.locator("button.skip-btn").click();
+    await expect(walkthrough).not.toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem("weave-walkthrough-seen")))
+      .toBe("true");
   });
 
   test("has no WASM artifacts", async ({ page }) => {
