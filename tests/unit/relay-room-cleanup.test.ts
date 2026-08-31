@@ -42,7 +42,7 @@ function roomWith(...identityKeys: string[]): Room {
   for (const key of identityKeys) {
     clients.set(key, member(key).client);
   }
-  return { clients, creatorIdentityKey: identityKeys[0] };
+  return { clients };
 }
 
 describe("deleteRoomState", () => {

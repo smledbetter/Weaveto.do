@@ -104,19 +104,12 @@ interface EncryptedMessage {
 interface MemberListMessage {
   type: "member_list";
   members: Array<{ identityKey: string; displayName: string }>;
+  /** False when this join is what brought the room back into existence. */
+  roomExisted?: boolean;
 }
 
 interface RoomNotFoundMessage {
   type: "room_not_found";
-}
-
-interface RoomDestroyedMessage {
-  type: "room_destroyed";
-  reason: string;
-}
-
-interface PurgeUnauthorizedMessage {
-  type: "purge_unauthorized";
 }
 
 type ServerMessage =
@@ -124,9 +117,7 @@ type ServerMessage =
   | KeyShareMessage
   | EncryptedMessage
   | MemberListMessage
-  | RoomNotFoundMessage
-  | RoomDestroyedMessage
-  | PurgeUnauthorizedMessage;
+  | RoomNotFoundMessage;
 
 // --- OTK replenishment thresholds ---
 
@@ -236,6 +227,7 @@ export class RoomSession {
   private onReestablishing: ReestablishingHandler | null = null;
   private onDecryptFailure: DecryptFailureHandler | null = null;
   private syncHandler: ((events: TaskEvent[]) => void) | null = null;
+  private onBurn: (() => void) | null = null;
 
   constructor(
     roomId: string,
@@ -273,6 +265,10 @@ export class RoomSession {
   }
   setSyncHandler(handler: (events: TaskEvent[]) => void): void {
     this.syncHandler = handler;
+  }
+  /** Called when another member broadcasts a burn instruction. */
+  setBurnHandler(handler: () => void): void {
+    this.onBurn = handler;
   }
 
   getIdentityKey(): string {
@@ -742,41 +738,48 @@ export class RoomSession {
   }
 
   /**
-   * Send a purge request to delete this ephemeral room.
-   * Only the room creator can delete the room.
+   * Tell every member to destroy their local copy of this room.
+   *
+   * Burn used to be a relay operation: the creator sent `purge`, the relay
+   * checked a stored creator identity, broadcast `room_destroyed` and closed
+   * every socket. That made the relay hold authoritative state for one
+   * feature, and made it a witness to the burn.
+   *
+   * It now rides the Megolm channel that already exists. Every client runs the
+   * same six-layer cleanup it runs for any other destruction and disconnects,
+   * the room empties, and the relay drops the routing entry on the ordinary
+   * path. The relay never learns a burn happened.
+   *
+   * Best-effort by nature, exactly as before: a member who is offline does not
+   * receive it, and their local copy survives on their own device. The relay
+   * could not reach them either.
    */
-  sendPurgeRequest(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-        reject(new Error("Not connected"));
-        return;
-      }
+  sendBurnInstruction(): void {
+    if (!this.outboundSession || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error("Not connected to room");
+    }
 
-      // Listen for response
-      const handler = (event: MessageEvent) => {
-        try {
-          const msg = JSON.parse(event.data as string);
-          if (msg.type === "room_destroyed") {
-            this.ws?.removeEventListener("message", handler);
-            resolve();
-          } else if (msg.type === "purge_unauthorized") {
-            this.ws?.removeEventListener("message", handler);
-            reject(new Error("Only the room creator can delete this room"));
-          }
-        } catch {
-          // ignore parse errors
-        }
-      };
-
-      this.purgeInitiated = true;
-      this.ws.addEventListener("message", handler);
-      this.ws.send(
-        JSON.stringify({
-          type: "purge",
-          identityKey: this.identityKey,
-        }),
-      );
+    const payload = JSON.stringify({
+      text: "",
+      sender: this.identityKey,
+      senderName: this.displayName,
+      burn: { reason: "manual" },
+      sequence: this.deliveryTracker.nextSequence(),
     });
+
+    const ciphertext = megolmEncrypt(this.outboundSession, padMessage(payload));
+    this.ws.send(
+      JSON.stringify({
+        type: "encrypted",
+        senderIdentityKey: this.identityKey,
+        sessionId: this.outboundSessionId,
+        ciphertext,
+        timestamp: Date.now(),
+      } satisfies EncryptedMessage),
+    );
+
+    // Stop reconnecting: this session is deliberately over.
+    this.purgeInitiated = true;
   }
 
   /**
@@ -816,17 +819,11 @@ export class RoomSession {
         this.handleMemberList(msg);
         break;
       case "room_not_found":
+        // A relay that still gates joins on `create`. Current relays
+        // reconstitute the room instead, so this is only reachable against an
+        // older deployment.
         this.onError?.("This room does not exist or has expired.");
         this.disconnect();
-        break;
-      case "room_destroyed":
-        if (!this.purgeInitiated) {
-          this.onError?.("This room has been deleted.");
-          this.disconnect();
-        }
-        break;
-      case "purge_unauthorized":
-        // Handled by sendPurgeRequest via event listener
         break;
     }
   }
@@ -1014,6 +1011,7 @@ export class RoomSession {
           newRoomUrl: string;
           tasks: any[];
         };
+        burn?: { reason: string };
       };
 
       // Use envelope senderIdentityKey (relay-validated) instead of inner
@@ -1030,6 +1028,15 @@ export class RoomSession {
       // Track incoming sequence numbers to detect gaps
       if (payload.sequence !== undefined && payload.sender) {
         this.deliveryTracker.checkReceived(payload.sender, payload.sequence);
+      }
+
+      // A burn instruction from another member. Only reachable by someone
+      // holding the Megolm key, i.e. an actual member of this room — the same
+      // bar as reading any other message here.
+      if (payload.burn) {
+        this.purgeInitiated = true; // do not reconnect into a room being destroyed
+        this.onBurn?.();
+        return;
       }
 
       // Handle migration messages
@@ -1088,7 +1095,27 @@ export class RoomSession {
     }
   }
 
+  /**
+   * Whether the room already had members when this session first joined.
+   *
+   * Null until the first member_list arrives. Used to tell "you opened a link
+   * to a room nobody is in" from "you joined a room in progress" — a
+   * distinction the relay used to make by refusing the join outright.
+   *
+   * Deliberately not updated on reconnect: after a relay restart the room is
+   * legitimately empty, and that is not a stale link.
+   */
+  private firstJoinFoundRoom: boolean | null = null;
+
+  /** See firstJoinFoundRoom. Null before the first member list arrives. */
+  getFirstJoinFoundRoom(): boolean | null {
+    return this.firstJoinFoundRoom;
+  }
+
   private handleMemberList(msg: MemberListMessage): void {
+    if (this.firstJoinFoundRoom === null) {
+      this.firstJoinFoundRoom = msg.roomExisted ?? msg.members.length > 0;
+    }
     for (const member of msg.members) {
       if (member.identityKey !== this.identityKey) {
         this.members.set(member.identityKey, {

@@ -797,6 +797,15 @@ import { TabSync } from '$lib/room/tab-sync';
 				refreshTaskList();
 			});
 
+			// Another member burned the room. Destroy our copy the same way we
+			// would for a burn we initiated, then leave.
+			roomSession.setBurnHandler(() => {
+				roomDeleted = true;
+				cleanupRoom(roomId, roomSession, tabSync ?? undefined).finally(() => {
+					setTimeout(() => { window.location.href = '/?deleted=true'; }, 1500);
+				});
+			});
+
 			roomSession.setMigrationHandler((newRoomUrl: string, _tasks: any[]) => {
 				sessionStorage.setItem('weave-migration-banner', 'true');
 				window.location.href = newRoomUrl;
@@ -953,7 +962,10 @@ import { TabSync } from '$lib/room/tab-sync';
 		burnError = '';
 		try {
 			if (session) {
-				await session.sendPurgeRequest();
+				// Tell the other members to destroy their copies, then destroy
+				// ours. The relay is not involved and never learns this happened.
+				session.sendBurnInstruction();
+				await new Promise((r) => setTimeout(r, 250));
 				await cleanupRoom(roomId, session, tabSync ?? undefined);
 			}
 			// Clear notification preferences on room destruction
@@ -978,7 +990,10 @@ import { TabSync } from '$lib/room/tab-sync';
 		burnError = '';
 		try {
 			if (session) {
-				await session.sendPurgeRequest();
+				// Tell the other members to destroy their copies, then destroy
+				// ours. The relay is not involved and never learns this happened.
+				session.sendBurnInstruction();
+				await new Promise((r) => setTimeout(r, 250));
 				await cleanupRoom(roomId, session, tabSync ?? undefined);
 			}
 			// Clear notification preferences on room destruction
@@ -1018,8 +1033,9 @@ import { TabSync } from '$lib/room/tab-sync';
 		// Brief delay for message delivery
 		await new Promise(r => setTimeout(r, 200));
 
-		// Purge old room
-		await session.sendPurgeRequest();
+		// Burn the old room for everyone who is still in it.
+		session.sendBurnInstruction();
+		await new Promise((r) => setTimeout(r, 250));
 
 		// Store migration flag and tasks for replay in the new room
 		sessionStorage.setItem('weave-migration-banner', 'true');

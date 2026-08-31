@@ -24,7 +24,16 @@ export default defineConfig({
           permissions: ['clipboard-read', 'clipboard-write'],
         },
       },
-      testIgnore: /mobile-layout|mobile-layout-extended|identity-integration|member-mesh/,
+      testIgnore: /mobile-layout|mobile-layout-extended|identity-integration|member-mesh|relay-restart/,
+    },
+    {
+      // Takes the relay port over to kill and restart it, so it cannot share
+      // a relay with anything else. Own project, one worker.
+      name: 'relay-restart',
+      testMatch: /relay-restart/,
+      fullyParallel: false,
+      workers: 1,
+      use: { ...devices['Desktop Chrome'] },
     },
     {
       // Full-mesh encryption runs several browser contexts at once and needs
