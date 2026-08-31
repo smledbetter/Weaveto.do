@@ -1,0 +1,33 @@
+# The relay image installs its own dependencies from package-lock.json and
+# copies only package metadata, tsconfig-free server sources, and nothing else.
+# Without this file a developer's local node_modules and build output are
+# uploaded into the build context on every run, which is slow and changes the
+# context hash constantly, defeating layer caching.
+
+.git
+.github
+node_modules
+
+# Build and tool output
+.svelte-kit
+.vercel
+.netlify
+.wrangler
+build
+.output
+coverage
+playwright-report
+test-results
+playwright/.cache
+
+# Nothing in the image reads these
+src
+static
+tests
+docs
+coming-soon
+.claude
+.local
+*.md
+.env
+.env.*
