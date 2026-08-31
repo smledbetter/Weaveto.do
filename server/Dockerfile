@@ -50,5 +50,17 @@ USER node
 
 EXPOSE 3001
 
-# Invoke the pinned binary directly. `npx` would re-resolve on every boot.
-CMD ["/opt/tsx/node_modules/.bin/tsx", "server/relay.ts"]
+# Register the tsx loader into one node process rather than running the tsx CLI,
+# which forks a launcher and leaves it resident for the life of the container.
+# Measured in this image on linux/arm64, resident before any connection. Figures
+# move by several MiB between runs, so treat them as approximate:
+#
+#   tsx CLI        3 processes, launcher ~55 + relay ~94 + esbuild ~15 = ~165 MiB
+#   node --import  2 processes, relay ~85-92 + esbuild ~14 = ~100-105 MiB
+#
+# On a 1 GB machine the launcher was ~55 MiB of nothing. This also makes the relay
+# itself PID 1, so a deploy's SIGTERM reaches it directly instead of going
+# through a wrapper. Precompiling to plain JS would drop esbuild too, but
+# server/relay.ts does not typecheck under a standalone strict tsc, and emitting
+# with checks disabled would ship something other than the source that dev runs.
+CMD ["node", "--import", "/opt/tsx/node_modules/tsx/dist/loader.mjs", "server/relay.ts"]

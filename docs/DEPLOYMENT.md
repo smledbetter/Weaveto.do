@@ -60,6 +60,17 @@ A single `shared-cpu-1x` machine with 1GB of memory, bounded by the limits in `s
 
 That is the capacity ceiling until routing changes. **Do not raise the machine count to get past it.** Horizontal scale requires routing every connection for a room ID to the same process, which is not implemented. Adding a second machine does not add capacity, it corrupts room membership.
 
+### Idle memory baseline
+
+The image runs two processes and holds roughly 100 to 105 MiB resident before a single client connects, measured on linux/arm64. Figures move by several MiB between runs.
+
+| Process | Resident |
+|---------|----------|
+| `node` running the relay | ~85 to 92 MiB |
+| esbuild service, used by the tsx loader | ~14 MiB |
+
+Subtract that from the 1GB machine before reading any per-connection number. The relay is started with `node --import` rather than the `tsx` CLI, which would add a resident launcher process of about 55 MiB for nothing. See the comment in `server/Dockerfile` for the measurements and for why the relay is not precompiled to plain JS.
+
 ## What a deploy does to live rooms
 
 A deploy replaces the machine, so the process dies and every `Map` goes with it. Concretely, at the moment of deploy:
