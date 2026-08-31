@@ -209,7 +209,21 @@ export async function collectTreePids(rootPid: number): Promise<number[]> {
 export interface MemorySample {
   /** RSS in bytes of the process serving the port, read externally with `ps`. */
   psRssBytes: number | null;
-  /** RSS summed over the whole relay process tree, launcher included. */
+  /**
+   * Total memory for the whole relay, however the configured source reports it.
+   *
+   * Two different things land in this field, and they are not comparable:
+   *
+   * - Spawned mode sums `ps` RSS across the process tree. RSS counts the shared
+   *   Node binary and its libraries once per process, so summing OVERSTATES the
+   *   footprint, by roughly the size of those mappings times (processes - 1).
+   *   Do not quote a spawned-mode figure as a footprint.
+   * - Attached mode reports whatever `--rss-cmd` prints. Pointed at a
+   *   container's cgroup `memory.current` it charges shared pages once, which
+   *   is the honest figure and the one a memory limit is enforced against.
+   *
+   * Prefer the attached-mode cgroup reading for any capacity claim.
+   */
   treeRssBytes: number | null;
   treePidCount: number;
   /** The relay's own process.memoryUsage(), read from the hook's status port. */

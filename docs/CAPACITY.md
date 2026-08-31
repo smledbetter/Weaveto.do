@@ -31,11 +31,15 @@ Three machines, none of them a fly machine.
 | Node | v22.19.0 | v22.23.2 (`node:22-slim`) | `node:22-slim` |
 | Network to relay | loopback | Docker published port | fly proxy, TLS terminated at the edge |
 
-**Read the container column, not the laptop column.** macOS overstates memory badly: the same three-process command shape idled at 230 MiB on the laptop and 106 MiB in the container. 16 KiB pages against 4 KiB is most of that gap. Every memory figure quoted below is from the container unless it says otherwise.
+**Read the container column, not the laptop column — and do not compare the two directly.** I have two idle figures for the old three-process image, 230 MiB on the laptop and 106 MiB in the container, and they are different measurements rather than one measurement on two machines. The laptop figure is RSS summed across the three processes, and RSS counts the shared Node binary and its libraries once per process, so summing overstates the footprint. The container figure is the cgroup's `memory.current`, which charges shared pages once. There is no cgroup equivalent on macOS, so that gap cannot be cleanly split between the metric mismatch and 16 KiB pages against 4 KiB, and guessing the split would be inventing a number. Every memory figure quoted below is a container cgroup reading unless it says otherwise.
+
+The same caution applies to this harness. When it starts its own relay, the `treeRss` column sums `ps` RSS across the process tree and carries the same inflation — **do not quote it as a footprint**. Pointed at a container, that column is fed `memory.current` through `--rss-cmd` and is sound. Credit to the deploy agent for catching this class of error in a published baseline, which is what sent me back to my own.
 
 **Latency does not transfer from either.** The container reaches 5,000 connections on one core of an M4, which is faster than a fly shared vCPU, and the harness talks to it through Docker's published port, which adds delay a real client would not see. Treat container latency as a shape, not a value: it shows where degradation starts relative to load, not what a user in Chicago will feel.
 
-The container runs the real `server/Dockerfile` from `p0/relay-container` unmodified. `server/relay.ts` is byte-identical between that branch and `p0/make-gates-real`, so the relay under test is the relay that ships.
+The container runs the real `server/Dockerfile` from `p0/relay-container` unmodified. `server/relay.ts` is byte-identical between that branch and `p0/make-gates-real`, so the relay under test is the relay that ships. The earlier `p0/make-gates-real` Dockerfile could not boot at all — it copied only `relay.ts` while the relay imports `./vapid.js` and `./push-types.js`, so the image exited with `ERR_MODULE_NOT_FOUND` on start. Early exploratory runs bind-mounted the two missing files to get past it; every number in this document is from the fixed image, with no bind-mount.
+
+**These figures describe `relay.ts` as of `p0/make-gates-real`.** `p0/relay-hardening` changes connection accounting after this run: half-open sockets reaped on a 30-second heartbeat with their slots released, the per-IP cap keyed on `Fly-Client-IP` behind a trust gate rather than the proxy address, and a draining SIGTERM. Connection-count figures should be re-measured against that branch before they are relied on. The fan-out finding is unaffected — that branch does not touch the `handleEncrypted` loop.
 
 ### Reproducing
 
@@ -135,7 +139,9 @@ Message throughput at 5,000 connections, same shape:
 Two runs to see whether the laptop's comfort was doing the work.
 
 - **CPU.** Throttling the container to `--cpus=0.25` still reached 5,000 connections with zero message loss and 157.8 MiB cgroup. Latency became spiky during connection bursts (p95 reached 156 ms mid-ramp) and settled to 15 ms once the ramp stopped. Connection establishment is more CPU-hungry than steady relaying.
-- **V8 heap sizing.** V8 picks its heap from host memory, so a 34 GB laptop gives Node a 4144 MiB limit where a 1 GB machine gives it roughly 304-524 MiB. Re-running with `--max-old-space-size=256` moved RSS from 140.6 to 139.4 MiB and heap from 34.4 to 32.5 MiB. The workload uses ~30 MiB of heap, so heap sizing is not a factor at this scale.
+- **V8 heap sizing.** V8 picks its heap from host memory, so a 34 GB laptop gives Node a 4144 MiB limit where a 1 GB machine gives it roughly 304-524 MiB. Re-running with `--max-old-space-size=256` moved the serving process from 140.6 to 139.4 MiB and heap from 34.4 to 32.5 MiB. The workload uses ~30 MiB of heap, so heap sizing is not a factor at this scale.
+
+Those last two are the one exception to "container cgroup unless stated": they are laptop `ps` readings of the single serving process. That comparison is sound, and the reason is worth stating because the opposite case bit this workstream twice. A delta between two readings of **one** process is valid — same shape on both sides, shared pages counted once in each. A delta between two **summed** RSS figures whose process counts differ is not, because the double-counted binary and libraries scale with the process count, so part of the "saving" is an artefact of the metric rather than memory anyone gets back. Publish the cgroup measurement of the result, not the delta between two RSS sums.
 
 ---
 
@@ -216,11 +222,16 @@ Ordered by how much each one buys.
 
 **Caps alone do not make this safe, and the recommended set should not be read as if they do.** Even the tightened numbers permit 225,000 outbound messages per second against a measured ceiling near 240,000. The caps multiply and nothing bounds the product.
 
-The change that actually bounds it is a backpressure check in `handleEncrypted`: skip or disconnect a member whose `ws.bufferedAmount` exceeds a threshold. That converts the failure from "the relay accumulates hundreds of megabytes and stops delivering for everyone" into "one slow member is dropped." It is a few lines, it is in `server/relay.ts`, and it is not mine to write — flagging it, not doing it.
+The change that reduces it is a backpressure check in `handleEncrypted`: disconnect a member whose `ws.bufferedAmount` exceeds a threshold. That converts the failure from "the relay accumulates hundreds of megabytes and stops delivering for everyone" into "the worst offenders are dropped." It is a few lines, it is in `server/relay.ts`, and it is not mine to write — flagging it, not doing it. The relay agent has designed it (branch `p0/relay-hardening`) and reached the same conclusion independently, with two refinements worth recording here:
+
+- **`terminate()`, not `close()`.** A peer that has not drained 1 MiB will not drain a close frame either. `close()` queues the frame behind the backlog and leaves the memory pinned, which is the thing being fixed.
+- **Disconnect, not silent skip.** `docs/THREAT-MODEL.md` lists silent message suppression as an undefended threat. Skipping would make the relay perform that attack on itself. A disconnect is visible and the client can reconnect and re-sync.
+
+**A per-connection ceiling still does not bound the aggregate, and this is the part that changes the launch decision.** With a 1 MiB per-socket allowance, the worst case is `MAX_CONNECTIONS x 1 MiB` = **5 GiB on a 1 GB machine**. Backpressure decides *who* suffers, not *how much* memory the relay can reach. Only the cap values bound the total, which is why the two changes are a pair: backpressure without the cap cuts still permits a 5x overshoot of the machine. With `MAX_CLIENTS_PER_ROOM` at 10 the same arithmetic is unchanged in the worst case — the honest bound comes from a global outbound budget, which nobody has written and which I have not measured.
 
 ### For the launch decision
 
-- **Open launch, if `MAX_CLIENTS_PER_ROOM` comes down and backpressure lands.** 5,000 connections is genuinely comfortable in 1 GB, and normal usage — small rooms, occasional messages — never approaches the failure region.
+- **Open launch, if `MAX_CLIENTS_PER_ROOM` comes down and backpressure lands, and only after the pair is re-measured together.** 5,000 connections is genuinely comfortable in 1 GB, and normal usage — small rooms, occasional messages — never approaches the failure region. But neither change has been measured, and the 5 GiB aggregate above says the two are not independently sufficient. Re-run `--profile=fanout` against the hardened relay before treating this bullet as satisfied.
 - **Invite gate, if the caps ship as declared.** Not because 5,000 users is too many. Because 250 users arranged into five full rooms is enough to push p95 past a second, and 5,000 in full rooms drops a third of all messages while using 45% of the machine. That does not need an attacker, only a popular room.
 
 One more constraint from `fly.toml`, and it is not a capacity number so much as a correctness one: rooms, push subscriptions and per-IP counts are all in-process `Map`s. Every figure here is **per process**. A second machine does not add capacity; it splits rooms silently, and two clients in "the same" room never see each other.

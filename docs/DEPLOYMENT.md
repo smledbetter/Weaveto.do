@@ -48,28 +48,48 @@ fly status          # confirm exactly one machine
 
 ### The ceiling this buys
 
-A single `shared-cpu-1x` machine with 1GB of memory, bounded by the limits in `server/relay.ts`:
+A single `shared-cpu-1x` machine with 1GB of memory. These are the limits declared in `server/relay.ts`. **Declared is not the same as reachable, and not the same as safe.**
 
-| Limit | Value |
-|-------|-------|
-| Rooms | 10,000 |
-| Total connections | 5,000 |
-| Clients per room | 50 |
-| Connections per IP | 10 |
-| Messages per second per connection | 30 |
+| Limit | Declared | Reality |
+|-------|----------|---------|
+| Rooms | 10,000 | Unreachable. `removeClient()` deletes a room when its last client leaves, so live rooms are bounded by live connections, which cap at 5,000. This limit is dead code. |
+| Total connections | 5,000 | Real. Enforced exactly. Connection 5,001 gets HTTP 503. |
+| Clients per room | 50 | Declared, but not safe at scale. See below. |
+| Connections per IP | 10 | Real. |
+| Messages per second per connection | 30 | Real. |
 
 That is the capacity ceiling until routing changes. **Do not raise the machine count to get past it.** Horizontal scale requires routing every connection for a room ID to the same process, which is not implemented. Adding a second machine does not add capacity, it corrupts room membership.
 
+Full method, caveats and per-scenario numbers are in `docs/CAPACITY.md`. The summary that matters for deployment is below.
+
+### Memory is not the constraint. Fan-out is.
+
+At 5,000 connections with 2 members per room the relay is comfortable. Steady cgroup memory is about 102 MiB, peak about 130 MiB, p95 latency about 21 ms, and no messages are lost.
+
+Fill rooms to the declared 50 clients each and it collapses inside its own caps. At 5,000 connections **37% of messages fail to arrive within 10 seconds**, p95 pins at the timeout, and cgroup memory peaks at about 463 MiB, which is 45% of the machine. Reproduced three times.
+
+The cause is in `handleEncrypted()`. It calls `ws.send()` once per room member and never checks `ws.bufferedAmount`, so outbound frames queue without bound. The evidence that it is queued frames rather than application state is that `arrayBuffers` reached 100.5 MiB while the JS heap stayed at 29.4 MiB.
+
+**Treat 50 clients per room as a declared limit that the relay cannot currently serve.** Fixing it means backpressure in `server/relay.ts`, which is not a deployment change.
+
 ### Idle memory baseline
 
-The image runs two processes and holds roughly 100 to 105 MiB resident before a single client connects, measured on linux/arm64. Figures move by several MiB between runs.
+Measured on the image this repo builds, on linux/arm64, in a 1GB cgroup with one CPU, before any client connects:
 
-| Process | Resident |
-|---------|----------|
-| `node` running the relay | ~85 to 92 MiB |
-| esbuild service, used by the tsx loader | ~14 MiB |
+| Source | Idle |
+|--------|------|
+| `memory.current` for the cgroup | ~56 to 64 MiB |
+| Summed RSS of the two processes | ~100 to 105 MiB |
 
-Subtract that from the 1GB machine before reading any per-connection number. The relay is started with `node --import` rather than the `tsx` CLI, which would add a resident launcher process of about 55 MiB for nothing. See the comment in `server/Dockerfile` for the measurements and for why the relay is not precompiled to plain JS.
+**Use the cgroup figure.** Summed RSS roughly doubles the real number because the relay process and the esbuild service share the Node binary and its libraries, and RSS counts those shared pages once per process. The cgroup counts them once.
+
+Subtract the cgroup figure, not the RSS figure, before reading any per-connection number.
+
+### Do not quote a sampled memory figure
+
+Periodic sampling understates this relay by about four times. During the fan-out test the highest per-step sample was 121 MiB while the true peak was 463 MiB. The relay allocates outbound queues in bursts that a sampling interval walks straight past.
+
+**`memory.peak` for the cgroup is the honest source.** Any alert threshold or capacity figure derived from `memory.current` polling, `docker stats`, or a per-step reading is wrong in the unsafe direction. This applies to the numbers in this document too, which is why the ones above are cgroup peaks rather than samples.
 
 ## What a deploy does to live rooms
 
@@ -82,6 +102,16 @@ A deploy replaces the machine, so the process dies and every `Map` goes with it.
 Task data survives, because it is event-sourced client-side and the relay only ever routed ciphertext. What is lost is routing state and session continuity. Clients must reconnect and re-establish.
 
 There is no zero-downtime path for this design. A rolling deploy would mean two processes alive at once, which is the split-room failure above. **Treat every relay deploy as a full disconnect of all active sessions.**
+
+### How the shutdown itself behaves
+
+The disconnect is unavoidable. Whether it is abrupt or orderly depends on two things that live in different files, and it is worth knowing which supplies which.
+
+**Signal delivery is settled by the image.** The container runs `node` as PID 1. Linux delivers a signal from an ancestor namespace to PID 1 only if PID 1 registered a handler, with no default-disposition fallback, so a PID 1 that ignores SIGTERM stalls until `kill_timeout` and is then SIGKILLed. That trap does not apply here, because node installs its own handlers for SIGINT, SIGTERM and SIGHUP. Measured against this image, `docker stop` returns in about 1.2 seconds rather than stalling to the timeout.
+
+**Draining is not.** Node's default handler exits immediately. It does not stop accepting, warn clients, or let in-flight frames finish, so every socket dies at once. An orderly drain requires a SIGTERM handler in `server/relay.ts`. Do not remove such a handler on the assumption that PID 1 handles it. Delivery and draining are different problems, and only the first is solved here.
+
+`fly.toml` sets no `kill_timeout`, so the Fly default of 5 seconds applies. **If you ever set it, keep it comfortably above the drain.** A drain that takes longer than `kill_timeout` is cut off mid-flight and you are back to a hard kill, having paid for the drain logic and not received it.
 
 ### VAPID keys must be set as secrets
 
