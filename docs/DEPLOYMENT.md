@@ -105,24 +105,18 @@ There is no zero-downtime path for this design. A rolling deploy would mean two 
 
 ### How the shutdown itself behaves
 
-The disconnect is unavoidable. Whether it is abrupt or orderly depends on two things that live in different files, and it is worth knowing which supplies which.
+The relay runs as PID 1. Linux delivers a signal from an ancestor namespace to PID 1 only if PID 1 registered a handler, with no default-disposition fallback. Bare node registers nothing until JS calls `process.on()`, which is the reason `tini` and `docker run --init` exist.
 
-**Signal delivery is settled by the image.** The container runs `node` as PID 1. Linux delivers a signal from an ancestor namespace to PID 1 only if PID 1 registered a handler, with no default-disposition fallback, so a PID 1 that ignores SIGTERM stalls until `kill_timeout` and is then SIGKILLed. That trap does not apply here, because node installs its own handlers for SIGINT, SIGTERM and SIGHUP. Measured against this image, `docker stop` returns in about 1.2 seconds rather than stalling to the timeout.
+**That trap is live in this image, and the SIGTERM handler in `server/relay.ts` is what avoids it.** Measured with an explicit timeout:
 
-**Draining is not.** Node's default handler exits immediately. It does not stop accepting, warn clients, or let in-flight frames finish, so every socket dies at once. An orderly drain requires a SIGTERM handler in `server/relay.ts`. Do not remove such a handler on the assumption that PID 1 handles it. Delivery and draining are different problems, and only the first is solved here.
+| Shape | `docker stop -t 10` | Exit code |
+|---|---|---|
+| Bare node as PID 1, no handler | 10.18s | 137 (SIGKILLed at the timeout) |
+| Shipped CMD with the `relay.ts` handler | 2.51s | 0 (handler exited cleanly) |
 
-`fly.toml` sets no `kill_timeout`, so the Fly default of 5 seconds applies. **If you ever set it, keep it comfortably above the drain.** A drain that takes longer than `kill_timeout` is cut off mid-flight and you are back to a hard kill, having paid for the drain logic and not received it.
+The image and the handler are a pair. This Dockerfile supplies a container that boots; `server/relay.ts` supplies the drain. Ship the image without that handler and every deploy stalls for the full `kill_timeout` and then hard-kills every socket — the mass disconnect this configuration exists to avoid.
 
-### VAPID keys must be set as secrets
-
-`initVapid()` in `server/vapid.ts` reads `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`. If either is missing it generates an ephemeral keypair for that process. That is fine in dev and wrong in production, because a new keypair on every deploy invalidates every existing push subscription.
-
-```
-fly secrets set VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=...
-fly secrets list    # confirm both are present
-```
-
-`fly secrets set` restarts the machine, so it carries the same full-disconnect cost as a deploy.
+**Always pass an explicit `-t` when re-checking.** Docker Desktop's default stop timeout is about a second, so both shapes return in roughly 1.2s and the comparison tells you nothing. An earlier revision of this document drew the wrong conclusion from exactly that, and then attributed the result to node, and then to tsx. Neither was right.
 
 ## The `/vapid-key` probe
 

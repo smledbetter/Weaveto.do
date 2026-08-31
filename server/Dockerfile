@@ -71,20 +71,39 @@ EXPOSE 3001
 # how the bytes are counted. This also makes the relay itself PID 1, so a
 # deploy's SIGTERM reaches it directly instead of going through a wrapper.
 #
-# PID 1 needs care. The kernel delivers a signal from an ancestor namespace to
-# PID 1 only if PID 1 has registered a handler, with no default-disposition
-# fallback, so a PID 1 that ignores SIGTERM stalls until fly's kill_timeout and
-# is then SIGKILLed. That trap does not spring here, because node installs its
-# own handlers for SIGINT, SIGTERM and SIGHUP. Measured: `docker stop` against
-# this shape returns in ~1.2s, not at the 10s timeout.
+# PID 1 needs care, and the trap is real here. The kernel delivers a signal from
+# an ancestor namespace to PID 1 only if PID 1 registered a handler, with no
+# default-disposition fallback. Bare node registers nothing until JS calls
+# process.on(), which is why tini and `docker run --init` exist.
 #
-# What node's default handler does NOT do is drain. It exits at once, so every
-# socket dies together with no warning to clients. Graceful shutdown therefore
-# depends on a SIGTERM handler in server/relay.ts, which is a separate concern
-# owned by that file. Do not remove such a handler on the assumption that PID 1
-# will do the right thing by itself. Delivery is handled here. Draining is not.
+# Measured in this image, with an explicit timeout so the stop is not cut short:
 #
-# Precompiling to plain JS would drop esbuild too, but
-# server/relay.ts does not typecheck under a standalone strict tsc, and emitting
-# with checks disabled would ship something other than the source that dev runs.
+#   bare node, no handler   docker stop -t 10   10.18s, exit 137 (SIGKILLed)
+#   this CMD + the SIGTERM handler in server/relay.ts    2.51s, exit 0
+#
+# So the signal IS discarded without a handler, and what saves this image is the
+# handler in server/relay.ts, not node and not tsx. The two are a pair: this
+# Dockerfile supplies an image that boots, server/relay.ts supplies the drain.
+# Ship the image without that handler and every deploy stalls for the full
+# kill_timeout and then hard-kills every socket.
+#
+# Use an explicit -t when re-checking. Docker Desktop's default stop timeout is
+# about a second, so BOTH shapes return in ~1.2s and the comparison tells you
+# nothing — an earlier round of this comment drew the wrong conclusion from
+# exactly that. To re-run the discriminator:
+#
+#   docker run -d --name sigtest <image> node -e 'setInterval(()=>{},1e9)'
+#   time docker stop -t 10 sigtest
+#   docker inspect -f '{{.State.ExitCode}}' sigtest
+#   docker rm sigtest    # or the next run fails on the name
+#
+# ~10s and 137 means nothing handled the signal. ~0-1s and 143 means node took
+# it unaided. 0 means a handler chose the exit.
+#
+# Precompiling to plain JS would drop esbuild too, but server/relay.ts does not
+# typecheck under a standalone strict tsc, and emitting with checks disabled
+# would ship something other than the source that dev runs. It would also take
+# tsx out of the image, so settle the signal question above before going that
+# way. The precompile that looks like a cleanup is exactly the change that
+# would re-arm the PID 1 trap.
 CMD ["node", "--import", "/opt/tsx/node_modules/tsx/dist/loader.mjs", "server/relay.ts"]
