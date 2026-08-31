@@ -6,7 +6,10 @@
  * harness that generates rejected joins would report a capacity of zero and
  * blame the relay, so these builders are guarded by tests.
  *
- * The limits below are copied from server/relay.ts. Keep them in sync.
+ * The limits below are copied from server/relay.ts. They are not documentation:
+ * the harness predicts the relay's refusals from them, so a stale copy makes it
+ * measure a relay that is not the relay and report the difference as capacity.
+ * tests/unit/loadtest-limits-sync.test.ts fails the build if they drift.
  */
 
 export const RELAY_LIMITS = Object.freeze({
@@ -16,12 +19,25 @@ export const RELAY_LIMITS = Object.freeze({
   MAX_SESSION_ID_LENGTH: 64,
   MAX_ONE_TIME_KEYS: 20,
   MAX_MESSAGE_SIZE: 131072,
-  MAX_ROOMS: 10_000,
+  MAX_ROOMS: 5_000,
   MAX_CONNECTIONS: 5_000,
-  MAX_CLIENTS_PER_ROOM: 50,
+  MAX_CLIENTS_PER_ROOM: 10,
   MAX_CONNECTIONS_PER_IP: 10,
-  MSG_RATE_LIMIT: 30,
+  MSG_RATE_LIMIT: 20,
+  BROADCAST_RATE_LIMIT: 5,
+  BROADCAST_WINDOW_MS: 4000,
 });
+
+/**
+ * Frames of type `encrypted` allowed per BROADCAST_WINDOW_MS.
+ *
+ * Derived exactly as the relay derives it, so a change to either input cannot
+ * leave a stale literal here. It sits outside RELAY_LIMITS because every entry
+ * in that table is checked against a numeric literal in server/relay.ts, and
+ * this one is a computed expression there too.
+ */
+export const BROADCAST_BUDGET =
+  RELAY_LIMITS.BROADCAST_RATE_LIMIT * (RELAY_LIMITS.BROADCAST_WINDOW_MS / 1000);
 
 /** The relay's room-id pattern, copied verbatim from server/relay.ts. */
 export const ROOM_ID_PATTERN = /^[a-f0-9]{32}$/;
@@ -222,6 +238,65 @@ export function checkProbeAgainstRelayRules(msg: EncryptedMessage): RuleViolatio
   if (!Number.isFinite(msg.timestamp)) bad.push("timestamp must be a finite number");
   if (JSON.stringify(msg).length > RELAY_LIMITS.MAX_MESSAGE_SIZE) {
     bad.push("serialized probe exceeds MAX_MESSAGE_SIZE");
+  }
+  return bad;
+}
+
+/**
+ * A key_share frame addressed to one peer.
+ *
+ * Joining or re-keying sends one of these per member in a tight loop, so a
+ * client in a full room legitimately emits MAX_CLIENTS_PER_ROOM - 1 of them
+ * back to back. The relay routes each to a single target, so unlike an
+ * `encrypted` frame it does not multiply. The caps profile uses this to check
+ * that the protocol's own burst is not treated as abuse.
+ */
+export interface KeyShareMessage {
+  type: "key_share";
+  targetIdentityKey: string;
+  senderIdentityKey: string;
+  olmMessage: { messageType: number; ciphertext: string };
+}
+
+export function buildKeyShare(
+  senderIdentityKey: string,
+  targetIdentityKey: string,
+): KeyShareMessage {
+  return {
+    type: "key_share",
+    targetIdentityKey,
+    senderIdentityKey,
+    // messageType 0 is an Olm pre-key message. The relay checks the shape, not
+    // the crypto, so a well-formed placeholder ciphertext is enough.
+    olmMessage: { messageType: 0, ciphertext: "x".repeat(256) },
+  };
+}
+
+/**
+ * Re-check a key_share against the relay's documented rules.
+ *
+ * The first version of buildKeyShare used `{type, body}` for the Olm payload
+ * where the relay wants `{messageType, ciphertext}`. The relay closed 4003 and
+ * the burst check reported the relay as broken. A harness that sends malformed
+ * frames does not measure a cap, it measures itself.
+ */
+export function checkKeyShareAgainstRelayRules(msg: KeyShareMessage): RuleViolation[] {
+  const bad: RuleViolation[] = [];
+  if (msg.type !== "key_share") bad.push('type must be "key_share"');
+  if (msg.targetIdentityKey.length === 0 || msg.targetIdentityKey.length > RELAY_LIMITS.MAX_IDENTITY_KEY_LENGTH) {
+    bad.push("targetIdentityKey must be 1..64 chars");
+  }
+  if (msg.senderIdentityKey.length === 0 || msg.senderIdentityKey.length > RELAY_LIMITS.MAX_IDENTITY_KEY_LENGTH) {
+    bad.push("senderIdentityKey must be 1..64 chars");
+  }
+  if (msg.olmMessage.messageType !== 0 && msg.olmMessage.messageType !== 1) {
+    bad.push("olmMessage.messageType must be 0 or 1");
+  }
+  if (msg.olmMessage.ciphertext.length === 0 || msg.olmMessage.ciphertext.length > RELAY_LIMITS.MAX_CIPHERTEXT_LENGTH) {
+    bad.push("olmMessage.ciphertext must be 1..65536 chars");
+  }
+  if (JSON.stringify(msg).length > RELAY_LIMITS.MAX_MESSAGE_SIZE) {
+    bad.push("serialized key_share exceeds MAX_MESSAGE_SIZE");
   }
   return bad;
 }

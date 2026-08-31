@@ -11,19 +11,39 @@ import { RELAY_LIMITS } from "./protocol.js";
 
 const RELAY_LIMITS_MAX_CLIENTS_PER_ROOM = RELAY_LIMITS.MAX_CLIENTS_PER_ROOM;
 
+/**
+ * The fastest a connection may send and stay inside MSG_RATE_LIMIT.
+ *
+ * Probe traffic is all `encrypted`, so the budget that binds it is
+ * BROADCAST_RATE_LIMIT, not the looser global one. The relay closes with 4029
+ * on the limit-th frame in a one-second window, and real senders jitter, so
+ * the sustainable rate is one below the cap.
+ *
+ * Derived rather than written down. It was a hardcoded 100ms, which was legal
+ * against a 30/s cap and illegal against a 5/s one. A profile that exceeds the
+ * cap does not measure fan-out — the relay disconnects the senders, and the
+ * run reports a lower memory figure because it is carrying less load. That is
+ * a stale constant producing a flattering result, which is worse than a
+ * failure.
+ */
+const LEGAL_SEND_INTERVAL_MS = Math.ceil(1000 / (RELAY_LIMITS.BROADCAST_RATE_LIMIT - 1));
+
+/** Half a full room sends at once: the densest traffic the caps permit. */
+const HALF_A_FULL_ROOM = Math.ceil(RELAY_LIMITS_MAX_CLIENTS_PER_ROOM / 2);
+
 export interface ProbeConfig {
   /** Ceiling on probe pairs per worker. Each pair is one sender and one receiver. */
   pairsPerWorker: number;
   /**
    * How many members of one room send at the same time.
    *
-   * This separates inbound message rate from fan-out. A room of 50 with 25
-   * senders carries 25 times the inbound rate at the same 49-way amplification,
-   * which is the load the declared caps permit.
+   * This separates inbound message rate from fan-out. A full room with half of
+   * it sending carries that many times the inbound rate at the same
+   * amplification, which is the load the declared caps permit.
    */
   sendersPerRoom: number;
   messagesPerPair: number;
-  /** Delay between rounds. Must keep each connection under MSG_RATE_LIMIT (30/s). */
+  /** Delay between rounds. Must keep each connection under MSG_RATE_LIMIT. */
   intervalMs: number;
   ciphertextBytes: number;
   timeoutMs: number;
@@ -67,7 +87,7 @@ export const PROFILES: Record<string, Profile> = {
     connectGapMs: 20,
     connectTimeoutMs: 10_000,
     settleMs: 400,
-    probe: { pairsPerWorker: 5, sendersPerRoom: 1, messagesPerPair: 5, intervalMs: 100, ciphertextBytes: 256, timeoutMs: 5000 },
+    probe: { pairsPerWorker: 5, sendersPerRoom: 1, messagesPerPair: 5, intervalMs: LEGAL_SEND_INTERVAL_MS, ciphertextBytes: 256, timeoutMs: 5000 },
     stop: BASE_STOP,
     ipSpread: true,
     ipPerAddr: 1,
@@ -85,7 +105,7 @@ export const PROFILES: Record<string, Profile> = {
     connectGapMs: 25,
     connectTimeoutMs: 15_000,
     settleMs: 1000,
-    probe: { pairsPerWorker: 25, sendersPerRoom: 1, messagesPerPair: 10, intervalMs: 100, ciphertextBytes: 1024, timeoutMs: 5000 },
+    probe: { pairsPerWorker: 25, sendersPerRoom: 1, messagesPerPair: 10, intervalMs: LEGAL_SEND_INTERVAL_MS, ciphertextBytes: 1024, timeoutMs: 5000 },
     stop: BASE_STOP,
     ipSpread: true,
     ipPerAddr: 1,
@@ -104,7 +124,7 @@ export const PROFILES: Record<string, Profile> = {
     connectGapMs: 30,
     connectTimeoutMs: 20_000,
     settleMs: 1500,
-    probe: { pairsPerWorker: 40, sendersPerRoom: 1, messagesPerPair: 10, intervalMs: 100, ciphertextBytes: 1024, timeoutMs: 10_000 },
+    probe: { pairsPerWorker: 40, sendersPerRoom: 1, messagesPerPair: 10, intervalMs: LEGAL_SEND_INTERVAL_MS, ciphertextBytes: 1024, timeoutMs: 10_000 },
     // The last step deliberately overshoots MAX_CONNECTIONS, so a high connect
     // failure rate there is the expected result, not a reason to stop early.
     stop: { maxFailureRate: 0.999, maxP95Ms: 15_000, minDeliveryRate: 0.5 },
@@ -116,10 +136,10 @@ export const PROFILES: Record<string, Profile> = {
   fanout: {
     name: "fanout",
     description:
-      "Same connection count as `full`, but every room is filled to MAX_CLIENTS_PER_ROOM. " +
-      "handleEncrypted relays one inbound message to every other member, so a 50-member room " +
-      "turns one message into 49. This is the multiplier the declared caps allow but no other " +
-      "profile exercises.",
+      "Same connection count as `full`, but every room is filled to MAX_CLIENTS_PER_ROOM " +
+      `(${RELAY_LIMITS_MAX_CLIENTS_PER_ROOM}). handleEncrypted relays one inbound message to ` +
+      `every other member, so each message becomes ${RELAY_LIMITS_MAX_CLIENTS_PER_ROOM - 1}. ` +
+      "This is the multiplier the declared caps allow but no other profile exercises.",
     ramp: { start: 100, max: 5200, factor: 1.6 },
     clientsPerRoom: RELAY_LIMITS_MAX_CLIENTS_PER_ROOM,
     oneTimeKeyCount: 5,
@@ -130,8 +150,9 @@ export const PROFILES: Record<string, Profile> = {
     settleMs: 1500,
     // Half of every room sends at once, which is the densest legal traffic the
     // declared caps permit. 500 pairs per worker leaves the room count, not the
-    // ceiling, as what limits the load.
-    probe: { pairsPerWorker: 500, sendersPerRoom: 25, messagesPerPair: 10, intervalMs: 100, ciphertextBytes: 1024, timeoutMs: 10_000 },
+    // ceiling, as what limits the load. Both numbers follow the caps, so
+    // changing a cap changes the load rather than silently invalidating it.
+    probe: { pairsPerWorker: 500, sendersPerRoom: HALF_A_FULL_ROOM, messagesPerPair: 10, intervalMs: LEGAL_SEND_INTERVAL_MS, ciphertextBytes: 1024, timeoutMs: 10_000 },
     stop: { maxFailureRate: 0.999, maxP95Ms: 15_000, minDeliveryRate: 0.5 },
     ipSpread: true,
     ipPerAddr: 1,

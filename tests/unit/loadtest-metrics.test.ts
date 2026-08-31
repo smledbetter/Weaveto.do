@@ -13,6 +13,9 @@
  */
 
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   percentile,
@@ -39,6 +42,9 @@ import {
   buildProbe,
   checkJoinAgainstRelayRules,
   checkProbeAgainstRelayRules,
+  buildKeyShare,
+  checkKeyShareAgainstRelayRules,
+  BROADCAST_BUDGET,
 } from "../../tools/loadtest/protocol";
 
 // ---------------------------------------------------------------------------
@@ -138,6 +144,34 @@ describe("classifyRelayFrame", () => {
     expect(frame.kind).toBe("member_list");
     if (frame.kind !== "member_list") throw new Error("wrong kind");
     expect(frame.members).toHaveLength(0);
+  });
+
+  it("reads roomExisted, which is how reclamation is observed now", () => {
+    // The stateless relay does not refuse a join for a room it has forgotten,
+    // so a refusal can no longer be the signal that a room was reclaimed. The
+    // caps probe reads this flag instead.
+    const gone = classifyRelayFrame(
+      JSON.stringify({ type: "member_list", members: [], roomExisted: false }),
+    );
+    if (gone.kind !== "member_list") throw new Error("wrong kind");
+    expect(gone.roomExisted).toBe(false);
+
+    const there = classifyRelayFrame(
+      JSON.stringify({ type: "member_list", members: [], roomExisted: true }),
+    );
+    if (there.kind !== "member_list") throw new Error("wrong kind");
+    expect(there.roomExisted).toBe(true);
+  });
+
+  it("reports an absent roomExisted as unknown, not as reclaimed", () => {
+    // A relay too old to send the flag must not read as "the room was gone".
+    // Defaulting a missing boolean to false is how a probe silently starts
+    // passing against a relay it is not actually measuring.
+    const frame = classifyRelayFrame(
+      JSON.stringify({ type: "member_list", members: [] }),
+    );
+    if (frame.kind !== "member_list") throw new Error("wrong kind");
+    expect(frame.roomExisted).toBeNull();
   });
 
   it("recovers the probe token from a relayed encrypted frame", () => {
@@ -574,28 +608,92 @@ describe("messages the harness sends", () => {
 // ---------------------------------------------------------------------------
 
 describe("RELAY_LIMITS", () => {
-  it("matches the constants declared in server/relay.ts", () => {
-    // This is a copy of relay.ts's constants. If someone changes a cap in the
-    // relay without changing this table, the harness would measure against a
-    // stale expectation and the caps profile would report a false MATCH.
-    expect(RELAY_LIMITS).toMatchObject({
-      MAX_IDENTITY_KEY_LENGTH: 64,
-      MAX_DISPLAY_NAME_LENGTH: 32,
-      MAX_CIPHERTEXT_LENGTH: 65536,
-      MAX_SESSION_ID_LENGTH: 64,
-      MAX_ONE_TIME_KEYS: 20,
-      MAX_MESSAGE_SIZE: 131072,
-      MAX_ROOMS: 10000,
-      MAX_CONNECTIONS: 5000,
-      MAX_CLIENTS_PER_ROOM: 50,
-      MAX_CONNECTIONS_PER_IP: 10,
-      MSG_RATE_LIMIT: 30,
-    });
+  // Read the relay itself. The previous version of this test compared the
+  // harness copy against a third hardcoded copy written here, so it caught
+  // someone editing the harness and not someone editing the relay — which is
+  // the drift it said it prevented. Changing a cap in relay.ts alone left it
+  // green with the harness stale.
+  const relaySource = readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), "../../server/relay.ts"),
+    "utf8",
+  );
+
+  function declared(name: string): number {
+    const m = relaySource.match(new RegExp(`^const ${name} = ([\\d_]+);`, "m"));
+    expect(m, `${name} is not declared in server/relay.ts`).toBeTruthy();
+    return Number(m![1].replace(/_/g, ""));
+  }
+
+  it("names every limit the relay declares", () => {
+    expect(Object.keys(RELAY_LIMITS).length).toBeGreaterThan(0);
   });
 
-  it("keeps MAX_ROOMS unreachable, which is the finding the caps profile records", () => {
-    // A room exists only while it holds at least one client, so the live room
-    // count can never exceed the live connection count.
-    expect(RELAY_LIMITS.MAX_ROOMS).toBeGreaterThan(RELAY_LIMITS.MAX_CONNECTIONS);
+  for (const name of Object.keys(RELAY_LIMITS)) {
+    it(`${name} matches server/relay.ts`, () => {
+      expect(RELAY_LIMITS[name as keyof typeof RELAY_LIMITS]).toBe(
+        declared(name),
+      );
+    });
+  }
+
+  it("copies the room-id pattern verbatim", () => {
+    const m = relaySource.match(/^const ROOM_ID_PATTERN = (\/.*\/);/m);
+    expect(m, "ROOM_ID_PATTERN not found in server/relay.ts").toBeTruthy();
+    expect(m![1]).toBe(String(ROOM_ID_PATTERN));
+  });
+
+  it("derives the broadcast budget the same way the relay does", () => {
+    // The relay computes it from the rate and the window rather than writing a
+    // number, so a literal here would go stale the moment either input moved.
+    const decl = relaySource.match(/const BROADCAST_BUDGET =[\s\S]*?;/);
+    expect(decl, "BROADCAST_BUDGET not found in server/relay.ts").toBeTruthy();
+    expect(decl![0]).toMatch(/BROADCAST_RATE_LIMIT/);
+    expect(decl![0]).toMatch(/BROADCAST_WINDOW_MS/);
+    expect(BROADCAST_BUDGET).toBe(
+      declared("BROADCAST_RATE_LIMIT") * (declared("BROADCAST_WINDOW_MS") / 1000),
+    );
+  });
+
+  it("no longer declares a room ceiling that cannot be reached", () => {
+    // A room exists only while it holds at least one client, so live rooms can
+    // never exceed live connections. MAX_ROOMS was 10,000 against a 5,000
+    // connection cap, so the check that enforced it sat on an unreachable
+    // branch while reading like a guard rail. It is now the number that binds.
+    expect(RELAY_LIMITS.MAX_ROOMS).toBeLessThanOrEqual(
+      RELAY_LIMITS.MAX_CONNECTIONS,
+    );
+  });
+});
+
+describe("buildKeyShare", () => {
+  it("produces a frame the relay accepts", () => {
+    // The first version used {type, body} where the relay wants
+    // {messageType, ciphertext}. The relay closed 4003 and the burst probe
+    // reported the relay as broken rather than the harness.
+    const msg = buildKeyShare(identityKeyFor(0, 1), identityKeyFor(0, 2));
+    expect(checkKeyShareAgainstRelayRules(msg)).toEqual([]);
+  });
+
+  it("names the Olm payload the way the relay validates it", () => {
+    const msg = buildKeyShare(identityKeyFor(0, 1), identityKeyFor(0, 2));
+    expect(Object.keys(msg.olmMessage).sort()).toEqual([
+      "ciphertext",
+      "messageType",
+    ]);
+  });
+
+  it("catches a malformed Olm payload", () => {
+    const msg = buildKeyShare(identityKeyFor(0, 1), identityKeyFor(0, 2));
+    expect(
+      checkKeyShareAgainstRelayRules({
+        ...msg,
+        olmMessage: { messageType: 7, ciphertext: "" },
+      }).length,
+    ).toBe(2);
+  });
+
+  it("addresses a peer other than the sender", () => {
+    const msg = buildKeyShare(identityKeyFor(0, 1), identityKeyFor(0, 2));
+    expect(msg.targetIdentityKey).not.toBe(msg.senderIdentityKey);
   });
 });

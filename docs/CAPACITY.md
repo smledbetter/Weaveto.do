@@ -8,7 +8,21 @@ Harness: `tools/loadtest/`. Run it with `npm run loadtest -- --profile=<name>`.
 
 ## Headline
 
-**The declared per-connection caps are reachable and cheap. The declared caps taken together are not survivable.**
+**Fixed.** The relay now carries 5,000 connections in full rooms with no message loss. The measurements that follow are kept in two parts: what the relay did before the change, because that is the evidence the change was needed, and what it does now.
+
+| At 5,000 connections in full rooms | Before | Now |
+|---|---:|---:|
+| Messages delivered | 63% | **100%** |
+| p95 round trip | 9,468 ms | **1,544 ms** |
+| Memory high-water | 463.3 MiB, 45% of a 1 GB machine | **238.2 MiB, 23%** |
+| Load where p95 crosses one second | 256 connections | **about 4,301** |
+| Load where messages start to drop | 4,301 connections | **not reached in the ramp** |
+
+Three changes together, and the order of importance is not the order anyone expected. Read "What actually fixed it" below before quoting any of this.
+
+### The original finding
+
+**The declared per-connection caps were reachable and cheap. The declared caps taken together were not survivable.**
 
 - 5,000 concurrent connections is real. It costs 130 MiB of a 1 GB machine and the relay stays under 21 ms p95. Memory is nowhere near the limit.
 - `MAX_ROOMS = 10_000` can never be reached. A room is deleted the moment its last client leaves, so the live room count is bounded by the live connection count, which is capped at 5,000. The constant reads like a guard rail and is dead.
@@ -145,9 +159,9 @@ Those last two are the one exception to "container cgroup unless stated": they a
 
 ---
 
-## Ramp: 5,000 connections, fifty members per room
+## Ramp: 5,000 connections, fifty members per room (before the fix)
 
-This is the same connection count under the room size the caps allow. `handleEncrypted` relays each inbound message to every other member, so a 50-member room turns one message into 49.
+This is the baseline. It ran against the caps as originally declared, with no backpressure. It is the same connection count under the room size those caps allowed. `handleEncrypted` relays each inbound message to every other member, so a 50-member room turns one message into 49.
 
 `npm run loadtest -- --profile=fanout`. Half of each room sends, at 10 messages per second per sender.
 
@@ -206,35 +220,100 @@ The declared caps permit about 30x more than the relay can deliver at all, and a
 
 ---
 
-## Recommended caps
+## Ramp: 5,000 connections, full rooms, after the fix
 
-Ordered by how much each one buys.
+Same profile, same container, same 1 GB and one CPU. `npm run loadtest -- --profile=fanout`. Rooms are filled to `MAX_CLIENTS_PER_ROOM`, which is now 10, so each message is relayed 9 times instead of 49.
 
-| Constant | Now | Recommend | Why |
+| Target | Live | Failed | cgroup | Heap | p50 | p95 | Delivered |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 100 | 100 | 0 | 91.6 MiB | 9.9 MiB | 16.7 ms | 28.2 ms | 500/500 |
+| 256 | 256 | 0 | 89.6 MiB | 10.9 MiB | 27.5 ms | 41.6 ms | 1260/1260 |
+| 656 | 656 | 0 | 95.9 MiB | 13.7 MiB | 36.8 ms | 68.0 ms | 3260/3260 |
+| 1050 | 1050 | 0 | 99.7 MiB | 15.3 MiB | 44.1 ms | 79.4 ms | 5250/5250 |
+| 1680 | 1680 | 0 | 105.9 MiB | 15.0 MiB | 66.1 ms | 122.7 ms | 8400/8400 |
+| 2688 | 2688 | 0 | 110.6 MiB | 20.0 MiB | 101.1 ms | 192.0 ms | 13430/13430 |
+| 4301 | 4301 | 0 | 116.9 MiB | 24.0 MiB | 341.6 ms | 954.3 ms | 21480/21480 |
+| 5200 | **5000** | 200 | 129.0 MiB | 27.2 MiB | 596.2 ms | 1544.2 ms | 24860/24860 |
+
+High-water mark: **238.2 MiB**, 23% of the machine, against 463.3 MiB before.
+
+Every connection the cap allows is live at every step. Nothing is dropped anywhere in the ramp. The only closes in the whole run are the 200 connections past `MAX_CONNECTIONS`, refused at upgrade exactly as designed. The old run's knee at 256 connections is gone. p95 first crosses one second at around 4,301 connections, which is 17 times further along.
+
+Throughput at 5,000 connections:
+
+| In | Out | Delivered | p95 |
+|---:|---:|---:|---:|
+| 1,243/s | 11,187/s | 100% | 380 ms |
+| 2,486/s | 22,374/s | 100% | 431 ms |
+| 4,972/s | 44,748/s | 100% | 427 ms |
+| 9,944/s | 89,496/s | **100%** | 2,124 ms |
+| 19,888/s | 178,992/s | 64% | 3,545 ms |
+
+Before the change, 60,760 outbound per second already lost 4% and sat at a 9.2 second p95. Now 89,496 per second is delivered in full. Loss appears between there and 178,992.
+
+## What actually fixed it
+
+Three changes shipped together. Attributing the result to the headline one would be wrong.
+
+**The cap cuts did nearly all of the work.** `MAX_CLIENTS_PER_ROOM` from 50 to 10 cuts amplification from 49x to 9x, which is a 5.4x reduction in outbound work for one constant. That is the change the numbers above are mostly measuring.
+
+**Backpressure did not fire once in this run.** Not a single socket was terminated for backlog. The harness's clients all drain promptly, so the condition it guards never arose. It is a safety net for a member who cannot keep up, and its coverage here is unit-level, in `tests/unit/relay-backpressure.test.ts`. Do not read the 238 MiB figure as evidence that backpressure works. It is evidence that with the caps cut, the relay never needed it.
+
+**Splitting the rate limit was necessary to make the cap cut shippable at all.** This is the part worth writing down, because taking the original recommendation at face value would have shipped a broken relay.
+
+The recommendation was to cut `MSG_RATE_LIMIT` from 30 to 5, on the reasoning that nothing in a task app needs 30 messages per second. That is true of what a person does. It is not true of what the protocol does. Joining or re-keying sends one `key_share` per member in a tight loop with no pacing, so a client in a full room legitimately emits 9 frames back to back. A limit of 5 disconnects that with close 4029. Key rotation would have broken itself in any room larger than about four people, and every declared cap would still have measured as a match.
+
+`encrypted` is the only type the relay broadcasts, so it is the only type that multiplies. Everything else is routed to one peer. The limit is now two budgets: a loose global one checked before parsing, which has to clear the protocol's own burst, and a tight one on `encrypted` alone, which is what bounds fan-out. `--profile=caps` checks the burst directly, so this cannot regress silently.
+
+**The budget is averaged over four seconds rather than policed each second.** A one second window charges a client for the arrival pattern of its packets. Measured: senders pacing themselves at 4 per second against a 5 per second budget still collected 6,317 disconnects, and they began at exactly the load where the relay's own p95 crossed a second. The relay slowing down is what bunched the sends that then looked like abuse. Real clients bunch for duller reasons, a GC pause or a backgrounded tab. Averaging keeps the sustained rate, and with it the aggregate bound, identical.
+
+### How the two budgets compose
+
+They are not alternatives. Both are charged, so whichever binds first wins.
+
+A client that fires everything at once is bounded by the global per-second limit, because a budget averaged over four seconds cannot be spent in one instant. One global slot is already taken by the join, so a synchronous burst gets 19 frames relayed and then the socket closes. Measured, and it matches.
+
+A client that spreads its sending never fills the global window, so the averaged broadcast budget is what stops it. That is the case the budget exists for, and it is the one that bounds sustained outbound work.
+
+### Two measurement errors this run caught
+
+Both would have produced a flattering number rather than a failure, which is the harder kind to notice.
+
+The harness kept its own copy of the relay's limits, synchronised by a comment asking for it. Its send interval was hardcoded at 100 ms, which is 10 messages per second. Legal against a 30 per second cap, illegal against 5. The first run after the cap cut showed roughly half the connections surviving and a high-water mark 2.6x better than baseline, and part of that improvement was the relay kicking the senders off. A profile that exceeds a cap is not measuring the thing it names.
+
+The test that was supposed to prevent exactly this compared the harness copy against a third hardcoded copy written inside the test. It caught someone editing the harness. It could not catch someone editing the relay, which is the drift it existed to prevent. Both now read `server/relay.ts` directly, and `tests/unit/loadtest-profiles-legal.test.ts` fails the build if any profile generates load the relay would refuse.
+
+## The caps as they now ship
+
+Ordered by how much each one bought. Every row is what is in `server/relay.ts` today, not a recommendation.
+
+| Constant | Was | Now | Why |
 |---|---:|---:|---|
-| `MAX_CONNECTIONS` | 5000 | **5000** | Measured reachable at 130 MiB peak, 13% of the machine, flat latency. No evidence to change it. Not measured above 5,000; raising it needs a new run, not arithmetic. |
-| `MAX_ROOMS` | 10000 | **5000** | Currently unreachable. Setting it to `MAX_CONNECTIONS` makes it mean what a reader assumes it means. Deleting it and documenting that `MAX_CONNECTIONS` bounds rooms is equally correct. |
-| `MAX_CLIENTS_PER_ROOM` | 50 | **10** | The dominant term. Drops amplification from 49x to 9x, a 5.4x cut in worst-case outbound work for one constant. A shared to-do list with more than ten people in it is a different product. |
-| `MSG_RATE_LIMIT` | 30/s | **5/s** | Nothing in a task app needs 30 messages per second per client. With a room cap of 10 this brings the worst case to 5,000 x 5 x 9 = 225,000/s, which is at the measured loss threshold rather than 30x past it. |
+| `MAX_CONNECTIONS` | 5000 | **5000** | Reachable at 238 MiB peak, 23% of the machine. Not measured above 5,000. Raising it needs a new run, not arithmetic. |
+| `MAX_ROOMS` | 10000 | **5000** | Was unreachable: a room needs a live client, so live rooms can never exceed live connections. It now equals the number that actually binds, so it means what a reader assumes. |
+| `MAX_CLIENTS_PER_ROOM` | 50 | **10** | The dominant term, and the change that did nearly all the work. Amplification drops from 49x to 9x, a 5.4x cut in worst-case outbound work for one constant. A shared to-do list with more than ten people in it is a different product. |
+| `MSG_RATE_LIMIT` | 30/s | **20/s** | A cheap pre-parse guard, not the fan-out bound. It has to clear the protocol's own worst burst, which is one `key_share` per member of a full room. Cutting it to 5 as first recommended would have disconnected every key rotation with close 4029. |
+| `BROADCAST_RATE_LIMIT` | none | **5/s, averaged over 4s** | New. `encrypted` is the only type the relay multiplies, so it is the only type charged here. This is the constant that bounds the aggregate. |
+| `MAX_BUFFERED_BYTES` | none | **8 x MAX_MESSAGE_SIZE** | New. A member whose outbound queue passes this is terminated rather than queued for. |
 | `MAX_CONNECTIONS_PER_IP` | 10 | **10** | Verified working. No evidence to change it. |
 | `MAX_MESSAGE_SIZE` | 131072 | **131072** | Verified. Rejects before parsing, which is the right order. |
 | `MAX_CIPHERTEXT_LENGTH` | 65536 | **65536** | Verified. |
 
-**Caps alone do not make this safe, and the recommended set should not be read as if they do.** Even the tightened numbers permit 225,000 outbound messages per second against a measured ceiling near 240,000. The caps multiply and nothing bounds the product.
+### What is still not bounded
 
-The change that reduces it is a backpressure check in `handleEncrypted`: disconnect a member whose `ws.bufferedAmount` exceeds a threshold. That converts the failure from "the relay accumulates hundreds of megabytes and stops delivering for everyone" into "the worst offenders are dropped." It is a few lines, it is in `server/relay.ts`, and it is not mine to write — flagging it, not doing it. The relay agent has designed it (branch `p0/relay-hardening`) and reached the same conclusion independently, with two refinements worth recording here:
+Two things, both stated plainly because the result above is good enough to be quoted carelessly.
 
-- **`terminate()`, not `close()`.** A peer that has not drained 1 MiB will not drain a close frame either. `close()` queues the frame behind the backlog and leaves the memory pinned, which is the thing being fixed.
-- **Disconnect, not silent skip.** `docs/THREAT-MODEL.md` lists silent message suppression as an undefended threat. Skipping would make the relay perform that attack on itself. A disconnect is visible and the client can reconnect and re-sync.
+**The caps still permit more than the relay delivers cleanly.** Worst case the caps allow is `MAX_CONNECTIONS x BROADCAST_RATE_LIMIT x (MAX_CLIENTS_PER_ROOM - 1)` = 5,000 x 5 x 9 = **225,000 outbound per second**. Measured, 89,496 per second is delivered in full and 178,992 loses a third. So the permitted worst case is roughly 2.5x past the last load with no loss. That is far better than the 30x it was, and it is not a bound.
 
-**A per-connection ceiling still does not bound the aggregate, and this is the part that changes the launch decision.** With a 1 MiB per-socket allowance, the worst case is `MAX_CONNECTIONS x 1 MiB` = **5 GiB on a 1 GB machine**. Backpressure decides *who* suffers, not *how much* memory the relay can reach. Only the cap values bound the total, which is why the two changes are a pair: backpressure without the cap cuts still permits a 5x overshoot of the machine. With `MAX_CLIENTS_PER_ROOM` at 10 the same arithmetic is unchanged in the worst case — the honest bound comes from a global outbound budget, which nobody has written and which I have not measured.
+**Backpressure limits one socket, not the total.** At 8 x 128 KiB per socket and 5,000 sockets, the worst case is still **4.9 GiB on a 1 GB machine**. Backpressure decides who suffers, not how much memory the relay can reach. An honest aggregate bound needs a global outbound budget. Nobody has written one and it has not been measured.
+
+Neither is reached by anything resembling normal use. Both are reachable by someone trying.
 
 ### For the launch decision
 
-- **Open launch, if `MAX_CLIENTS_PER_ROOM` comes down and backpressure lands, and only after the pair is re-measured together.** 5,000 connections is genuinely comfortable in 1 GB, and normal usage — small rooms, occasional messages — never approaches the failure region. But neither change has been measured, and the 5 GiB aggregate above says the two are not independently sufficient. Re-run `--profile=fanout` against the hardened relay before treating this bullet as satisfied.
-- **Invite gate, if the caps ship as declared.** Not because 5,000 users is too many. Because 250 users arranged into five full rooms is enough to push p95 past a second, and 5,000 in full rooms drops a third of all messages while using 45% of the machine. That does not need an attacker, only a popular room.
-
-One more constraint from `fly.toml`, and it is not a capacity number so much as a correctness one: rooms, push subscriptions and per-IP counts are all in-process `Map`s. Every figure here is **per process**. A second machine does not add capacity; it splits rooms silently, and two clients in "the same" room never see each other.
+- **Open launch is supported by measurement.** The condition set out before the change was that the cap cut and backpressure land together and be re-measured as a pair. They have been. 5,000 connections in full rooms now delivers every message at 23% of the machine, and normal usage of small rooms and occasional messages sits several orders of magnitude below the failure region.
+- **The two unbounded cases above are the residual risk, and they need an attacker, not a popular room.** That is the difference from the earlier position. Before, 250 ordinary users in five full rooms pushed p95 past a second. That is no longer true.
+- **Still per process.** Rooms, push subscriptions and per-IP counts are in-process Maps. A second machine does not add capacity, it splits rooms silently, and two clients in "the same" room never see each other. This is unchanged and it caps the deployment at one machine.
 
 ---
 
