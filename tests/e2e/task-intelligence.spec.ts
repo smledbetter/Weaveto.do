@@ -23,11 +23,16 @@ async function createAndJoinRoom(page: Page, name = "Alice") {
   });
 }
 
-/** Open the task panel via the header toggle button. */
+/** Ensure the task panel is open, whatever its initial state.
+ *
+ * The panel defaults to OPEN (weave-task-panel-open is absent, and onMount
+ * treats absent as true). Clicking the toggle unconditionally closed it. */
 async function openTaskPanel(page: Page) {
-  const toggle = page.locator(".tasks-toggle");
-  await toggle.click();
-  await expect(page.locator(".task-panel")).toBeVisible();
+  const panel = page.locator(".task-panel");
+  if (!(await panel.isVisible())) {
+    await page.locator(".tasks-toggle").click();
+  }
+  await expect(panel).toBeVisible();
 }
 
 /** Create a task via /task command in the composer. */
@@ -236,16 +241,25 @@ test.describe("M2: Task Intelligence", () => {
     test("Cmd+T toggles task panel", async ({ page }) => {
       await createAndJoinRoom(page);
 
-      // Panel should not be visible initially
-      await expect(page.locator(".task-panel")).not.toBeVisible();
+      // The panel is open by default, so assert the shortcut FLIPS state
+      // rather than assuming which state it starts in.
+      const panel = page.locator(".task-panel");
+      const startedOpen = await panel.isVisible();
 
-      // Cmd+T to open
       await page.keyboard.press("Meta+t");
-      await expect(page.locator(".task-panel")).toBeVisible();
+      if (startedOpen) {
+        await expect(panel).not.toBeVisible();
+      } else {
+        await expect(panel).toBeVisible();
+      }
 
-      // Cmd+T again to close
+      // Toggling back returns to the starting state.
       await page.keyboard.press("Meta+t");
-      await expect(page.locator(".task-panel")).not.toBeVisible();
+      if (startedOpen) {
+        await expect(panel).toBeVisible();
+      } else {
+        await expect(panel).not.toBeVisible();
+      }
     });
 
     test("Shift+? shows shortcuts help modal", async ({ page }) => {

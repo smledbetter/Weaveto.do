@@ -523,10 +523,31 @@ const NOUNS = [
 ];
 
 /**
+ * Canonical room ID format: 32 lowercase hex characters.
+ *
+ * MUST stay identical to ROOM_ID_PATTERN in server/relay.ts. The relay rejects
+ * the WebSocket upgrade for anything else, so a client that accepts a wider
+ * format just fails later and less clearly.
+ */
+export const ROOM_ID_PATTERN = /^[a-f0-9]{32}$/;
+
+/**
+ * Check whether a string is a well-formed room ID.
+ *
+ * Call this before getRoomName() on any value that came from a URL. getRoomName
+ * throws on malformed input, and an uncaught throw during SSR is a 500 rather
+ * than the "room not found" the user should see.
+ */
+export function isValidRoomId(roomId: unknown): roomId is string {
+  return typeof roomId === "string" && ROOM_ID_PATTERN.test(roomId);
+}
+
+/**
  * Generate a deterministic 2-word room name from a room ID
  *
  * @param roomId - Hex string room identifier (at least 4 chars)
  * @returns "adjective-noun" format (e.g. "swift-falcon")
+ * @throws if roomId is malformed — validate with isValidRoomId() first
  */
 export function getRoomName(roomId: string): string {
   if (roomId.length < 4) {

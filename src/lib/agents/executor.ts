@@ -225,10 +225,13 @@ export class AgentExecutor {
       displayName: m.displayName,
     }));
 
+    // Deep-clone tasks to strip Svelte 5 proxies before postMessage
+    const plainTasks = JSON.parse(JSON.stringify(tasks));
+
     for (const workerState of this.workers.values()) {
       const request: UpdateContextRequest = {
         type: "update_context",
-        tasks,
+        tasks: plainTasks,
         members: serializedMembers,
       };
       workerState.worker.postMessage(request);
@@ -289,11 +292,14 @@ export class AgentExecutor {
       displayName: m.displayName,
     }));
 
+    // Deep-clone tasks to strip Svelte 5 proxies before postMessage
+    const plainTasks = JSON.parse(JSON.stringify(tasks));
+
     const request: CallRequest = {
       type: "call",
       id: workerState.requestIdCounter++,
       fn,
-      tasks,
+      tasks: plainTasks,
       members: serializedMembers,
       pendingEvent,
       timeoutMs: CALL_TIMEOUT_MS,

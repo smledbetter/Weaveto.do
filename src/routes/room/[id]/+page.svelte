@@ -5,6 +5,7 @@
 	import { browser } from '$app/environment';
 	import { RoomSession, type DecryptedMessage, type RoomMember } from '$lib/room/session';
 	import { createCredential, assertWithPrf, getStoredCredentialId, WebAuthnUnsupportedError } from '$lib/webauthn/prf';
+	import { loadIdentitySeed, storeIdentitySeed } from '$lib/identity/store';
 	import { isDark, toggleTheme } from '$lib/theme.svelte';
 	import { createTaskStore } from '$lib/tasks/store.svelte';
 	import { parseTaskCommand } from '$lib/tasks/parser';
@@ -38,6 +39,16 @@
 	import { generatePinSalt, derivePinKey, derivePinKeyRaw, hashPinKey, verifyPin } from '$lib/pin/derive';
 	import { storePinKey, loadPinKey, clearPinKey } from '$lib/pin/store';
 	import { SessionGate } from '$lib/pin/gate';
+	import { DEFAULT_QUIET_START, DEFAULT_QUIET_END } from '$lib/notifications/types';
+	import { initNotificationPrefsDB, saveNotificationPrefs, loadNotificationPrefs, clearNotificationPrefs } from '$lib/notifications/store';
+	import { shouldNotifyForEvent, getNotificationPayload, postNotifyToSW, postPrefsToSW } from '$lib/notifications/triggers';
+	import { isPushSupported, subscribeToPush, unsubscribeFromPush, initPushDB, storePushSubscription, clearPushSubscription } from '$lib/notifications/push';
+import { saveTaskSnapshot, loadTaskSnapshot, saveEventQueue, loadEventQueue, clearOfflineData } from '$lib/tasks/offline';
+import ConnectionIndicator from '$lib/components/ConnectionIndicator.svelte';
+import { deriveEmojiString } from '$lib/room/verification';
+import ShieldIcon from '$lib/components/ShieldIcon.svelte';
+import MigrationBanner from '$lib/components/MigrationBanner.svelte';
+import { TabSync } from '$lib/room/tab-sync';
 
 	let roomId = $derived($page.params.id ?? '');
 	let roomName = $derived(roomId ? getRoomName(roomId) : '');
@@ -76,6 +87,7 @@
 	let showPinSetup = $state(false);
 	let prfSeedRef: Uint8Array | null = $state(null);
 	let sessionGate: SessionGate | null = $state(null);
+	let tabSync: TabSync | null = $state(null);
 
 	// Task management
 	const taskStore = createTaskStore();
@@ -118,6 +130,100 @@
 	// M11 encryption reestablishment
 	let reestablishing = $state(false);
 
+	// M15 trust & verification state
+	let deliveryHealthy = $state(true);
+	let showMigrationBanner = $state(false);
+	let memberEmoji = $state<Map<string, string>>(new Map());
+
+	// M14 notification state
+	let notificationPermission = $state<NotificationPermission>(
+		browser && 'Notification' in window ? Notification.permission : 'denied'
+	);
+	let notificationsEnabled = $state(false);
+	let notifQuietStart = $state(DEFAULT_QUIET_START);
+	let notifQuietEnd = $state(DEFAULT_QUIET_END);
+	let notifPrefsDb: IDBDatabase | null = $state(null);
+	let hasDueDateTasks = $derived(taskList.some((t) => t.dueAt !== undefined && t.status !== 'completed'));
+
+	// M16 push state
+	let pushSupported = $state(false);
+	let pushEnabled = $state(false);
+
+	// M17 offline state
+	let pendingEvents: TaskEvent[] = $state([]);
+	let pendingCount = $derived(pendingEvents.length);
+
+	// M18 sync state
+	let syncing = $state(false);
+
+	async function handleNotificationOptIn() {
+		if (!browser || !('Notification' in window)) return;
+		const result = await Notification.requestPermission();
+		notificationPermission = result;
+		if (result === 'granted') {
+			notificationsEnabled = true;
+			// Persist prefs
+			const prefs = { roomId, enabled: true, quietStart: notifQuietStart, quietEnd: notifQuietEnd };
+			if (notifPrefsDb) {
+				try { await saveNotificationPrefs(notifPrefsDb, prefs); } catch { /* silent */ }
+			}
+			postPrefsToSW(prefs);
+		}
+	}
+
+	function handleNotificationOptInDismiss() {
+		// no-op: dismissal state tracked in TaskPanel via optInDismissed
+	}
+
+	async function handleNotificationToggle(enabled: boolean) {
+		notificationsEnabled = enabled;
+		const prefs = { roomId, enabled, quietStart: notifQuietStart, quietEnd: notifQuietEnd };
+		if (notifPrefsDb) {
+			try { await saveNotificationPrefs(notifPrefsDb, prefs); } catch { /* silent */ }
+		}
+		postPrefsToSW(prefs);
+	}
+
+	async function handleQuietHoursChange(start: string, end: string) {
+		notifQuietStart = start;
+		notifQuietEnd = end;
+		const prefs = { roomId, enabled: notificationsEnabled, quietStart: start, quietEnd: end };
+		if (notifPrefsDb) {
+			try { await saveNotificationPrefs(notifPrefsDb, prefs); } catch { /* silent */ }
+		}
+		postPrefsToSW(prefs);
+	}
+
+	async function handlePushToggle(enabled: boolean) {
+		if (!session) return;
+
+		if (enabled) {
+			try {
+				const relayOrigin = session.getRelayOrigin();
+				const resp = await fetch(`${relayOrigin}/vapid-key`);
+				const { publicKey } = await resp.json();
+
+				const subscription = await subscribeToPush(publicKey);
+				if (subscription) {
+					pushEnabled = true;
+					const db = await initPushDB();
+					await storePushSubscription(db, roomId, subscription);
+					db.close();
+					session.sendPushSubscription(subscription.toJSON());
+				}
+			} catch { /* push subscription failed silently */ }
+		} else {
+			await unsubscribeFromPush();
+			pushEnabled = false;
+			try {
+				const db = await initPushDB();
+				await clearPushSubscription(db, roomId);
+				db.close();
+			} catch { /* cleanup failed silently */ }
+			session?.sendPushUnsubscription();
+		}
+	}
+
 	// Reminder scheduler — fires 5 min before due, in-tab only
 	const reminderScheduler = new ReminderScheduler((task) => {
 		reminderNotice = `Reminder: "${task.title}" is due soon`;
@@ -134,10 +240,17 @@
 	// and served by the framework.
 
 	// Restore panel state from sessionStorage and set up keyboard shortcuts
-	onMount(() => {
+	onMount(async () => {
 		if (browser) {
 			const stored = sessionStorage.getItem('weave-task-panel-open');
 			showTaskPanel = stored !== 'false';
+
+			// M15: Check for migration banner from previous room
+			const migrated = sessionStorage.getItem('weave-migration-banner');
+			if (migrated) {
+				showMigrationBanner = true;
+				sessionStorage.removeItem('weave-migration-banner');
+			}
 
 			// Initialize shortcuts
 			shortcutManager = new ShortcutManager();
@@ -181,6 +294,29 @@
 			});
 
 			shortcutManager.attach();
+
+			// Load notification preferences
+			try {
+				notifPrefsDb = await initNotificationPrefsDB();
+				const prefs = await loadNotificationPrefs(notifPrefsDb, roomId);
+				if (prefs) {
+					notificationsEnabled = prefs.enabled;
+					notifQuietStart = prefs.quietStart;
+					notifQuietEnd = prefs.quietEnd;
+				}
+			} catch {
+				// Silent failure — notification prefs unavailable
+			}
+
+			// Initialize push support
+			pushSupported = isPushSupported();
+			if (pushSupported) {
+				navigator.serviceWorker.ready.then((reg) => {
+					reg.pushManager.getSubscription().then((sub) => {
+						pushEnabled = !!sub;
+					});
+				});
+			}
 		}
 	});
 
@@ -190,13 +326,31 @@
 		if (agentExecutor) {
 			agentExecutor.updateContext(taskList, members);
 		}
+		// Save offline snapshot (fire-and-forget)
+		if (roomId) {
+			saveTaskSnapshot(roomId, taskStore.getSnapshot());
+		}
 	}
 
 	function handleTaskEvent(event: TaskEvent) {
-		if (!session || !connected) return;
+		if (!session) return;
+		// Mark as pending sync if created offline
+		if (!connected || reestablishing) {
+			if (event.task) {
+				event.task.pendingSync = true;
+			}
+		}
 		taskStore.applyEvent(event);
 		refreshTaskList();
-		session.sendTaskEvent(event);
+
+		if (connected && !reestablishing) {
+			session.sendTaskEvent(event);
+		} else {
+			// Queue for later delivery
+			pendingEvents = [...pendingEvents, event];
+			// Persist queue to IDB
+			saveEventQueue(roomId, pendingEvents);
+		}
 
 		// Dispatch to active agents (they may react to task changes)
 		agentExecutor?.dispatchTaskEvent(event);
@@ -207,10 +361,6 @@
 				const task = taskStore.getTask(event.taskId);
 				if (task?.dueAt) {
 					reminderScheduler.scheduleReminder(task);
-					// Request notification permission on first task with due date
-					if (browser && 'Notification' in window && Notification.permission === 'default') {
-						Notification.requestPermission();
-					}
 				}
 			} else if (event.type === 'task_status_changed' && event.task?.status === 'completed') {
 				reminderScheduler.cancelReminder(event.taskId);
@@ -364,7 +514,7 @@
 						if (state.expiresAt < Date.now()) {
 							// Expired while away — trigger cleanup
 							if (session) {
-								cleanupRoom(roomId, session);
+								cleanupRoom(roomId, session, tabSync ?? undefined);
 							}
 							window.location.href = '/?deleted=auto';
 						} else {
@@ -385,6 +535,7 @@
 		shortcutManager?.detach();
 		agentExecutor?.shutdown();
 		sessionGate?.stop();
+		tabSync?.destroy();
 	});
 
 	async function handlePinCreate(pin: string) {
@@ -413,32 +564,72 @@
 			pinKey = key;
 			pinState = { status: 'set' };
 			pinFailedAttempts = 0;
+			clearPinLock();
 			session?.unlockSession();
 			sessionGate?.unlock();
 		} else {
 			pinFailedAttempts += 1;
+			persistPinLock(pinFailedAttempts);
 		}
 	}
 
 	function handlePinLockout() {
 		pinState = { status: 'cleared' };
+		clearPinLock();
 		session?.disconnect();
 		if (prfSeedRef) clearPinKey(roomId);
 		sessionGate?.stop();
 		window.location.href = '/';
 	}
 
+	const pinLockKey = `weave-pin-locked:${roomId}`;
+	const pinAttemptsKey = `weave-pin-attempts:${roomId}`;
+
+	function persistPinLock(failedAttempts: number) {
+		try {
+			sessionStorage.setItem(pinLockKey, 'true');
+			sessionStorage.setItem(pinAttemptsKey, String(failedAttempts));
+		} catch { /* sessionStorage may be unavailable */ }
+	}
+
+	function clearPinLock() {
+		try {
+			sessionStorage.removeItem(pinLockKey);
+			sessionStorage.removeItem(pinAttemptsKey);
+		} catch { /* sessionStorage may be unavailable */ }
+	}
+
+	function getPersistedPinLock(): { locked: boolean; failedAttempts: number } {
+		try {
+			const locked = sessionStorage.getItem(pinLockKey) === 'true';
+			const attempts = parseInt(sessionStorage.getItem(pinAttemptsKey) ?? '0');
+			return { locked, failedAttempts: isNaN(attempts) ? 0 : attempts };
+		} catch {
+			return { locked: false, failedAttempts: 0 };
+		}
+	}
+
 	function startSessionGate() {
 		if (!pinRequired) return;
+
+		// Check if we were locked before a refresh
+		const persisted = getPersistedPinLock();
+		if (persisted.locked) {
+			pinFailedAttempts = persisted.failedAttempts;
+			pinState = { status: 'locked', failedAttempts: persisted.failedAttempts };
+			session?.lockSession();
+		}
+
 		sessionGate = new SessionGate(pinTimeout, {
 			onLock: () => {
 				pinState = { status: 'locked', failedAttempts: 0 };
+				persistPinLock(0);
 				session?.lockSession();
 			},
 			onLockout: () => {
 				handlePinLockout();
 			},
-		});
+		}, tabSync ?? undefined);
 		sessionGate.start();
 	}
 
@@ -489,14 +680,25 @@
 					}
 					prfSeed = result.seed;
 				} catch {
-					// WebAuthn PRF not supported (e.g. mobile browsers) — fall back to random seed.
-					// Identity will be ephemeral (unique per session) but encryption still works.
-					prfSeed = await generateRandomSeed(roomId);
-					usingTempIdentity = true;
+					// WebAuthn PRF not supported — try IndexedDB-persisted identity
+					const storedSeed = await loadIdentitySeed(roomId);
+					if (storedSeed) {
+						prfSeed = storedSeed;
+					} else {
+						prfSeed = await generateRandomSeed(roomId);
+						try {
+							await storeIdentitySeed(roomId, prfSeed);
+						} catch {
+							usingTempIdentity = true;
+						}
+					}
 				}
 			}
 
 			phase = 'connecting';
+
+			// Create tab sync for multi-tab coordination
+			tabSync = new TabSync(roomId);
 
 			// Create and connect room session
 			const roomSession = new RoomSession(roomId, displayName.trim(), {
@@ -512,6 +714,20 @@
 					refreshTaskList();
 					// Dispatch remote task events to active agents
 					agentExecutor?.dispatchTaskEvent(msg.taskEvent);
+					// M14: Trigger notification for remote task events
+					if (notificationsEnabled) {
+						const shouldNotify = shouldNotifyForEvent(
+							msg.taskEvent,
+							roomSession.getIdentityKey() ?? '',
+							taskStore.getTasks(),
+							notificationsEnabled,
+							!!roomSession.getEphemeralMode(),
+						);
+						if (shouldNotify) {
+							const payload = getNotificationPayload(msg.taskEvent);
+							postNotifyToSW(payload, roomId);
+						}
+					}
 				}
 				// Only show chat messages (non-empty text) in the message feed
 				if (msg.plaintext || msg.decryptionFailed) {
@@ -528,7 +744,7 @@
 			roomSession.setErrorHandler((err) => {
 				if (err === 'This room has been deleted.') {
 					roomDeleted = true;
-					cleanupRoom(roomId, roomSession);
+					cleanupRoom(roomId, roomSession, tabSync ?? undefined);
 					setTimeout(() => { window.location.href = '/?deleted=true'; }, 3000);
 					return;
 				}
@@ -546,10 +762,63 @@
 
 			roomSession.setReestablishingHandler((active: boolean) => {
 				reestablishing = active;
+				// When re-establishment completes, start sync flow
+				if (!active && connected) {
+					syncing = true;
+					// Send our recent events to peers
+					roomSession.sendSyncEvents(taskStore.getRecentEvents());
+
+					// Allow time for sync responses, then replay pending
+					setTimeout(() => {
+						if (pendingEvents.length > 0) {
+							const toReplay = pendingEvents;
+							pendingEvents = [];
+							for (const event of toReplay) {
+								if (event.task) {
+									event.task.pendingSync = false;
+								}
+								roomSession.sendTaskEvent(event);
+							}
+							clearOfflineData(roomId).then(() => {
+								saveTaskSnapshot(roomId, taskStore.getSnapshot());
+							});
+							refreshTaskList();
+						}
+						syncing = false;
+					}, 500);
+				}
+			});
+
+			roomSession.setSyncHandler((events: TaskEvent[]) => {
+				// Apply received sync events through normal dedup path
+				for (const event of events) {
+					taskStore.applyEvent(event);
+				}
+				refreshTaskList();
+			});
+
+			roomSession.setMigrationHandler((newRoomUrl: string, _tasks: any[]) => {
+				sessionStorage.setItem('weave-migration-banner', 'true');
+				window.location.href = newRoomUrl;
 			});
 
 			await roomSession.connect();
 			session = roomSession;
+
+			// Load offline data (pending events and task snapshot)
+			try {
+				const savedQueue = await loadEventQueue(roomId);
+				if (savedQueue && savedQueue.length > 0) {
+					pendingEvents = savedQueue;
+				}
+				const savedTasks = await loadTaskSnapshot(roomId);
+				if (savedTasks) {
+					taskStore.loadSnapshot(savedTasks);
+					refreshTaskList();
+				}
+			} catch {
+				// Offline data unavailable — continue without it
+			}
 
 			// Initialize agent executor after room connection
 			await initAgentExecutor(prfSeed);
@@ -581,6 +850,27 @@
 			} else {
 				// PIN not required, proceed to connected
 				phase = 'connected';
+			}
+
+			// M15: Replay migrated tasks from previous room (after kick migration)
+			if (browser) {
+				const migratedTasksJson = sessionStorage.getItem('weave-migration-tasks');
+				if (migratedTasksJson) {
+					sessionStorage.removeItem('weave-migration-tasks');
+					try {
+						const tasks = JSON.parse(migratedTasksJson);
+						for (const task of tasks) {
+							const event = {
+								type: 'task_created' as const,
+								taskId: task.id,
+								task,
+								timestamp: Date.now(),
+								actorId: roomSession.getIdentityKey()
+							};
+							handleTaskEvent(event);
+						}
+					} catch { /* migration task replay failed silently */ }
+				}
 			}
 		} catch (e) {
 			if (e instanceof WebAuthnUnsupportedError) {
@@ -664,7 +954,11 @@
 		try {
 			if (session) {
 				await session.sendPurgeRequest();
-				await cleanupRoom(roomId, session);
+				await cleanupRoom(roomId, session, tabSync ?? undefined);
+			}
+			// Clear notification preferences on room destruction
+			if (notifPrefsDb) {
+				try { await clearNotificationPrefs(notifPrefsDb, roomId); } catch { /* silent */ }
 			}
 			window.location.href = '/?deleted=true';
 		} catch (e: unknown) {
@@ -685,13 +979,81 @@
 		try {
 			if (session) {
 				await session.sendPurgeRequest();
-				await cleanupRoom(roomId, session);
+				await cleanupRoom(roomId, session, tabSync ?? undefined);
+			}
+			// Clear notification preferences on room destruction
+			if (notifPrefsDb) {
+				try { await clearNotificationPrefs(notifPrefsDb, roomId); } catch { /* silent */ }
 			}
 			window.location.href = '/?deleted=auto';
 		} catch (e: unknown) {
 			burnError = e instanceof Error ? e.message : 'Failed to delete room';
 		}
 	}
+
+	// M15: Kick a member by migrating the room to a new ID (creator only)
+	async function handleKickMember(targetKey: string) {
+		if (!session || !session.getIsCreator()) return;
+
+		const newRoomId = crypto.randomUUID().replace(/-/g, '');
+		const newRoomUrl = `/room/${newRoomId}`;
+
+		const tasks = taskList.map(t => ({
+			id: t.id,
+			title: t.title,
+			status: t.status,
+			assignee: t.assignee === targetKey ? undefined : t.assignee,
+			parentId: t.parentId,
+			createdBy: t.createdBy,
+			createdAt: t.createdAt,
+			updatedAt: t.updatedAt,
+			dueAt: t.dueAt,
+			blockedBy: t.blockedBy,
+			description: t.description,
+			urgent: t.urgent
+		}));
+
+		await session.sendMigrationMessage(newRoomUrl, tasks);
+
+		// Brief delay for message delivery
+		await new Promise(r => setTimeout(r, 200));
+
+		// Purge old room
+		await session.sendPurgeRequest();
+
+		// Store migration flag and tasks for replay in the new room
+		sessionStorage.setItem('weave-migration-banner', 'true');
+		sessionStorage.setItem('weave-migration-tasks', JSON.stringify(tasks));
+
+		window.location.href = newRoomUrl;
+	}
+
+	// M15: Derive emoji verification strings whenever member list changes
+	$effect(() => {
+		if (!session || !connected) return;
+		const myKey = session.getIdentityKey();
+		const memberKeys = [...(members?.keys() ?? [])].filter(k => k !== myKey);
+
+		const newEmoji = new Map<string, string>();
+		Promise.all(
+			memberKeys.map(async (theirKey) => {
+				const emoji = await deriveEmojiString(myKey, theirKey);
+				newEmoji.set(theirKey, emoji);
+			})
+		).then(() => {
+			memberEmoji = newEmoji;
+		});
+	});
+
+	// M15: Poll delivery tracker health every 2 seconds
+	$effect(() => {
+		if (!session || !connected) return;
+		const tracker = session.getDeliveryTracker();
+		const interval = setInterval(() => {
+			deliveryHealthy = !tracker.hasGap();
+		}, 2000);
+		return () => clearInterval(interval);
+	});
 
 	// Auto-delete detection: when all tasks are complete, start 24h countdown
 	$effect(() => {
@@ -832,6 +1194,7 @@
 					{#if session?.getEphemeralMode()}
 						<EphemeralIndicator memberCount={members.size + 1} />
 					{/if}
+					<ShieldIcon healthy={deliveryHealthy} />
 				</div>
 				<div class="room-meta">
 					<button
@@ -879,16 +1242,15 @@
 							aria-expanded={showRoomInfo}
 							aria-label="Room info"
 						>
-							<span
-								class="connection-dot"
-								class:online={connected}
-							></span>
+							<ConnectionIndicator {connected} {reestablishing} {pendingCount} {syncing} />
 							{members.size + 1}
 						</button>
 					</div>
 				</div>
 			</header>
 
+
+			<MigrationBanner visible={showMigrationBanner} onDismiss={() => { showMigrationBanner = false; }} />
 
 			{#if autoDeleteExpiresAt}
 				<div class="auto-delete-container">
@@ -898,12 +1260,6 @@
 						onKeepRoom={handleKeepRoom}
 						onDeleteNow={handleDeleteNow}
 					/>
-				</div>
-			{/if}
-
-			{#if reestablishing}
-				<div class="reestablishing-banner" role="status" aria-live="polite">
-					Re-establishing encryption...
 				</div>
 			{/if}
 
@@ -965,6 +1321,18 @@
 							onTaskEvent={handleTaskEvent}
 							onAutoAssign={handleAutoAssign}
 							onClose={toggleTaskPanel}
+							{notificationsEnabled}
+							{notificationPermission}
+							{hasDueDateTasks}
+							quietStart={notifQuietStart}
+							quietEnd={notifQuietEnd}
+							onNotificationOptIn={handleNotificationOptIn}
+							onNotificationOptInDismiss={handleNotificationOptInDismiss}
+							onNotificationToggle={handleNotificationToggle}
+							onQuietHoursChange={handleQuietHoursChange}
+						{pushSupported}
+						{pushEnabled}
+						onPushToggle={handlePushToggle}
 						/>
 					</div>
 				{/if}
@@ -1047,8 +1415,7 @@
 		<button class="dropdown-close" onclick={() => { roomInfoPopoverEl?.hidePopover(); }} aria-label="Close room info">&times;</button>
 	</div>
 	<div class="dropdown-item info-item">
-		<span class="connection-dot" class:online={connected}></span>
-		<span>{connected ? 'Connected' : 'Reconnecting...'}</span>
+		<ConnectionIndicator {connected} {reestablishing} {pendingCount} {syncing} />
 	</div>
 	<div class="dropdown-item info-item">
 		<span>{members.size + 1} {members.size + 1 === 1 ? 'member' : 'members'}</span>
@@ -1056,6 +1423,24 @@
 	{#if displayName}
 		<div class="dropdown-item info-item">
 			<span>You: {displayName}</span>
+		</div>
+	{/if}
+	{#if members && members.size > 0}
+		<div class="dropdown-item members-section">
+			{#each [...(members?.entries() ?? [])] as [key, member]}
+				<div class="member-row">
+					<span class="member-name">{member.displayName}</span>
+					{#if key !== session?.getIdentityKey() && memberEmoji.get(key)}
+						<span class="member-emoji" title="Key verification emoji">{memberEmoji.get(key)}</span>
+					{/if}
+					{#if session?.getIsCreator() && key !== session?.getIdentityKey()}
+						<button class="kick-btn" onclick={() => handleKickMember(key)} aria-label="Remove {member.displayName}">Remove</button>
+					{/if}
+				</div>
+			{/each}
+			{#if members && members.size > 0}
+				<p class="verification-hint">Ask members to confirm these match on their screen.</p>
+			{/if}
 		</div>
 	{/if}
 	<div class="dropdown-item">
@@ -1283,26 +1668,6 @@
 	}
 
 	.invite-btn:hover { background: var(--accent-strong); }
-
-	.connection-dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: transparent;
-		border: 2px solid var(--text-muted);
-		box-sizing: border-box;
-	}
-
-	.connection-dot.online {
-		background: var(--accent-default);
-		border-color: var(--accent-default);
-		animation: pulse 2s ease-in-out infinite;
-	}
-
-	@keyframes pulse {
-		0%, 100% { opacity: 1; }
-		50% { opacity: 0.5; }
-	}
 
 .room-info-dropdown-wrapper {
 		position: relative;
@@ -1583,7 +1948,7 @@
 		border: 1px solid var(--border-default);
 		border-radius: 6px;
 		color: var(--text-primary);
-		font-size: 0.95rem;
+		font-size: 1rem; /* >= 16px prevents iOS Safari auto-zoom on focus */
 		outline: none;
 	}
 
@@ -1763,17 +2128,6 @@
 		flex-shrink: 0;
 	}
 
-	/* Re-establishing encryption banner */
-	.reestablishing-banner {
-		background: var(--status-caution-bg);
-		border-bottom: 1px solid var(--status-caution-border);
-		padding: 0.6rem 1rem;
-		text-align: center;
-		font-size: 0.85rem;
-		color: var(--status-caution);
-		flex-shrink: 0;
-	}
-
 	/* Burn error toast */
 	.burn-error {
 		position: fixed;
@@ -1821,6 +2175,64 @@
 		margin: 0;
 		color: var(--text-secondary);
 		line-height: 1.4;
+	}
+
+	/* M15: Trust & Verification styles */
+	.members-section {
+		border-top: 1px solid var(--border-subtle);
+		padding-top: 0.5rem;
+	}
+
+	.member-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.2rem 0;
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.member-name {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.member-emoji {
+		font-size: 0.75rem;
+		letter-spacing: 0.15em;
+		opacity: 0.8;
+		flex-shrink: 0;
+	}
+
+	.verification-hint {
+		font-size: 0.75rem;
+		color: var(--color-text-muted, #888);
+		margin-top: 0.5rem;
+		font-style: italic;
+	}
+
+	.kick-btn {
+		background: none;
+		border: 1px solid #dc2626;
+		color: #dc2626;
+		font-size: 0.75rem;
+		padding: 0.125rem 0.375rem;
+		border-radius: 0.25rem;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.kick-btn:hover {
+		background: #dc2626;
+		color: white;
+	}
+
+	.kick-btn:focus-visible {
+		outline: 2px solid var(--color-focus, #4a90d9);
+		outline-offset: 2px;
 	}
 
 </style>

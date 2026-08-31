@@ -19,6 +19,21 @@ import { test, expect } from "./utils/fixtures";
 import type { Page } from "@playwright/test";
 import { trackErrors } from "./utils/test-helpers";
 
+/**
+ * Expand the "Advanced settings" disclosure on the homepage.
+ *
+ * The PIN policy controls moved inside a collapsed <details> element, so
+ * #pin-required is present in the DOM but not visible until it is opened.
+ * Tests that skipped this timed out clicking an invisible checkbox.
+ */
+async function openAdvancedSettings(page: Page) {
+  const advanced = page.locator("details.advanced-toggle");
+  if (!(await advanced.evaluate((el: HTMLDetailsElement) => el.open))) {
+    await advanced.locator("summary").click();
+  }
+  await expect(page.locator("#pin-required")).toBeVisible({ timeout: 5_000 });
+}
+
 /** Create a room with optional PIN policy and join as creator. */
 async function createAndJoinRoom(
   page: Page,
@@ -29,6 +44,7 @@ async function createAndJoinRoom(
   await page.goto("/", { waitUntil: "networkidle" });
 
   if (pinRequired) {
+    await openAdvancedSettings(page);
     const checkbox = page.locator("#pin-required");
     await checkbox.click();
     await expect(checkbox).toBeChecked();
@@ -62,10 +78,12 @@ async function createAndJoinRoom(
   await page.locator("button", { hasText: "Join Securely" }).click();
 }
 
+
 test.describe("PIN Policy Toggle", () => {
   test("PIN policy toggle appears and functions", async ({ page }) => {
     const t = trackErrors(page);
     await page.goto("/", { waitUntil: "networkidle" });
+    await openAdvancedSettings(page);
 
     // The PinPolicyToggle should be visible
     const pinCheckbox = page.locator("#pin-required");
@@ -89,6 +107,7 @@ test.describe("PIN Policy Toggle", () => {
 
   test("PIN timeout dropdown has correct options", async ({ page }) => {
     await page.goto("/", { waitUntil: "networkidle" });
+    await openAdvancedSettings(page);
     const pinCheckbox = page.locator("#pin-required");
     await pinCheckbox.click();
     await expect(pinCheckbox).toBeChecked();
@@ -109,6 +128,7 @@ test.describe("Room Creation with PIN Policy", () => {
   test("creating room with PIN required adds URL params", async ({ page }) => {
     const t = trackErrors(page);
     await page.goto("/", { waitUntil: "networkidle" });
+    await openAdvancedSettings(page);
 
     // Enable PIN
     const checkbox = page.locator("#pin-required");
@@ -157,6 +177,7 @@ test.describe("Room Creation with PIN Policy", () => {
     page,
   }) => {
     await page.goto("/", { waitUntil: "networkidle" });
+    await openAdvancedSettings(page);
 
     // Enable PIN
     const checkbox = page.locator("#pin-required");
@@ -195,6 +216,7 @@ test.describe("PIN Setup Flow", () => {
   }) => {
     const t = trackErrors(page);
     await page.goto("/", { waitUntil: "networkidle" });
+    await openAdvancedSettings(page);
 
     const checkbox = page.locator("#pin-required");
     await checkbox.click();

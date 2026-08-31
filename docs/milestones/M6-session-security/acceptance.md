@@ -6,7 +6,7 @@ If one member's device is compromised, the attacker can't access future room con
 
 ## Threat Model
 
-**Scenario**: Alice, Bob, and Carol are in a room. Bob's device is seized/stolen/malware'd. The adversary has Bob's active session — Megolm keys in memory, WebSocket connected.
+**Scenario**: Alice, Bob, and Carol are in a room. Bob's device is lost/stolen/compromised. The adversary has Bob's active session — Megolm keys in memory, WebSocket connected.
 
 **What PIN prevents**:
 - Decrypting new Megolm session keys after rotation (forward secrecy from compromise point)

@@ -222,10 +222,10 @@ test.describe("M5.5: UX Polish", () => {
 
       // Open room info dropdown
       await page.locator(".room-info-btn").click();
-      await expect(page.locator(".room-info-dropdown")).toBeVisible();
+      await expect(page.locator(".room-info-popover")).toBeVisible();
 
       // Check for display name in dropdown
-      await expect(page.locator(".room-info-dropdown")).toContainText("You: Alice");
+      await expect(page.locator(".room-info-popover")).toContainText("You: Alice");
 
       t.assertNoErrors();
     });
@@ -238,9 +238,9 @@ test.describe("M5.5: UX Polish", () => {
 
       // Open room info dropdown
       await page.locator(".room-info-btn").click();
-      await expect(page.locator(".room-info-dropdown")).toBeVisible();
+      await expect(page.locator(".room-info-popover")).toBeVisible();
 
-      await expect(page.locator(".room-info-dropdown")).toContainText("You: BobTheBuilder");
+      await expect(page.locator(".room-info-popover")).toContainText("You: BobTheBuilder");
 
       t.assertNoErrors();
     });

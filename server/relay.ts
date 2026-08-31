@@ -14,6 +14,8 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer } from "http";
 import { parse } from "url";
+import { initVapid, getVapidPublicKey, sendPushNotification } from "./vapid.js";
+import type { PushSubscriptionData } from "./push-types.js";
 
 const PORT = parseInt(process.env.PORT || "3001", 10);
 
@@ -51,6 +53,19 @@ interface Room {
 
 // --- Validated message types ---
 
+interface ValidatedPushSubscribeMessage {
+  type: "push_subscribe";
+  subscription: PushSubscriptionData;
+  roomId: string;
+  identityKey: string;
+}
+
+interface ValidatedPushUnsubscribeMessage {
+  type: "push_unsubscribe";
+  roomId: string;
+  identityKey: string;
+}
+
 interface ValidatedJoinMessage {
   type: "join";
   identityKey: string;
@@ -85,7 +100,9 @@ type ValidatedMessage =
   | ValidatedJoinMessage
   | ValidatedKeyShareMessage
   | ValidatedEncryptedMessage
-  | ValidatedPurgeMessage;
+  | ValidatedPurgeMessage
+  | ValidatedPushSubscribeMessage
+  | ValidatedPushUnsubscribeMessage;
 
 // --- Input validation ---
 
@@ -157,6 +174,25 @@ function validateMessage(raw: unknown): ValidatedMessage | null {
         return null;
       return raw as ValidatedPurgeMessage;
     }
+    case "push_subscribe": {
+      if (!isNonEmptyString(raw.roomId, 32)) return null;
+      if (!isNonEmptyString(raw.identityKey, MAX_IDENTITY_KEY_LENGTH))
+        return null;
+      if (!isObject(raw.subscription)) return null;
+      const sub = raw.subscription;
+      if (!isNonEmptyString(sub.endpoint, 2048)) return null;
+      if (!isObject(sub.keys)) return null;
+      const keys = sub.keys;
+      if (!isNonEmptyString(keys.p256dh, 256)) return null;
+      if (!isNonEmptyString(keys.auth, 64)) return null;
+      return raw as ValidatedPushSubscribeMessage;
+    }
+    case "push_unsubscribe": {
+      if (!isNonEmptyString(raw.roomId, 32)) return null;
+      if (!isNonEmptyString(raw.identityKey, MAX_IDENTITY_KEY_LENGTH))
+        return null;
+      return raw as ValidatedPushUnsubscribeMessage;
+    }
     default:
       return null;
   }
@@ -165,6 +201,9 @@ function validateMessage(raw: unknown): ValidatedMessage | null {
 // --- State (in-memory only) ---
 
 const rooms = new Map<string, Room>();
+
+// Push subscriptions per room: Map<roomId, Map<identityKey, PushSubscriptionData>>
+const pushSubscriptions = new Map<string, Map<string, PushSubscriptionData>>();
 
 // --- Connection tracking ---
 
@@ -178,13 +217,19 @@ const connectionsPerIp = new Map<string, number>();
 
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:5173",
+  "http://localhost:4173",
   "https://weaveto.do",
   ...(process.env.ALLOWED_ORIGINS?.split(",").filter(Boolean) ?? []),
 ]);
 
 // --- Server ---
 
-const server = createServer((_req, res) => {
+const server = createServer((req, res) => {
+  if (req.url === "/vapid-key" && req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ publicKey: getVapidPublicKey() }));
+    return;
+  }
   res.writeHead(200);
   res.end("OK");
 });
@@ -333,6 +378,12 @@ function handleMessage(
     case "purge":
       handlePurge(roomId, ws, msg, client);
       break;
+    case "push_subscribe":
+      handlePushSubscribe(msg, client);
+      break;
+    case "push_unsubscribe":
+      handlePushUnsubscribe(msg, client);
+      break;
   }
 }
 
@@ -458,6 +509,24 @@ function handleEncrypted(
       client.ws.send(serialized);
     }
   }
+
+  // Send push notifications to subscribed clients who are NOT connected via WebSocket
+  const roomSubs = pushSubscriptions.get(roomId);
+  if (roomSubs) {
+    for (const [subIdentityKey, subscription] of roomSubs) {
+      // Don't push to the sender
+      if (subIdentityKey === sender.identityKey) continue;
+      // Don't push to clients currently connected via WebSocket
+      if (room.clients.has(subIdentityKey)) continue;
+      // Fire-and-forget: handle 410 Gone to remove stale subscriptions
+      sendPushNotification(subscription, "").then((result) => {
+        if (result === "gone") {
+          roomSubs.delete(subIdentityKey);
+          if (roomSubs.size === 0) pushSubscriptions.delete(roomId);
+        }
+      });
+    }
+  }
 }
 
 function handlePurge(
@@ -490,8 +559,9 @@ function handlePurge(
     }
   }
 
-  // Delete room from registry
+  // Delete room from registry and clean up push subscriptions
   rooms.delete(roomId);
+  pushSubscriptions.delete(roomId);
 
   // Close all client connections after a short delay
   // to allow clients to process the room_destroyed message
@@ -503,6 +573,33 @@ function handlePurge(
       }
     }
   }, 100);
+}
+
+function handlePushSubscribe(
+  msg: ValidatedPushSubscribeMessage,
+  client: RoomClient | null,
+): void {
+  // Verify the authenticated client matches the claimed identity key
+  if (!client || client.identityKey !== msg.identityKey) return;
+
+  const roomSubs =
+    pushSubscriptions.get(msg.roomId) ?? new Map<string, PushSubscriptionData>();
+  roomSubs.set(msg.identityKey, msg.subscription);
+  pushSubscriptions.set(msg.roomId, roomSubs);
+}
+
+function handlePushUnsubscribe(
+  msg: ValidatedPushUnsubscribeMessage,
+  client: RoomClient | null,
+): void {
+  // Verify the authenticated client matches the claimed identity key
+  if (!client || client.identityKey !== msg.identityKey) return;
+
+  const roomSubs = pushSubscriptions.get(msg.roomId);
+  if (roomSubs) {
+    roomSubs.delete(msg.identityKey);
+    if (roomSubs.size === 0) pushSubscriptions.delete(msg.roomId);
+  }
 }
 
 function removeClient(roomId: string, identityKey: string): void {
@@ -527,6 +624,8 @@ function removeClient(roomId: string, identityKey: string): void {
     }
   }
 }
+
+initVapid();
 
 server.listen(PORT, () => {
   console.log(`weaveto.do relay server listening on port ${PORT}`);

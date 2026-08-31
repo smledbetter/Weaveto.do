@@ -18,7 +18,14 @@
 
 	$effect(() => {
 		if (browser) {
-			webauthnSupported = isWebAuthnSupported();
+			// When WebAuthn is bypassed the app derives a random seed instead and
+			// works without it, so gating the only entry point on API presence
+			// turned users away from a flow that would have worked. Browsers
+			// without PublicKeyCredential — headless WebKit among them — saw the
+			// unsupported notice and no way to create a room at all.
+			const bypassed =
+				import.meta.env.DEV || import.meta.env.VITE_WEBAUTHN_BYPASS === 'true';
+			webauthnSupported = bypassed || isWebAuthnSupported();
 		}
 	});
 
@@ -148,16 +155,33 @@
 		font-family: system-ui, -apple-system, sans-serif;
 		color: var(--text-primary);
 		background: var(--bg-base);
-		padding: 2rem;
+		/* 2rem each side left 256px of the 320px iPhone SE viewport, which is
+		   less than the brand needs on a wide font stack. Narrow screens get
+		   half the horizontal padding. */
+		padding: 2rem 1rem;
+	}
+
+	@media (min-width: 480px) {
+		main {
+			padding: 2rem;
+		}
 	}
 
 	.hero {
 		text-align: center;
 		max-width: 480px;
+		/* Without this the hero can exceed a narrow viewport, since max-width
+		   alone sets no upper bound relative to the parent. */
+		width: 100%;
 	}
 
 	h1 {
-		font-size: 3rem;
+		/* Scales with the viewport instead of sitting at a fixed 3rem. At a fixed
+		   size the brand fit a 320px screen only under macOS system-ui metrics;
+		   Linux WebKit renders the same string wider and it spilled 5px past the
+		   body, which is what CI caught. Type that scales does not depend on
+		   which font the platform resolves system-ui to. */
+		font-size: clamp(2rem, 10vw, 3rem);
 		font-weight: 300;
 		letter-spacing: 0.1em;
 		margin: 0 0 0.5rem;

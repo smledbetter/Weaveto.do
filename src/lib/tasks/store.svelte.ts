@@ -22,6 +22,7 @@ class TaskStore {
   private tasksMap = new Map<TaskId, Task>();
   private seenEvents = new Set<EventKey>();
   private lastActorByTask = new Map<TaskId, string>();
+  private appliedEvents: TaskEvent[] = [];
 
   applyEvent(event: TaskEvent): void {
     // Reject events with timestamps too far in the future
@@ -31,6 +32,7 @@ class TaskStore {
 
     if (this.seenEvents.has(key)) return;
     this.seenEvents.add(key);
+    this.appliedEvents.push(event);
 
     switch (event.type) {
       case "task_created":
@@ -240,10 +242,49 @@ class TaskStore {
     return this.tasksMap.size;
   }
 
+  /**
+   * Return a serializable snapshot of all tasks.
+   * Used for offline persistence — the returned objects are plain (no Proxy).
+   */
+  getSnapshot(): Task[] {
+    return this.getTasks().map(t => ({ ...t }));
+  }
+
+  /**
+   * Return events applied within the last `windowMs` milliseconds.
+   * Used for sync on reconnect — sends recent event history to peers.
+   */
+  getRecentEvents(windowMs: number = 24 * 60 * 60 * 1000): TaskEvent[] {
+    const cutoff = Date.now() - windowMs;
+    return this.appliedEvents
+      .filter(e => e.timestamp >= cutoff)
+      .map(e => ({ ...e, task: e.task ? { ...e.task } : undefined }));
+  }
+
+  /**
+   * Clear the event log. Called on room cleanup.
+   */
+  clearEventLog(): void {
+    this.appliedEvents = [];
+  }
+
+  /**
+   * Load tasks from an offline snapshot. Existing tasks are preserved;
+   * snapshot tasks are only added if not already present (online data wins).
+   */
+  loadSnapshot(tasks: Task[]): void {
+    for (const task of tasks) {
+      if (!this.tasksMap.has(task.id)) {
+        this.tasksMap.set(task.id, { ...task });
+      }
+    }
+  }
+
   clear(): void {
     this.tasksMap.clear();
     this.seenEvents.clear();
     this.lastActorByTask.clear();
+    this.appliedEvents = [];
   }
 }
 

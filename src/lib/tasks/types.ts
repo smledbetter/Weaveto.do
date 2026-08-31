@@ -14,6 +14,7 @@ export interface Task {
   blockedBy?: TaskId[]; // tasks that must complete before this one
   description?: string;
   urgent?: boolean;
+  pendingSync?: boolean;
 }
 
 export type TaskEventType =

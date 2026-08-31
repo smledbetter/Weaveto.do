@@ -18,7 +18,8 @@
 	let { onverify, onlockout, failedAttempts = 0, lockedUntil = undefined }: Props = $props();
 
 	let pin = $state('');
-	let lockoutEnd = $state(lockedUntil);
+	let lockoutEnd: number | undefined = $state(lockedUntil);
+	let isLockedOut = $state(lockedUntil !== undefined && lockedUntil > Date.now());
 	// Track failedAttempts reactively from parent prop
 	let prevAttempts = $state(failedAttempts);
 
@@ -29,6 +30,7 @@
 
 			if (failedAttempts >= PIN_MAX_ATTEMPTS) {
 				lockoutEnd = undefined;
+				isLockedOut = false;
 				onlockout();
 				return;
 			}
@@ -37,51 +39,47 @@
 				const backoffAttempts = failedAttempts - PIN_LOCKOUT_THRESHOLD;
 				const backoffMs = PIN_INITIAL_BACKOFF_MS * Math.pow(PIN_BACKOFF_MULTIPLIER, backoffAttempts);
 				lockoutEnd = Date.now() + backoffMs;
+				isLockedOut = true;
+				startCountdown();
 			}
 		}
 	});
 	let secondsRemaining = $state(0);
 	let inputElement: HTMLInputElement | undefined = $state();
-	let countdownInterval: ReturnType<typeof setInterval> | undefined = $state();
+	let countdownInterval: ReturnType<typeof setInterval> | undefined;
 
 	const pinDots = $derived(Array.from({ length: 6 }, (_, i) => i < pin.length));
-
-	const isLockedOut = $derived(lockoutEnd !== undefined && lockoutEnd > Date.now());
 
 	const showError = $derived(failedAttempts > 0);
 
 	const remainingAttempts = $derived(PIN_MAX_ATTEMPTS - failedAttempts);
 
-	// Update countdown timer
-	$effect(() => {
-		if (isLockedOut && lockoutEnd) {
-			const updateCountdown = () => {
-				const now = Date.now();
-				const remaining = Math.ceil((lockoutEnd! - now) / 1000);
-				secondsRemaining = Math.max(0, remaining);
-
-				if (secondsRemaining === 0) {
-					lockoutEnd = undefined;
-					if (countdownInterval) {
-						clearInterval(countdownInterval);
-						countdownInterval = undefined;
-					}
-				}
-			};
-
-			updateCountdown();
-
-			if (countdownInterval) clearInterval(countdownInterval);
-			countdownInterval = setInterval(updateCountdown, 100);
-
-			return () => {
+	function startCountdown() {
+		if (countdownInterval) clearInterval(countdownInterval);
+		countdownInterval = setInterval(() => {
+			if (!lockoutEnd) {
+				isLockedOut = false;
+				secondsRemaining = 0;
 				if (countdownInterval) {
 					clearInterval(countdownInterval);
 					countdownInterval = undefined;
 				}
-			};
-		}
-	});
+				return;
+			}
+			const remaining = Math.ceil((lockoutEnd - Date.now()) / 1000);
+			secondsRemaining = Math.max(0, remaining);
+
+			if (remaining <= 0) {
+				lockoutEnd = undefined;
+				isLockedOut = false;
+				secondsRemaining = 0;
+				clearInterval(countdownInterval!);
+				countdownInterval = undefined;
+				// Re-focus input for retry
+				tick().then(() => inputElement?.focus());
+			}
+		}, 100);
+	}
 
 	function handlePinInput(e: Event) {
 		const input = e.target as HTMLInputElement;

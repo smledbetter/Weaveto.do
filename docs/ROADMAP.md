@@ -2,14 +2,14 @@
 
 ## Current State
 
-- **Git SHA**: 558adb1
-- **Unit tests**: 441 (Vitest, jsdom)
-- **E2E tests**: 134 (Playwright, Chromium) — 0 pre-existing failures
-- **Coverage**: 57.19% lines (overall), 100% on new components
-- **Lint**: clean (`npm run check` passes)
+- **Git SHA**: c06a06e
+- **Unit tests**: 647 (Vitest, jsdom)
+- **E2E tests**: 246 (Playwright, Chromium) — ~53 pre-existing CSP nonce failures
+- **Coverage**: ~60% lines (overall), 100% on new components
+- **Lint**: clean (`npm run check` passes, 0 errors, 26 warnings)
 - **Build**: clean (`npm run build` passes)
-- **Milestones complete**: M0-M12 (14 milestones shipped)
-- **LOC**: ~15K (src/ + tests/ + server/)
+- **Milestones complete**: M0-M19 (21 milestones shipped)
+- **LOC**: ~23.5K (src/ + tests/ + server/)
 
 ## Completed Milestones
 
@@ -31,91 +31,17 @@
 - ~~M10: UX & Accessibility~~ ✅ (Sprint 2) — Header decluttered, coach marks, ARIA fixes, focus-visible rings, connection status label, task empty-state prompt. +13 unit tests.
 - ~~M11: Reconnect & Hardening~~ ✅ (Sprint 3) — Stale Olm session clearing on reconnect, re-establishment tracking with UI indicator, timestamp clamping (5-min future window), OTK replenishment (threshold-based). +27 unit tests.
 - ~~M12: Mobile UX Improvements~~ ✅ (Sprint 4) — Banner consolidation into CoachMarks walkthrough, MobileNav bottom navigation (Chat/Tasks/Auto), background color fix. +22 unit tests. 1 dev dependency added (@testing-library/svelte).
+- ~~M13: Mobile Identity Persistence~~ ✅ (Sprint 5) — IndexedDB-encrypted identity seed store (AES-GCM-256 via HKDF), PRF-first fallback chain in joinRoom(), cleanup integration, PIN compatibility for IDB-persisted seeds. +16 unit, +11 E2E tests. Production integration test suite.
+- ~~M14: Local Notifications~~ ✅ (Sprint 6) — Contextual opt-in banner, NotificationBell popover with toggle + quiet hours, SW quiet-hours enforcement, notification triggers (assignment, status change), IndexedDB prefs store, cleanup integration. Removed silent requestPermission (H7 violation). +48 unit, +7 E2E tests. Delegation ratio improved 4.9% → 43.0%.
+- ~~M15: Trust & Verification~~ ✅ (Sprint 7) — Emoji key verification (SHA-256 sorted keys → 5 emoji per member pair, ambient in room info). Member revocation via room migration (kick → new room, task state preserved, banner shown). Message delivery confirmation (per-sender sequence counters inside encrypted payload, shield icon green/amber). +19 unit, +13 E2E tests. Gates first pass. Delegation ratio 58.6%.
+- ~~M16: Web Push~~ ✅ (Sprint 8) — VAPID JWT signing (ES256 via Node.js crypto, env-configured keys), relay push dispatch (in-memory subscription store, /vapid-key endpoint, push to offline clients), client push manager (IDB subscription store, subscribeToPush/unsubscribe), SW push handler (quiet hours, generic body), push toggle in NotificationBell, cleanup integration. Zero new dependencies. +38 unit, +6 E2E tests. Gates first pass. Delegation ratio 64.4%.
+- ~~M17: Offline Task Store~~ ✅ (Sprint 9) — Encrypted IDB task snapshots + event queue (AES-GCM-256 via HKDF), unified ConnectionIndicator (Connected/Reconnecting/Offline/Offline·N pending), offline task creation with sync dot indicator, event replay on reconnect, TaskStore snapshot/loadSnapshot methods, cleanup integration. +30 unit, +7 E2E tests. Gates first pass. Delegation ratio 46.9%.
+- ~~M18: Sync and Conflict Resolution~~ ✅ (Sprint 10) — TaskStore event log with 24h sync window, session sync methods (sendSyncEvents via Megolm channel), reconnect sync flow (send history → wait → replay pending), ConnectionIndicator "Syncing..." state, conflict convergence (timestamp+actorId rules). +19 unit, +10 E2E tests. Gates first pass. Fastest sprint (4m 59s). Delegation ratio 51.7%.
+- ~~M19: Multi-Room Tabs~~ ✅ (Sprint 11) — TabSync BroadcastChannel module for cross-tab coordination, cross-tab PIN lock broadcast with infinite-loop prevention, tab-aware cleanup (deregister on destroy), room page integration (TabSync lifecycle). Per-tab Olm/Megolm isolation (no cross-tab key sharing). Zero new dependencies. +36 unit, +6 E2E tests. Gates first pass. Delegation ratio 28.0%.
 
 ---
 
 ## Upcoming
-
-### M13 — Mobile Identity Persistence
-
-Replace the temporary random-seed fallback with IndexedDB-persisted crypto identity for devices without WebAuthn PRF support (iOS Safari, Android Chrome, most mobile browsers).
-
-- Generate crypto seed on first visit, encrypt and store in IndexedDB
-- On return visits, retrieve and decrypt the stored seed (same identity across sessions)
-- Migration path: detect existing PRF users, don't interfere with their flow
-- PIN protection support for persisted-seed users (derive PIN key from stored seed)
-- Clear stored identity on room destruction / burn / ephemeral purge
-- Remove "Using temporary identity" banner when persistent identity is active
-
-**Future consideration (post user feedback)**: Optional passphrase-based seed derivation for cross-device identity recovery. Only pursue if users report losing identity as a pain point.
-
-**Done when**: Mobile users get a persistent crypto identity across sessions. PIN-protected rooms work on mobile. E2E encryption unchanged. PRF users unaffected.
-
-### M14 — Local Notifications
-
-Expand service worker notifications without external push infrastructure.
-
-- Expanded notification triggers (assignment, status change, due date approaching)
-- **Contextual opt-in**: When the first task with a due date is created, show inline below it: *"Get reminded when this is due. [Turn on]"* — one sentence, one button, positioned where the user is already looking. No auto-requesting permission.
-- **Bell icon in task panel header**: Appears after opt-in. Filled/unfilled state (on/off). Tapping shows a single popover with two controls only: on/off toggle + quiet hours time range (08:00–22:00 default, editable).
-- Notification grouping happens automatically and silently (no toggle)
-- No urgency filter, no DND setting, no rules UI — defer to post-feedback if users request granularity
-
-**Done when**: Notifications fire for assignments and due dates when tab is backgrounded. Contextual opt-in prompt appears on first due-date task. Bell popover controls on/off + quiet hours. E2E tests cover notification triggers.
-
-### M15 — Trust & Verification
-
-Close the open gaps in the threat model (see `docs/THREAT-MODEL.md`).
-
-- **Emoji key verification (ambient display)**: In room info popover, add a "Security" section. Each member shows 5 emoji derived from `SHA-256(sorted(identityKeyA, identityKeyB))` — always visible, no "Verify" button. One line of text: *"Ask members to confirm these match on their screen."* Passive — users who care will use it, others ignore it.
-- **Member revocation via room migration**: Creator kicks a member → client creates a new room, migrates task state, sends remaining members a redirect with dismissible banner: *"This room was recreated — your tasks have been carried over."* Old room destroyed. Clean cryptographic break.
-- **Message delivery confirmation (room-level)**: Per-sender sequential counters inside encrypted payload. Shield icon in room header turns green→amber when any gap is detected. Tapping shows: *"Some messages may have been missed."* No per-message warnings, no named members. Resets on reconnect.
-- **Reproducible relay builds** (stretch): Nix-based reproducible builds, publish hashes to transparency log. Community can verify relay matches source.
-
-**Done when**: Emoji strings visible in room info for all members. Room migration on kick creates new room with task state preserved and banner shown. Shield icon reflects delivery health. E2E tests cover verification display and room migration.
-
-### M16 — Web Push
-
-Add VAPID-based push notifications via the relay server.
-
-- Web Push API integration (VAPID key pair, subscription management)
-- Relay push endpoint (encrypted push payloads, generic notification bodies)
-- Push subscription cleanup on room destruction (burn/auto-delete/ephemeral purge)
-
-**Done when**: Push notifications arrive when browser is closed. All payloads are generic (no task content). Subscriptions cleaned up on room destruction.
-
-### M17 — Offline Task Store
-
-IndexedDB-backed offline storage for tasks.
-
-- IndexedDB task store (encrypted, mirrors event-sourced in-memory store)
-- **Unified connection status line** (replaces separate offline banner): existing connection dot changes state — Connected: filled dot, no label. Disconnected: empty dot, "Reconnecting..." Offline: empty dot, "Offline". Offline with pending: empty dot, "Offline · N pending".
-- Queue outbound events while offline
-- Task creation works offline — offline-created tasks show a pale sync dot on the task row (tap for tooltip: *"Will sync when reconnected"*)
-
-**Done when**: Tasks persist across page reloads without network. Connection status unified into single indicator. Events queued for sync. Tasks can be created while offline.
-
-### M18 — Sync and Conflict Resolution
-
-Reconnect and merge offline changes.
-
-- Conflict resolution on reconnect (event-sourced merge with existing timestamp+actorId rules)
-- Optimistic UI updates (show pending changes before server confirmation)
-- Sync status indicator
-
-**Done when**: Two users can edit tasks offline, reconnect, and see merged state. No data loss. E2E test covers offline-edit-reconnect flow.
-
-### M19 — Multi-Room Tabs
-
-Securely participate in multiple rooms across multiple browser tabs simultaneously.
-
-- Shared crypto identity across tabs via `BroadcastChannel` or `SharedWorker` (PRF seed derived once, shared read-only)
-- Per-tab Olm/Megolm session isolation (each tab manages its own room session independently)
-- Tab-aware cleanup: closing one tab only cleans up that tab's room, not other tabs' sessions
-- No cross-tab state leaks: one room's key material never accessible to another tab's room
-- Graceful handling of PRF re-authentication when multiple tabs request it simultaneously (queue or deduplicate)
-
-**Done when**: User can open 3+ rooms in separate tabs, send/receive messages in each independently. Closing one tab does not disrupt others. PIN lock in one tab locks all tabs. E2E tests cover multi-tab room isolation.
 
 ### M20 — Tor Hidden Service (deployment)
 

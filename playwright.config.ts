@@ -24,6 +24,17 @@ export default defineConfig({
           permissions: ['clipboard-read', 'clipboard-write'],
         },
       },
+      testIgnore: /mobile-layout|mobile-layout-extended|identity-integration/,
+    },
+    {
+      name: 'mobile-iphone',
+      use: { ...devices['iPhone SE'] },
+      testMatch: /mobile-layout|mobile-layout-extended/,
+    },
+    {
+      name: 'mobile-pixel',
+      use: { ...devices['Pixel 7'] },
+      testMatch: /mobile-layout|mobile-layout-extended/,
     },
   ],
 

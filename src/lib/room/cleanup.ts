@@ -5,8 +5,13 @@
  */
 
 import type { RoomSession } from "./session";
+import type { TabSync } from "./tab-sync";
 import { autoDeleteKey } from "./types";
 import { clearPinKey } from "$lib/pin/store";
+import { clearIdentitySeed } from "$lib/identity/store";
+import { initNotificationPrefsDB, clearNotificationPrefs } from "$lib/notifications/store";
+import { initPushDB, clearPushSubscription } from "$lib/notifications/push";
+import { clearOfflineData } from "$lib/tasks/offline";
 
 /**
  * Clean up all client-side state for a destroyed room.
@@ -15,6 +20,7 @@ import { clearPinKey } from "$lib/pin/store";
 export async function cleanupRoom(
   roomId: string,
   session: RoomSession | null,
+  tabSync?: TabSync,
 ): Promise<void> {
   // 1. Disconnect WebSocket session
   session?.disconnect();
@@ -33,6 +39,37 @@ export async function cleanupRoom(
 
   // 5. Clear PIN key from IndexedDB
   await clearPinKey(roomId);
+
+  // 6. Clear persisted identity seed from IndexedDB
+  await clearIdentitySeed(roomId);
+
+  // 7. Clear notification preferences from IndexedDB
+  try {
+    const notifPrefsDb = await initNotificationPrefsDB();
+    await clearNotificationPrefs(notifPrefsDb, roomId);
+    notifPrefsDb.close();
+  } catch {
+    // IndexedDB not available or error — skip
+  }
+
+  // 8. Clear push subscription from IndexedDB
+  try {
+    const pushDb = await initPushDB();
+    await clearPushSubscription(pushDb, roomId);
+    pushDb.close();
+  } catch {
+    // IndexedDB not available or error — skip
+  }
+
+  // 9. Clear offline task store and event queue from IndexedDB
+  try {
+    await clearOfflineData(roomId);
+  } catch {
+    // IndexedDB not available or error — skip
+  }
+
+  // 10. Deregister this tab: broadcasts tab-deregister and closes the BroadcastChannel
+  tabSync?.destroy();
 }
 
 /**

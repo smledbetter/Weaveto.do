@@ -1,6 +1,24 @@
 import { test, expect } from "./utils/fixtures";
 import type { Page } from "@playwright/test";
 import { trackErrors } from "./utils/test-helpers";
+import { readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+/**
+ * Built-in agents that auto-activate on room join, read from the manifests on
+ * disk rather than hardcoded. These assertions previously pinned "(1)" and a
+ * bare `.builtin` selector, and broke silently when the second built-in
+ * shipped. Reading the directory means a third one updates them for free.
+ */
+const AGENTS_DIR = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../src/lib/agents",
+);
+const BUILTIN_AGENTS: string[] = readdirSync(AGENTS_DIR)
+  .filter((f) => f.endsWith(".manifest.json"))
+  .map((f) => JSON.parse(readFileSync(join(AGENTS_DIR, f), "utf8")).name)
+  .sort();
 
 /** Create a room and join as the given user name. */
 async function createAndJoinRoom(page: Page, name = "Alice") {
@@ -30,7 +48,7 @@ test.describe("M3: Agent Infrastructure", () => {
 
     const agentsBtn = page.locator(".agents-toggle");
     await expect(agentsBtn).toBeVisible();
-    await expect(agentsBtn).toContainText("Agents");
+    await expect(agentsBtn).toContainText("Automation");
 
     t.assertNoErrors();
   });
@@ -63,7 +81,9 @@ test.describe("M3: Agent Infrastructure", () => {
       page.locator(".module-name", { hasText: "auto-balance" }),
     ).toBeVisible();
     // Should show "Built-in" badge
-    await expect(page.locator(".builtin-badge")).toBeVisible();
+    // One badge per built-in; assert the count rather than a bare .toBeVisible()
+    // which is a strict-mode violation once there is more than one.
+    await expect(page.locator(".builtin-badge")).toHaveCount(BUILTIN_AGENTS.length);
     // Should NOT show empty state
     await expect(page.locator(".agent-panel .empty-state")).not.toBeVisible();
 
@@ -85,29 +105,10 @@ test.describe("M3: Agent Infrastructure", () => {
     t.assertNoErrors();
   });
 
-  test("agent panel upload is behind advanced toggle", async ({ page }) => {
-    const t = trackErrors(page);
-    await createAndJoinRoom(page);
-    await page.locator(".agents-toggle").click();
-
-    // Upload button should not be visible initially
-    await expect(page.locator(".agent-panel .upload-btn")).not.toBeVisible();
-
-    // Click "Advanced" toggle link
-    const advancedLink = page.locator(".upload-toggle-link");
-    await expect(advancedLink).toBeVisible();
-    await advancedLink.click();
-
-    // Now upload button should appear
-    const uploadBtn = page.locator(".agent-panel .upload-btn");
-    await expect(uploadBtn).toBeVisible();
-    await uploadBtn.click();
-
-    // Upload form should appear
-    await expect(page.locator(".agent-panel .upload-form")).toBeVisible();
-
-    t.assertNoErrors();
-  });
+  // The custom-agent upload UI was removed ("deferred to a later milestone").
+  // Its test is deleted rather than skipped: the selectors no longer exist, so
+  // a skipped test would just be a lie in the suite. Upload returns in M20 4c,
+  // and gets a fresh test then, including Ed25519 signature rejection.
 
   test("tasks and agents panels can be open simultaneously", async ({
     page,
@@ -115,9 +116,14 @@ test.describe("M3: Agent Infrastructure", () => {
     const t = trackErrors(page);
     await createAndJoinRoom(page);
 
-    // Open tasks panel
-    await page.locator(".tasks-toggle").click();
-    await expect(page.locator(".task-panel")).toBeVisible();
+    // The task panel is open by default (weave-task-panel-open defaults to
+    // true in onMount), so toggle only if it is currently closed. Clicking
+    // unconditionally closed it and the assertion below never found it.
+    const taskPanel = page.locator(".task-panel");
+    if (!(await taskPanel.isVisible())) {
+      await page.locator(".tasks-toggle").click();
+    }
+    await expect(taskPanel).toBeVisible();
 
     // Open agents panel too
     await page.locator(".agents-toggle").click();
@@ -138,9 +144,11 @@ test.describe("M3.5: Built-in Auto-Balance Agent", () => {
     const t = trackErrors(page);
     await createAndJoinRoom(page);
 
-    // Agents button should show count (1) for the active built-in
+    // Count reflects however many built-ins ship, not a hardcoded 1.
     const agentsBtn = page.locator(".agents-toggle");
-    await expect(agentsBtn).toContainText("(1)", { timeout: 10_000 });
+    await expect(agentsBtn).toContainText(`(${BUILTIN_AGENTS.length})`, {
+      timeout: 10_000,
+    });
 
     t.assertNoErrors();
   });
@@ -153,11 +161,14 @@ test.describe("M3.5: Built-in Auto-Balance Agent", () => {
     await page.locator(".agents-toggle").click();
 
     // Should show active status
-    const statusBadge = page.locator(".module-item.builtin .status-badge");
+    const autoBalanceRow = page.locator(".module-item.builtin", {
+      hasText: BUILTIN_AGENTS[0],
+    });
+    const statusBadge = autoBalanceRow.locator(".status-badge");
     await expect(statusBadge).toHaveClass(/active/);
 
     // Deactivate
-    const deactivateBtn = page.locator(".module-item.builtin .toggle-btn");
+    const deactivateBtn = autoBalanceRow.locator(".toggle-btn");
     await expect(deactivateBtn).toContainText("Deactivate");
     await deactivateBtn.click();
 
@@ -178,11 +189,11 @@ test.describe("M3.5: Built-in Auto-Balance Agent", () => {
     await page.locator(".agents-toggle").click();
 
     // Built-in module should be visible
-    await expect(page.locator(".module-item.builtin")).toBeVisible();
-    // Should NOT have a delete button
-    await expect(
-      page.locator(".module-item.builtin .delete-btn"),
-    ).not.toBeVisible();
+    await expect(page.locator(".module-item.builtin")).toHaveCount(
+      BUILTIN_AGENTS.length,
+    );
+    // No built-in may be deletable.
+    await expect(page.locator(".module-item.builtin .delete-btn")).toHaveCount(0);
 
     t.assertNoErrors();
   });

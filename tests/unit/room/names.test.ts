@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getRoomName } from "$lib/room/names";
+import { getRoomName, isValidRoomId } from "$lib/room/names";
 
 describe("getRoomName", () => {
   describe("Determinism", () => {
@@ -236,4 +236,56 @@ describe("getRoomName", () => {
       }
     });
   });
+});
+
+describe('isValidRoomId', () => {
+	// A malformed ID used to reach getRoomName() during SSR and throw, which
+	// SvelteKit turned into a 500. These are the shapes that did it.
+	it('accepts a canonical 32-char lowercase hex id', () => {
+		expect(isValidRoomId('a3f2b8c1d4e5f6a7b8c9d0e1f2a3b4c5')).toBe(true);
+	});
+
+	it('rejects the id shape that produced HTTP 500', () => {
+		expect(isValidRoomId('multi-tab-a-1788197960473')).toBe(false);
+	});
+
+	it('rejects a truncated id', () => {
+		expect(isValidRoomId('a3f2b8c1')).toBe(false);
+	});
+
+	it('rejects an over-long id', () => {
+		expect(isValidRoomId('a'.repeat(33))).toBe(false);
+	});
+
+	it('rejects uppercase hex', () => {
+		expect(isValidRoomId('A3F2B8C1D4E5F6A7B8C9D0E1F2A3B4C5')).toBe(false);
+	});
+
+	it('rejects non-hex characters', () => {
+		expect(isValidRoomId('g3f2b8c1d4e5f6a7b8c9d0e1f2a3b4c5')).toBe(false);
+	});
+
+	it('rejects empty string and non-strings', () => {
+		expect(isValidRoomId('')).toBe(false);
+		expect(isValidRoomId(undefined)).toBe(false);
+		expect(isValidRoomId(null)).toBe(false);
+		expect(isValidRoomId(123)).toBe(false);
+	});
+
+	it('accepts every id the homepage generates', () => {
+		// Mirrors createRoom() in src/routes/+page.svelte.
+		for (let i = 0; i < 50; i++) {
+			const bytes = crypto.getRandomValues(new Uint8Array(16));
+			const id = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+			expect(isValidRoomId(id)).toBe(true);
+		}
+	});
+
+	it('every valid id is safe for getRoomName', () => {
+		for (let i = 0; i < 50; i++) {
+			const bytes = crypto.getRandomValues(new Uint8Array(16));
+			const id = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+			expect(() => getRoomName(id)).not.toThrow();
+		}
+	});
 });

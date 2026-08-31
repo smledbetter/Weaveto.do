@@ -30,6 +30,8 @@ import {
 
 import { padMessage, unpadMessage } from "$lib/crypto/padding";
 
+import { DeliveryTracker } from "./delivery";
+
 import type { TaskEvent } from "$lib/tasks/types";
 
 import type {
@@ -152,6 +154,9 @@ export class RoomSession {
   private reestablishing = false;
   private pendingKeyExchanges = new Set<string>();
 
+  private deliveryTracker = new DeliveryTracker();
+  private onMigrationHandler?: (newRoomUrl: string, tasks: any[]) => void;
+
   // Olm sessions with other members (keyed by their identity key)
   private olmSessions = new Map<string, OlmSession>();
 
@@ -175,6 +180,7 @@ export class RoomSession {
   private onError: ErrorHandler | null = null;
   private onReestablishing: ReestablishingHandler | null = null;
   private onDecryptFailure: DecryptFailureHandler | null = null;
+  private syncHandler: ((events: TaskEvent[]) => void) | null = null;
 
   constructor(
     roomId: string,
@@ -210,6 +216,9 @@ export class RoomSession {
   setDecryptFailureHandler(handler: DecryptFailureHandler) {
     this.onDecryptFailure = handler;
   }
+  setSyncHandler(handler: (events: TaskEvent[]) => void): void {
+    this.syncHandler = handler;
+  }
 
   getIdentityKey(): string {
     return this.identityKey;
@@ -228,6 +237,37 @@ export class RoomSession {
   }
   getIsCreator(): boolean {
     return this.isCreator;
+  }
+  getDeliveryTracker(): DeliveryTracker {
+    return this.deliveryTracker;
+  }
+
+  setMigrationHandler(handler: (newRoomUrl: string, tasks: any[]) => void): void {
+    this.onMigrationHandler = handler;
+  }
+
+  async sendMigrationMessage(newRoomUrl: string, tasks: any[]): Promise<void> {
+    if (!this.ws || !this.outboundSession) return;
+
+    const payload = JSON.stringify({
+      migration: { newRoomUrl, tasks },
+      sender: this.identityKey,
+      senderName: this.displayName,
+      sequence: this.deliveryTracker.nextSequence(),
+    });
+
+    const paddedPayload = padMessage(payload);
+    const ciphertext = megolmEncrypt(this.outboundSession, paddedPayload);
+
+    const msg: EncryptedMessage = {
+      type: "encrypted",
+      senderIdentityKey: this.identityKey,
+      sessionId: getGroupSessionId(this.outboundSession),
+      ciphertext,
+      timestamp: Date.now(),
+    };
+
+    this.ws.send(JSON.stringify(msg));
   }
 
   /**
@@ -353,6 +393,9 @@ export class RoomSession {
       this.reconnectAttempts = 0;
       this.onConnectionChanged?.(true);
 
+      // Reset delivery tracker — sequence numbers restart after every reconnect.
+      this.deliveryTracker.reset();
+
       // Clear stale Olm sessions — they are invalid after a disconnect because
       // the server's OTK registry has been refreshed. New inbound sessions will
       // be established via key_share messages after the member list arrives.
@@ -420,6 +463,7 @@ export class RoomSession {
       text: plaintext,
       sender: this.identityKey,
       senderName: this.displayName,
+      sequence: this.deliveryTracker.nextSequence(),
     });
 
     // Pad to fixed block size before encryption to prevent length correlation
@@ -448,6 +492,34 @@ export class RoomSession {
   }
 
   /**
+   * Send event history to all room members via encrypted channel.
+   * Used on reconnect to sync missed events.
+   */
+  sendSyncEvents(events: TaskEvent[]): void {
+    if (!this.outboundSession || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (events.length === 0) return;
+
+    const payload = JSON.stringify({
+      sender: this.identityKey,
+      senderName: this.displayName,
+      syncEvents: events,
+      sequence: this.deliveryTracker.nextSequence(),
+    });
+
+    const paddedPayload = padMessage(payload);
+    const ciphertext = megolmEncrypt(this.outboundSession, paddedPayload);
+
+    const msg: EncryptedMessage = {
+      type: "encrypted",
+      senderIdentityKey: this.identityKey,
+      sessionId: this.outboundSessionId,
+      ciphertext,
+      timestamp: Date.now(),
+    };
+    this.ws.send(JSON.stringify(msg));
+  }
+
+  /**
    * Send an encrypted task event to the room.
    */
   sendTaskEvent(taskEvent: TaskEvent): void {
@@ -464,6 +536,7 @@ export class RoomSession {
       sender: this.identityKey,
       senderName: this.displayName,
       taskEvent,
+      sequence: this.deliveryTracker.nextSequence(),
     });
 
     const paddedPayload = padMessage(payload);
@@ -868,10 +941,16 @@ export class RoomSession {
         sender: string;
         senderName: string;
         taskEvent?: TaskEvent;
+        syncEvents?: TaskEvent[];
+        sequence?: number;
         rotateKeys?: {
           newSessionId: string;
           previousSessionId: string;
           reason: string;
+        };
+        migration?: {
+          newRoomUrl: string;
+          tasks: any[];
         };
       };
 
@@ -885,6 +964,19 @@ export class RoomSession {
 
       // Track last message time for recency-weighted assignment
       this.lastMessageTimes.set(trustedSenderId, msg.timestamp);
+
+      // Track incoming sequence numbers to detect gaps
+      if (payload.sequence !== undefined && payload.sender) {
+        this.deliveryTracker.checkReceived(payload.sender, payload.sequence);
+      }
+
+      // Handle migration messages
+      if (payload.migration) {
+        if (this.onMigrationHandler) {
+          this.onMigrationHandler(payload.migration.newRoomUrl, payload.migration.tasks);
+        }
+        return;
+      }
 
       // Check for rotation signal
       if (payload.rotateKeys) {
@@ -905,6 +997,10 @@ export class RoomSession {
           decryptionFailed: false,
         });
         return;
+      }
+
+      if (payload.syncEvents && Array.isArray(payload.syncEvents)) {
+        this.syncHandler?.(payload.syncEvents);
       }
 
       this.onMessage?.({
@@ -960,6 +1056,60 @@ export class RoomSession {
       generateOneTimeKeys(this.account, OTK_REPLENISH_COUNT);
       markKeysAsPublished(this.account);
     }
+  }
+
+  /**
+   * Return the HTTP origin of the relay server (for REST endpoints like /vapid-key).
+   * Derives the origin from the same logic as the WebSocket URL.
+   */
+  getRelayOrigin(): string {
+    const envUrl = import.meta.env.VITE_RELAY_URL;
+    if (envUrl) {
+      // Convert ws(s):// to http(s)://
+      return envUrl.replace(/^ws:/, "http:").replace(/^wss:/, "https:");
+    }
+    const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+    const host = window.location.hostname;
+    const port = 3001;
+    return `${protocol}//${host}:${port}`;
+  }
+
+  /**
+   * Send push subscription to relay for server-side push delivery.
+   */
+  sendPushSubscription(subscription: {
+    endpoint?: string;
+    keys?: { p256dh?: string; auth?: string };
+  }): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(
+      JSON.stringify({
+        type: "push_subscribe",
+        subscription: {
+          endpoint: subscription.endpoint,
+          keys: {
+            p256dh: subscription.keys?.p256dh,
+            auth: subscription.keys?.auth,
+          },
+        },
+        roomId: this.roomId,
+        identityKey: this.identityKey,
+      }),
+    );
+  }
+
+  /**
+   * Tell relay to remove the push subscription for this identity in this room.
+   */
+  sendPushUnsubscription(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(
+      JSON.stringify({
+        type: "push_unsubscribe",
+        roomId: this.roomId,
+        identityKey: this.identityKey,
+      }),
+    );
   }
 
   private getWebSocketUrl(): string {
