@@ -21,7 +21,7 @@
 - ~~M3: Agent Infrastructure~~ — WASM sandbox, encrypted state, host functions, circuit breaker
 - ~~M4: Built-In Agents~~ — WAT auto-balance agent, built-in registry
 - ~~M5: Task Polish~~ — Descriptions, sorting, urgent flag, search
-- ~~M6: Burn-After-Use~~ — Auto-deletion, manual burn, ephemeral mode, relay purge
+- ~~M6: Burn-After-Use~~ — Auto-deletion, manual burn, ephemeral mode. The relay purge step was removed when the relay became stateless, and burn became an encrypted message between members.
 - ~~M7: Session Security~~ — PIN gate, PBKDF2, session lock, key rotation
 - ~~M8: Agent Hardening~~ — Web Worker preemption, Ed25519 signatures, event validation
 

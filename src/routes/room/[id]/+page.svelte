@@ -57,6 +57,16 @@ import { TabSync } from '$lib/room/tab-sync';
 	let session: RoomSession | null = $state(null);
 	let messages: DecryptedMessage[] = $state([]);
 	let members: Map<string, RoomMember> = $state(new Map());
+	/**
+	 * Shown when someone who did not create this room is the only one in it on
+	 * arrival. Two very different things look identical from here: a link to a
+	 * room that expired, and a room whose members have not finished reconnecting
+	 * after a relay restart. The relay keeps no room state, so it cannot tell
+	 * them apart either. Say what is true and let the person stay.
+	 */
+	let joinedEmptyRoom = $state(false);
+	/** Someone else showed up, so the link was good. Stop second-guessing it. */
+	let joinedEmptyRoomResolved = $state(false);
 	let connected = $state(false);
 	let messageInput = $state('');
 	let displayName = $state('');
@@ -739,6 +749,18 @@ import { TabSync } from '$lib/room/tab-sync';
 
 			roomSession.setMembersHandler((m) => {
 				members = new Map(m);
+
+				// The relay reports whether the room existed before this join. A
+				// creator is supposed to be first, so the flag only means something
+				// for everyone else.
+				if (!isCreator && !joinedEmptyRoomResolved && roomSession.getFirstJoinFoundRoom() === false) {
+					if (m.size > 0) {
+						joinedEmptyRoomResolved = true;
+						joinedEmptyRoom = false;
+					} else {
+						joinedEmptyRoom = true;
+					}
+				}
 			});
 
 			roomSession.setErrorHandler((err) => {
@@ -795,6 +817,15 @@ import { TabSync } from '$lib/room/tab-sync';
 					taskStore.applyEvent(event);
 				}
 				refreshTaskList();
+			});
+
+			// Another member burned the room. Destroy our copy the same way we
+			// would for a burn we initiated, then leave.
+			roomSession.setBurnHandler(() => {
+				roomDeleted = true;
+				cleanupRoom(roomId, roomSession, tabSync ?? undefined).finally(() => {
+					setTimeout(() => { window.location.href = '/?deleted=true'; }, 1500);
+				});
 			});
 
 			roomSession.setMigrationHandler((newRoomUrl: string, _tasks: any[]) => {
@@ -953,7 +984,10 @@ import { TabSync } from '$lib/room/tab-sync';
 		burnError = '';
 		try {
 			if (session) {
-				await session.sendPurgeRequest();
+				// Tell the other members to destroy their copies, then destroy
+				// ours. The relay is not involved and never learns this happened.
+				session.sendBurnInstruction();
+				await new Promise((r) => setTimeout(r, 250));
 				await cleanupRoom(roomId, session, tabSync ?? undefined);
 			}
 			// Clear notification preferences on room destruction
@@ -978,7 +1012,10 @@ import { TabSync } from '$lib/room/tab-sync';
 		burnError = '';
 		try {
 			if (session) {
-				await session.sendPurgeRequest();
+				// Tell the other members to destroy their copies, then destroy
+				// ours. The relay is not involved and never learns this happened.
+				session.sendBurnInstruction();
+				await new Promise((r) => setTimeout(r, 250));
 				await cleanupRoom(roomId, session, tabSync ?? undefined);
 			}
 			// Clear notification preferences on room destruction
@@ -1018,8 +1055,9 @@ import { TabSync } from '$lib/room/tab-sync';
 		// Brief delay for message delivery
 		await new Promise(r => setTimeout(r, 200));
 
-		// Purge old room
-		await session.sendPurgeRequest();
+		// Burn the old room for everyone who is still in it.
+		session.sendBurnInstruction();
+		await new Promise((r) => setTimeout(r, 250));
 
 		// Store migration flag and tasks for replay in the new room
 		sessionStorage.setItem('weave-migration-banner', 'true');
@@ -1176,6 +1214,12 @@ import { TabSync } from '$lib/room/tab-sync';
 				<div class="warning-banner" role="alert">
 					<p>Your encryption keys live only in this tab. If you close it, you'll need to rejoin.</p>
 					<button onclick={dismissKeyWarning}>Got it</button>
+				</div>
+			{/if}
+			{#if joinedEmptyRoom}
+				<div class="warning-banner stale-link" role="status">
+					<p>Nobody else is here yet. If you were expecting people, this invite link may have expired.</p>
+					<button onclick={() => { joinedEmptyRoom = false; }}>Dismiss</button>
 				</div>
 			{/if}
 			{#if usingTempIdentity && !walkthroughCompleted}

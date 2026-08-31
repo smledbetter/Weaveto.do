@@ -68,10 +68,21 @@ export interface RoomClient {
   displayName: string;
 }
 
+/**
+ * A room is the set of connections currently holding it, and nothing else.
+ *
+ * It is a derived view, not a record. The relay keeps this index to route
+ * messages, but losing it costs only a reconnect: any well-formed join
+ * reconstitutes the room from whoever arrives. That is what makes a restart
+ * survivable and what lets a second process serve a different room without
+ * any shared store.
+ *
+ * There is deliberately no creator and no ephemeral flag. Ephemeral mode is a
+ * client behaviour, and burn is an encrypted message between members that the
+ * relay never sees. See docs/RELAY-DESIGN.md.
+ */
 export interface Room {
   clients: Map<string, RoomClient>;
-  creatorIdentityKey?: string;
-  ephemeral?: boolean;
 }
 
 /**
@@ -155,8 +166,6 @@ interface ValidatedJoinMessage {
   ed25519Key: string;
   oneTimeKeys: Record<string, string>;
   displayName: string;
-  create?: boolean;
-  ephemeral?: boolean;
 }
 
 interface ValidatedKeyShareMessage {
@@ -174,16 +183,10 @@ interface ValidatedEncryptedMessage {
   timestamp: number;
 }
 
-interface ValidatedPurgeMessage {
-  type: "purge";
-  identityKey: string;
-}
-
 type ValidatedMessage =
   | ValidatedJoinMessage
   | ValidatedKeyShareMessage
   | ValidatedEncryptedMessage
-  | ValidatedPurgeMessage
   | ValidatedPushSubscribeMessage
   | ValidatedPushUnsubscribeMessage;
 
@@ -231,10 +234,8 @@ function validateMessage(raw: unknown): ValidatedMessage | null {
       if (!isNonEmptyString(raw.displayName, MAX_DISPLAY_NAME_LENGTH))
         return null;
       if (!validateOneTimeKeys(raw.oneTimeKeys)) return null;
-      if (raw.create !== undefined && typeof raw.create !== "boolean")
-        return null;
-      if (raw.ephemeral !== undefined && typeof raw.ephemeral !== "boolean")
-        return null;
+      // `create` and `ephemeral` are accepted and ignored for older clients.
+      // Any join reconstitutes the room, and ephemeral mode is client-side.
       return raw as unknown as ValidatedJoinMessage;
     }
     case "key_share": {
@@ -256,11 +257,6 @@ function validateMessage(raw: unknown): ValidatedMessage | null {
       if (!isNonEmptyString(raw.ciphertext, MAX_CIPHERTEXT_LENGTH)) return null;
       if (!isNumber(raw.timestamp)) return null;
       return raw as unknown as ValidatedEncryptedMessage;
-    }
-    case "purge": {
-      if (!isNonEmptyString(raw.identityKey, MAX_IDENTITY_KEY_LENGTH))
-        return null;
-      return raw as unknown as ValidatedPurgeMessage;
     }
     case "push_subscribe": {
       if (!isNonEmptyString(raw.roomId, 32)) return null;
@@ -623,9 +619,6 @@ function handleMessage(
     case "encrypted":
       handleEncrypted(roomId, msg, client);
       break;
-    case "purge":
-      handlePurge(roomId, ws, msg, client);
-      break;
     case "push_subscribe":
       handlePushSubscribe(msg, client);
       break;
@@ -641,26 +634,24 @@ function handleJoin(
   msg: ValidatedJoinMessage,
   setClient: (c: RoomClient) => void,
 ): void {
-  // Look up or create room
+  // Any well-formed join reconstitutes the room. The room ID is 128 bits of
+  // client-generated randomness and the relay holds no secret about it, so
+  // there is nothing for the relay to authorise here — it is a routing key.
+  //
+  // This is what makes a restart survivable: members reconnect, the first one
+  // back recreates the routing entry, and the rest join it. Refusing a join
+  // for a room the relay has forgotten is how a deploy used to end every
+  // conversation with "this room does not exist or has expired".
   let room = rooms.get(roomId);
+  const roomExisted = room !== undefined;
+
   if (!room) {
-    if (!msg.create) {
-      // Room doesn't exist and this isn't a creation request
-      ws.send(JSON.stringify({ type: "room_not_found" }));
-      ws.close(4004, "Room not found");
-      return;
-    }
-    // Enforce room count limit
     if (rooms.size >= MAX_ROOMS) {
       ws.send(JSON.stringify({ type: "server_full" }));
       ws.close(4008, "Server full");
       return;
     }
-    room = {
-      clients: new Map(),
-      creatorIdentityKey: msg.identityKey,
-      ephemeral: msg.ephemeral ?? false,
-    };
+    room = { clients: new Map() };
     rooms.set(roomId, room);
   }
 
@@ -712,10 +703,14 @@ function handleJoin(
     }
   }
 
+  // `roomExisted` lets the client tell "you are the first one here" from "you
+  // joined four people". Without it a stale link would silently drop someone
+  // into an empty room instead of saying the room has expired.
   ws.send(
     JSON.stringify({
       type: "member_list",
       members: memberList,
+      roomExisted,
     }),
   );
 }
@@ -775,51 +770,6 @@ function handleEncrypted(
       });
     }
   }
-}
-
-function handlePurge(
-  roomId: string,
-  ws: WebSocket,
-  msg: ValidatedPurgeMessage,
-  client: RoomClient | null,
-): void {
-  const room = rooms.get(roomId);
-  if (!room) {
-    ws.close(4004, "Room not found");
-    return;
-  }
-
-  // Only the creator can purge — use the connection's actual identity, not self-reported msg.identityKey
-  if (room.creatorIdentityKey !== client?.identityKey) {
-    ws.send(JSON.stringify({ type: "purge_unauthorized" }));
-    return;
-  }
-
-  // Broadcast destruction to all clients
-  const destroyMsg = JSON.stringify({
-    type: "room_destroyed",
-    reason: "manual",
-  });
-
-  for (const [, c] of room.clients) {
-    if (c.ws.readyState === WebSocket.OPEN) {
-      c.ws.send(destroyMsg);
-    }
-  }
-
-  // Delete room from registry and clean up push subscriptions
-  deleteRoomState(roomId, rooms, pushSubscriptions);
-
-  // Close all client connections after a short delay
-  // to allow clients to process the room_destroyed message
-  const clientsToClose = Array.from(room.clients.values());
-  setTimeout(() => {
-    for (const c of clientsToClose) {
-      if (c.ws.readyState === WebSocket.OPEN) {
-        c.ws.close(4000, "Room purged");
-      }
-    }
-  }, 100);
 }
 
 function handlePushSubscribe(

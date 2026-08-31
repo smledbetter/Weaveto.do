@@ -24,7 +24,21 @@ export default defineConfig({
           permissions: ['clipboard-read', 'clipboard-write'],
         },
       },
-      testIgnore: /mobile-layout|mobile-layout-extended|identity-integration|member-mesh/,
+      testIgnore: /mobile-layout|mobile-layout-extended|identity-integration|member-mesh|relay-restart/,
+    },
+    {
+      // Takes the relay port over to kill and restart it, so it cannot share
+      // a relay with anything else. Note that its own project and one worker
+      // are NOT what isolates it: Playwright schedules projects concurrently
+      // regardless, and a per-project worker cap does not change that. The
+      // isolation comes from being run in a separate invocation — see the
+      // test:e2e:shared and test:e2e:restart scripts, and the CI job matrix,
+      // both pinned by tests/unit/e2e-project-coverage.test.ts.
+      name: 'relay-restart',
+      testMatch: /relay-restart/,
+      fullyParallel: false,
+      workers: 1,
+      use: { ...devices['Desktop Chrome'] },
     },
     {
       // Full-mesh encryption runs several browser contexts at once and needs
