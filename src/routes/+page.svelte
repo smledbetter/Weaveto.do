@@ -18,7 +18,14 @@
 
 	$effect(() => {
 		if (browser) {
-			webauthnSupported = isWebAuthnSupported();
+			// When WebAuthn is bypassed the app derives a random seed instead and
+			// works without it, so gating the only entry point on API presence
+			// turned users away from a flow that would have worked. Browsers
+			// without PublicKeyCredential — headless WebKit among them — saw the
+			// unsupported notice and no way to create a room at all.
+			const bypassed =
+				import.meta.env.DEV || import.meta.env.VITE_WEBAUTHN_BYPASS === 'true';
+			webauthnSupported = bypassed || isWebAuthnSupported();
 		}
 	});
 
