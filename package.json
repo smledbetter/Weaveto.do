@@ -7,6 +7,7 @@
     "dev": "vite dev",
     "relay": "tsx server/relay.ts",
     "dev:all": "npm run relay & npm run dev",
+    "loadtest": "tsx tools/loadtest/run.ts",
     "build": "vite build",
     "preview": "vite preview",
     "prepare": "svelte-kit sync || echo ''",
