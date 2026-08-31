@@ -86,7 +86,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [chromium, mobile-iphone, mobile-pixel]
+        project: [chromium, mesh, mobile-iphone, mobile-pixel]
     steps:
       - uses: actions/checkout@v4
 

@@ -24,7 +24,18 @@ export default defineConfig({
           permissions: ['clipboard-read', 'clipboard-write'],
         },
       },
-      testIgnore: /mobile-layout|mobile-layout-extended|identity-integration/,
+      testIgnore: /mobile-layout|mobile-layout-extended|identity-integration|member-mesh/,
+    },
+    {
+      // Full-mesh encryption runs several browser contexts at once and needs
+      // the local relay to itself. Sharing workers with the rest of the suite
+      // starves the join handshake and produces setup flake that looks like a
+      // crypto failure. Its own project, one worker.
+      name: 'mesh',
+      testMatch: /member-mesh/,
+      fullyParallel: false,
+      workers: 1,
+      use: { ...devices['Desktop Chrome'] },
     },
     {
       name: 'mobile-iphone',

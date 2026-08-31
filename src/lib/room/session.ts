@@ -131,7 +131,62 @@ type ServerMessage =
 // --- OTK replenishment thresholds ---
 
 const OTK_REPLENISH_THRESHOLD = 5;
-const OTK_REPLENISH_COUNT = 10;
+const OTK_REPLENISH_COUNT = 20;
+
+/**
+ * One-time keys published on join.
+ *
+ * Each existing member consumes a DIFFERENT one of these when a new member
+ * arrives (see selectOneTimeKey), so this is also the number of existing
+ * members that can establish a channel with a joiner without collision.
+ * The relay caps a join at MAX_ONE_TIME_KEYS = 20, so 20 is the ceiling
+ * available without a protocol change. Rooms larger than this can still
+ * collide; MAX_CLIENTS_PER_ROOM is 50.
+ */
+const OTK_PUBLISH_COUNT = 20;
+
+/**
+ * Choose which of a joiner's one-time keys this member should consume.
+ *
+ * Olm one-time keys are single use: the recipient's `create_inbound_session`
+ * consumes the key the sender used. Every existing member used to take
+ * `Object.values(oneTimeKeys)[0]` — the same key — so the first key share to
+ * arrive consumed it and every later one threw inside a silent catch. In a
+ * three-person room that meant the two non-creators could never read each
+ * other, which held for nineteen milestones because the only multi-member
+ * test asserted pairs involving the room creator.
+ *
+ * Each member claims the key at its own index in the sorted list of members
+ * that already hold the room. Every member derives the same list from its own
+ * view, so the assignment is disjoint with no coordination and no extra
+ * round trip.
+ *
+ * @param oneTimeKeys - the joiner's published keys, id -> key
+ * @param selfKey     - this member's Curve25519 identity key
+ * @param peerKeys    - identity keys of the other members already in the room,
+ *                      excluding the joiner
+ * @returns the key to use, or null if the joiner published none
+ */
+export function selectOneTimeKey(
+  oneTimeKeys: Record<string, string>,
+  selfKey: string,
+  peerKeys: string[],
+): string | null {
+  // Sort by key id so every member walks the same order, independent of how
+  // the JSON round-trip happened to order the object.
+  const keys = Object.keys(oneTimeKeys)
+    .sort()
+    .map((id) => oneTimeKeys[id]);
+  if (keys.length === 0) return null;
+
+  const holders = [selfKey, ...peerKeys.filter((k) => k !== selfKey)].sort();
+  const index = holders.indexOf(selfKey);
+
+  // Wraps when the room is larger than the published key count, which
+  // reintroduces collisions past OTK_PUBLISH_COUNT members. Better than every
+  // member colliding on key zero, and the remaining gap is explicit.
+  return keys[(index < 0 ? 0 : index) % keys.length];
+}
 
 // --- Room Session ---
 
@@ -310,7 +365,7 @@ export class RoomSession {
     this.ed25519Key = keys.ed25519;
 
     // Generate one-time keys for key exchange
-    generateOneTimeKeys(this.account, 10);
+    generateOneTimeKeys(this.account, OTK_PUBLISH_COUNT);
     const oneTimeKeys = getOneTimeKeys(this.account);
     markKeysAsPublished(this.account);
 
@@ -411,7 +466,7 @@ export class RoomSession {
       this.onReestablishing?.(true);
 
       // Re-generate one-time keys for key exchange with existing members
-      generateOneTimeKeys(this.account!, 10);
+      generateOneTimeKeys(this.account!, OTK_PUBLISH_COUNT);
       const oneTimeKeys = getOneTimeKeys(this.account!);
       markKeysAsPublished(this.account!);
 
@@ -786,8 +841,15 @@ export class RoomSession {
     });
     this.onMembersChanged?.(this.members);
 
-    // Create Olm session to new member and share our Megolm session key
-    const theirOTK = Object.values(msg.oneTimeKeys)[0];
+    // Create Olm session to new member and share our Megolm session key.
+    // Claim a one-time key no other existing member will claim — see
+    // selectOneTimeKey. `members` already contains the joiner at this point,
+    // so exclude them from the holder list.
+    const theirOTK = selectOneTimeKey(
+      msg.oneTimeKeys,
+      this.identityKey,
+      [...this.members.keys()].filter((k) => k !== msg.identityKey),
+    );
     if (!theirOTK) return;
 
     try {
