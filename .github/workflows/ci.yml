@@ -116,6 +116,30 @@ jobs:
             test-results/
           retention-days: 7
 
+  relay-container:
+    name: Relay container boots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No npm ci here on purpose. The script needs only Node and Docker, both
+      # already on the runner, and an installed node_modules would be shipped
+      # into the Docker build context for no reason.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # The relay shipped a stale build for an entire milestone because nothing
+      # ever started the container. Building the image is not enough to catch
+      # it: the broken image built cleanly and failed at startup. This runs it
+      # and reads the body of /vapid-key.
+      #
+      # --selftest first asserts the check still fails against the one-file
+      # Dockerfile that caused the outage, so the check cannot rot into a
+      # green light that measures nothing.
+      - name: Build, run, and probe the relay container
+        run: npm run verify:container:selftest
+
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest
