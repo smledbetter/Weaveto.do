@@ -193,11 +193,13 @@ describe("checkAndReplenishOTKs — replenishment below threshold", () => {
 
     checkAndReplenish();
 
-    expect(mockGenerateOneTimeKeys).toHaveBeenCalledWith(s.account, 10);
+    // OTK_REPLENISH_COUNT tracks OTK_PUBLISH_COUNT (20): each existing member
+    // consumes a distinct key from a joiner, so the pool must cover the room.
+    expect(mockGenerateOneTimeKeys).toHaveBeenCalledWith(s.account, 20);
     expect(mockMarkKeysAsPublished).toHaveBeenCalledWith(s.account);
   });
 
-  it("replenishes with exactly OTK_REPLENISH_COUNT=10 keys", () => {
+  it("replenishes with exactly OTK_REPLENISH_COUNT=20 keys", () => {
     const s = session as unknown as Record<string, unknown>;
     s.account = {
       one_time_keys: () => new Map([["k1", "v1"]]), // count=1, well below threshold
@@ -210,7 +212,7 @@ describe("checkAndReplenishOTKs — replenishment below threshold", () => {
     checkAndReplenish();
 
     const [, count] = mockGenerateOneTimeKeys.mock.calls[0] as [unknown, number];
-    expect(count).toBe(10);
+    expect(count).toBe(20);
   });
 
   it("triggers replenishment when count is exactly 4 (one below threshold)", () => {
