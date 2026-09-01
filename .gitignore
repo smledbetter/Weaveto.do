@@ -41,3 +41,7 @@ vite.config.ts.timestamp-*
 .claude/tasks/
 nohup.out
 uluka-report.sarif
+
+# Written and removed by tests/unit/relay-build-id.test.ts. Ignored so a
+# crashed run cannot leave a committable file in the relay source directory.
+server/__stale_relay_probe*.ts

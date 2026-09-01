@@ -12,6 +12,11 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
 	testDir: "./tests/e2e",
 	testMatch: /identity-integration/,
+
+	// This config reuses the relay on 3001 the same way, so it can measure a
+	// relay that is no longer on disk the same way. See
+	// tests/e2e/utils/relay-build.ts.
+	globalSetup: "./tests/e2e/global-setup.ts",
 	fullyParallel: false, // Serial — room state matters
 	retries: 0,
 	workers: 1,
