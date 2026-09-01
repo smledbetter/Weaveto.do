@@ -1,5 +1,11 @@
 # M9 Implementation Plan: Encrypted Notifications
 
+> **Superseded.** This milestone was never built as specified. It planned expanded service worker notifications, a local rules UI, and Web Push as one unit. The work shipped split across two later milestones: `M14-local-notifications` and `M16-web-push`.
+>
+> The rules UI described below was cut deliberately. The shipped bell popover carries an on/off toggle and quiet hours and nothing else, with no urgency filter and no do-not-disturb, because a settings surface nobody asked for is a settings surface nobody reads.
+>
+> Kept as a record of intent. Read `docs/ROADMAP.md` for what shipped.
+
 ## Context
 
 After M8 (Vulnerability Scanning) validates the existing notification infrastructure (service worker generic payloads, IndexedDB reminder storage), M9 expands notification coverage to task assignments and status changes, adds local user controls, and introduces Web Push API for closed-browser delivery. This is the first milestone that adds a feature to the relay server since M0.

@@ -162,12 +162,12 @@ The app is deployed and works. The relay runs on Fly and the client on Vercel. `
 
 Summarised here, recorded in full in `docs/ROADMAP.md`, with per-milestone documents under `docs/milestones/`.
 
-**A note on numbering.** Two schemes are in use and neither is going to be renumbered, because the milestone directories are named after one of them and the sprint record after the other.
+**A note on numbering.** Two schemes are in use and neither is going to be renumbered, because the milestone directories are named after one of them and the sprint record after the other. The GitHub milestones follow the ROADMAP scheme, so the directories are the odd one out, two systems to one. `docs/milestones/README.md` carries the full mapping.
 
 - `docs/milestones/` and the record above number the early work `M0`, `M1`, `M2`, `M3`, `M3.5`, `M4`, `M5`, `M5.5`, `M6`, `M7`, `M8`.
 - `docs/ROADMAP.md` collapses `M3.5` into `M4`, omits `M5.5`, and so runs one ahead from that point on. What it calls `M9: Vulnerability Scanning` is the `M8` entry above, and the directory is `M8-vulnerability-scanning`.
 
-The two schemes agree again from `M11` onward. `M10` has no directory, and `M9-encrypted-notifications` is a planning directory for work that shipped later as `M14` and `M16`. When a number is ambiguous, the directory name is the one to trust.
+The two schemes agree again from `M11` onward, because the offset closes: the directories have an `M9` that ROADMAP does not, and ROADMAP has an `M10` that the directories do not. `M9-encrypted-notifications` planned notifications and Web Push as one milestone, and the work shipped split across `M14` and `M16`, so that directory is marked superseded. When a number is ambiguous, the directory name is the one to trust, because it is the name on disk.
 
 **M10 — UX and Accessibility** (Complete) — Header decluttered, coach marks, ARIA fixes, focus-visible rings, connection status label.
 
