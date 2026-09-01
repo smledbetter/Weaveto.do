@@ -40,6 +40,7 @@ Anyone who completes the Olm key exchange (via room link) can decrypt all room c
 | Console side-channel | Zero `console.*` policy in client code; generic notification bodies | M8 |
 | Cross-origin WebSocket hijack | Origin validation on upgrade | M8 |
 | Relay DoS / resource exhaustion | Per-connection rate limiting, room/connection/IP caps | M8 |
+| Relay aimed at internal addresses by a client (SSRF) | Push endpoints must be https, and the host is resolved at request time with the socket pinned to the checked address | P3 |
 
 ## Undefended Threats
 
@@ -126,6 +127,22 @@ Burn used to be a relay operation. The relay held the creator's identity key and
 **Why the exposure is smaller than it looks**: every member can already read everything, and the task list is an event log every member can already write to, so a member who wants to destroy the shared state can do so without a burn. Burn adds the ability to clear other people's *local* copies. It does not reach offline members, and it does not reach anyone's data on a device that is not currently in the room.
 
 **Mitigation path**: if this becomes real, the fix is a signed burn tied to an ed25519 key established at room creation and carried in the invite link, so authorization travels with the link rather than with relay state.
+
+## Push Endpoint Validation
+
+The relay POSTs to the endpoint a client supplies. Unchecked, that is a request the relay makes on the client's behalf, from inside the network it is deployed in, to an address the client could not reach itself. The response never goes back, so it is blind, but reachability is inferable from timing and anything acting on an unauthenticated POST can still be triggered. 169.254.169.254 is the address that matters most, because the cloud metadata service answers unauthenticated requests with credentials.
+
+Two checks, at two different times, because one time is not enough.
+
+**At subscribe time**, syntactically: the scheme must be `https:`, there must be no credentials in the URL, and a literal address must not be one of the unroutable ranges. A refusal closes the connection, the same as any other message the relay will not accept, so it is visible rather than silent.
+
+**At request time**, the hostname is resolved and every answer is checked, and the socket is pinned to the address that was checked. This is the part that matters. Validating a hostname when the subscription arrives and resolving it again when the request is sent is not a check at all, because the second answer can differ from the first and an attacker controls both. That gap is DNS rebinding. The guard is passed to the request as its `lookup` option, so the socket connects to exactly what the guard returned.
+
+It refuses when **any** answer is blocked rather than picking a public one out of a mixed set. A real push service has no reason to resolve to a private address, and quietly selecting the acceptable answer turns a clear refusal into a race an attacker can keep re-entering.
+
+Anything the classifier cannot parse is treated as blocked. The endpoint comes from an unauthenticated client, so an address it does not understand is a reason to refuse, not a reason to try.
+
+Covered by `tests/unit/push-endpoint.test.ts` and `tests/unit/push-lookup.test.ts`, and by the `blocked endpoints refused` check in `npm run loadtest -- --profile=push`.
 
 ## Review Cadence
 

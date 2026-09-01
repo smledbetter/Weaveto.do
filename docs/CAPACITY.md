@@ -339,9 +339,63 @@ Stated as gaps, not filled with estimates.
 4. **The file descriptor limit on a fly machine.** 5,000 connections needs 5,000 descriptors. Comfortable here; unverified there.
 5. **Sustained load.** The longest run is a few minutes. No answer on slow leaks over hours or days. The teardown check does show heap returning to 8.6 MiB after every connection closes, so nothing obvious retains per-connection state.
 6. **Realistic message mix.** Every probe is an `encrypted` frame with a 1 KiB ciphertext. Real traffic includes `key_share` during joins, which is routed to one target rather than broadcast, and larger task payloads.
-7. **Push notification fan-out.** `handleEncrypted` fires `sendPushNotification` for every subscribed member who is offline. No subscriptions existed in any run, so that path never ran. It is an outbound HTTPS request per absent member per message, and on the numbers above it deserves its own measurement.
+7. ~~**Push notification fan-out.**~~ Measured. See "The other fan-out" below.
 
 ---
+
+## The other fan-out
+
+`handleEncrypted` has a second amplifying path, and it is the one that leaves the machine. After relaying to every connected member it fires one outbound HTTPS request per subscribed member who is absent.
+
+Every figure above this section was measured with that path **dormant**. No load test had ever created a push subscription, so the code never executed. `npm run loadtest -- --profile=push` now drives it against a stub push service on this host, so the cost is real without depending on a third party.
+
+### What was wrong
+
+| | Before |
+|---|---|
+| Subscriptions per room | Unbounded. Keyed by identity, so it grew with every identity that had ever subscribed while the room lived, not with the member count. `MAX_CLIENTS_PER_ROOM` did not bound it. |
+| Push rate | The message rate multiplied by the absent subscribers. No limit of any kind. |
+| Requests in flight | Unbounded. Fire-and-forget fetches that nothing awaited and nothing counted. |
+
+The push also carries no payload. `sendPushNotification` posts an empty body, so twenty messages produced twenty identical contentless notifications: twenty outbound HTTPS requests to tell one person the same thing once.
+
+### What it does now
+
+| Constant | Value | Why |
+|---|---:|---|
+| `MAX_PUSH_SUBS_PER_ROOM` | `MAX_CLIENTS_PER_ROOM` | A subscription is only useful to a member, and a room can never hold more members than that at once. Full means evict the oldest, not refuse the newest: refusing hands every slot to identities that already left. |
+| `PUSH_COOLDOWN_MS` | 30,000 | Bounds the push rate independently of the message rate. This is the property that matters, because without it one busy room is an unbounded outbound request rate against a third party. |
+| `MAX_PUSH_IN_FLIGHT` | 64 | Push is best-effort, so shedding past the ceiling is correct rather than a compromise. |
+
+### Measured
+
+`npm run loadtest -- --profile=push`. The relay is started by the harness on this host, because the stub push service has to be reachable from it.
+
+| Check | Expected | Observed |
+|---|---:|---:|
+| Pushes to one absent subscriber over 12 messages in 3 seconds | 1 | **1** |
+| Subscriptions surviving after 15 identities subscribe to one room | 10 | **10** |
+| Peak concurrent push requests with 80 due at once | at most 64 | **64** |
+| Pushes to a subscription the service reported 410 Gone | 1 | **1** |
+| Endpoints the relay must never POST to, refused when offered | 5 | **5** |
+
+The in-flight figure is worth reading carefully. 80 requests were due and the stub held each response open for 1.5 seconds, so the load was well past the ceiling and the ceiling is what stopped it. A lower number would have meant the probe was too weak to reach it.
+
+### What this profile does not measure
+
+The relay refuses a push endpoint that is not https, and refuses any host resolving to an address that is not publicly routable. That is deliberate, and it means the harness cannot point subscriptions at a plain stub on loopback any more.
+
+Subscriptions are registered under a real https URL, and the load-test hook gives requests for that one hostname a socket to the harness's stub instead of a TLS socket to the internet. The relay is neither edited nor imported, and nothing in it relaxes its own validation.
+
+The cost, stated plainly: the connection is replaced, so this measures the fan-out decisions and **not** the address guard or TLS. The address guard is pure logic and is covered by `tests/unit/push-endpoint.test.ts` and `tests/unit/push-lookup.test.ts`. Do not read a push profile run as evidence that the guard works. The one thing here that does exercise it is the refusal check, which offers blocked endpoints and confirms they are rejected at subscribe time.
+
+Worth recording how the hook had to be written. Patching `https.request` does not work: named exports of a builtin are snapshotted when an importing module is instantiated, so assigning to the module leaves `import * as https` consumers calling the original, and an ESM namespace cannot be assigned to at all. A hook written that way fails silently and the profile reports zero pushes against a working relay. The agent object is ordinary and mutable and is looked up at request time, so patching that takes effect. This was checked before it was relied on, rather than after the numbers looked wrong.
+
+### One behaviour worth knowing
+
+Push subscriptions do not survive an empty room. A room is deleted the moment its last client disconnects, and `deleteRoomState` takes its subscriptions with it. So a room everyone has left notifies nobody when the next message arrives, which cannot happen anyway because there is no one there to send it.
+
+This is a consequence of the relay holding no state, not a defect, but it does mean push only works while at least one member is connected. It also cost a probe: the first version of the subscription-cap check had its subscribers leave an empty room, so every subscription was deleted and the check measured zero pushes against a working relay.
 
 ## The harness
 

@@ -123,8 +123,16 @@ describe('VAPID', () => {
   // -------------------------------------------------------------------------
 
   describe('sendPushNotification', () => {
-    // A realistic-looking but fake subscription.  The test mock intercepts fetch
-    // before any real HTTP happens, so the values only need to be structurally valid.
+    // These used to mock global.fetch. sendPushNotification now uses node:https
+    // so it can pin the connection to an address it has checked, and the fetch
+    // mocks stopped intercepting anything. The tests did not fail loudly: they
+    // made real requests to fcm.googleapis.com, which answered 404 for a fake
+    // subscription, and every status assertion came back 'gone'.
+    //
+    // They run against a real HTTP server on this host instead, reached by
+    // replacing the connection the agent makes. That exercises the actual
+    // request construction rather than a mock's memory of it, and nothing
+    // leaves the machine.
     const mockSubscription: PushSubscriptionData = {
       endpoint: 'https://fcm.googleapis.com/fcm/send/test123',
       keys: {
@@ -133,87 +141,134 @@ describe('VAPID', () => {
       },
     };
 
+    interface Received {
+      method: string;
+      url: string;
+      headers: Record<string, string | string[] | undefined>;
+    }
+
+    let server: import('node:http').Server;
+    let stubPort = 0;
+    let received: Received[];
+    let status = 201;
+    let restore: (() => void) | null = null;
+
+    beforeEach(async () => {
+      const http = await import('node:http');
+      const net = await import('node:net');
+      const https = await import('node:https');
+
+      received = [];
+      status = 201;
+      server = http.createServer((req, res) => {
+        received.push({
+          method: req.method ?? '',
+          url: req.url ?? '',
+          headers: req.headers,
+        });
+        res.writeHead(status).end();
+      });
+      await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+      stubPort = (server.address() as import('node:net').AddressInfo).port;
+
+      // The global agent pools sockets. Each test gets a fresh stub on a new
+      // port, so a socket left over from the previous one points at a server
+      // that is already closed and the request fails for the wrong reason.
+      https.globalAgent.destroy();
+
+      const agent = https.globalAgent as unknown as { createConnection: unknown };
+      const original = agent.createConnection;
+      agent.createConnection = (_o: unknown, cb: unknown) =>
+        net.connect(stubPort, '127.0.0.1', cb as () => void);
+      restore = () => {
+        agent.createConnection = original;
+      };
+    });
+
+    afterEach(async () => {
+      const https = await import('node:https');
+      https.globalAgent.destroy();
+      restore?.();
+      restore = null;
+      await new Promise<void>((r) => server.close(() => r()));
+    });
+
+    /** The Authorization header the relay actually put on the wire. */
+    const authHeader = (): string => String(received[0].headers.authorization);
+
     it('returns "ok" when the push service responds with 201', async () => {
-      global.fetch = vi.fn().mockResolvedValue({ status: 201 });
-      const result = await sendPushNotification(mockSubscription, '');
-      expect(result).toBe('ok');
+      status = 201;
+      expect(await sendPushNotification(mockSubscription, '')).toBe('ok');
     });
 
     it('returns "gone" when the push service responds with 410', async () => {
-      global.fetch = vi.fn().mockResolvedValue({ status: 410 });
-      const result = await sendPushNotification(mockSubscription, '');
-      expect(result).toBe('gone');
+      status = 410;
+      expect(await sendPushNotification(mockSubscription, '')).toBe('gone');
     });
 
     it('returns "error" for any non-201/410 status code', async () => {
-      global.fetch = vi.fn().mockResolvedValue({ status: 429 });
-      const result = await sendPushNotification(mockSubscription, '');
-      expect(result).toBe('error');
+      status = 429;
+      expect(await sendPushNotification(mockSubscription, '')).toBe('error');
     });
 
-    it('returns "error" on network failure (fetch throws)', async () => {
-      global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
-      const result = await sendPushNotification(mockSubscription, '');
-      expect(result).toBe('error');
+    it('returns "error" when the connection fails', async () => {
+      // Close the stub but keep pointing at its port, so the connection is
+      // refused on loopback. Restoring the real connection instead would send
+      // this test to the internet, which is what the old fetch mocks ended up
+      // doing once they stopped intercepting anything.
+      await new Promise<void>((r) => server.close(() => r()));
+      expect(await sendPushNotification(mockSubscription, '')).toBe('error');
+      // Reopen so afterEach's close has something to close.
+      const http = await import('node:http');
+      server = http.createServer((_q, res) => res.writeHead(201).end());
+      await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
     });
 
-    it('sends a POST request to the subscription endpoint', async () => {
-      global.fetch = vi.fn().mockResolvedValue({ status: 201 });
+    it('refuses an endpoint it must never POST to, without connecting', async () => {
+      // The guard runs before anything is sent, so nothing reaches the stub.
+      const result = await sendPushNotification(
+        { ...mockSubscription, endpoint: 'http://fcm.googleapis.com/fcm/send/x' },
+        '',
+      );
+      expect(result).toBe('error');
+      expect(received).toHaveLength(0);
+    });
+
+    it('sends a POST to the subscription path', async () => {
       await sendPushNotification(mockSubscription, '');
-
-      const [url, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(url).toBe(mockSubscription.endpoint);
-      expect(options.method).toBe('POST');
+      expect(received).toHaveLength(1);
+      expect(received[0].method).toBe('POST');
+      expect(received[0].url).toBe('/fcm/send/test123');
     });
 
     it('includes a vapid Authorization header with correct format', async () => {
-      global.fetch = vi.fn().mockResolvedValue({ status: 201 });
       await sendPushNotification(mockSubscription, '');
-
-      const [, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      // RFC 8292 §4: vapid t=<JWT>, k=<public-key>
-      expect(options.headers.Authorization).toMatch(/^vapid t=.+, k=.+$/);
+      // RFC 8292 section 4: vapid t=<JWT>, k=<public-key>
+      expect(authHeader()).toMatch(/^vapid t=.+, k=.+$/);
     });
 
     it('Authorization header k= value matches the VAPID public key', async () => {
-      global.fetch = vi.fn().mockResolvedValue({ status: 201 });
       await sendPushNotification(mockSubscription, '');
-
-      const [, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      const pubKey = getVapidPublicKey();
-      expect(options.headers.Authorization).toContain(`k=${pubKey}`);
+      expect(authHeader()).toContain(`k=${getVapidPublicKey()}`);
     });
 
     it('sends Content-Length: 0 for a ping-only (empty payload) push', async () => {
-      global.fetch = vi.fn().mockResolvedValue({ status: 201 });
       await sendPushNotification(mockSubscription, '');
-
-      const [, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(options.headers['Content-Length']).toBe('0');
+      expect(received[0].headers['content-length']).toBe('0');
     });
 
     it('sets TTL header to 86400', async () => {
-      global.fetch = vi.fn().mockResolvedValue({ status: 201 });
       await sendPushNotification(mockSubscription, '');
-
-      const [, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(options.headers['TTL']).toBe('86400');
+      expect(received[0].headers['ttl']).toBe('86400');
     });
 
     it('JWT token contains three dot-separated base64url segments', async () => {
-      global.fetch = vi.fn().mockResolvedValue({ status: 201 });
       await sendPushNotification(mockSubscription, '');
-
-      const [, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      // Authorization: vapid t=<jwt>, k=<key>
-      const match = (options.headers.Authorization as string).match(/^vapid t=([^,]+), k=.+$/);
+      const match = authHeader().match(/^vapid t=([^,]+), k=.+$/);
       expect(match).not.toBeNull();
 
-      const jwt = match![1];
-      const parts = jwt.split('.');
+      const parts = match![1].split('.');
       expect(parts.length).toBe(3);
-
-      // Each part must be non-empty base64url
       for (const part of parts) {
         expect(part.length).toBeGreaterThan(0);
         expect(part).not.toContain('+');
@@ -222,28 +277,23 @@ describe('VAPID', () => {
     });
 
     it('JWT header decodes to { typ: "JWT", alg: "ES256" }', async () => {
-      global.fetch = vi.fn().mockResolvedValue({ status: 201 });
       await sendPushNotification(mockSubscription, '');
-
-      const [, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      const jwt = (options.headers.Authorization as string).match(/t=([^,]+)/)![1];
-      const headerJson = Buffer.from(jwt.split('.')[0], 'base64url').toString('utf8');
-      const header = JSON.parse(headerJson);
-
+      const jwt = authHeader().match(/t=([^,]+)/)![1];
+      const header = JSON.parse(
+        Buffer.from(jwt.split('.')[0], 'base64url').toString('utf8'),
+      );
       expect(header.typ).toBe('JWT');
       expect(header.alg).toBe('ES256');
     });
 
     it('JWT payload contains sub, aud, and exp fields', async () => {
-      global.fetch = vi.fn().mockResolvedValue({ status: 201 });
       await sendPushNotification(mockSubscription, '');
-
-      const [, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      const jwt = (options.headers.Authorization as string).match(/t=([^,]+)/)![1];
-      const payloadJson = Buffer.from(jwt.split('.')[1], 'base64url').toString('utf8');
-      const payload = JSON.parse(payloadJson);
-
+      const jwt = authHeader().match(/t=([^,]+)/)![1];
+      const payload = JSON.parse(
+        Buffer.from(jwt.split('.')[1], 'base64url').toString('utf8'),
+      );
       expect(payload.sub).toBeTruthy();
+      // The audience is the endpoint's origin, not the full URL.
       expect(payload.aud).toBe('https://fcm.googleapis.com');
       expect(typeof payload.exp).toBe('number');
     });
