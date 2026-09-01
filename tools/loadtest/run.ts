@@ -95,6 +95,7 @@ interface Args {
   verbose: boolean;
   /** Measure a relay this harness did not start, for example one in a container. */
   attach: string | null;
+  url: string | null;
   statusUrl: string | null;
   rssCommand: string | null;
   peakCommand: string | null;
@@ -108,6 +109,7 @@ function parseArgs(argv: string[]): Args {
     out: path.join(os.tmpdir(), "weaveto-loadtest"),
     verbose: false,
     attach: null,
+    url: null,
     statusUrl: null,
     rssCommand: null,
     peakCommand: null,
@@ -129,6 +131,9 @@ function parseArgs(argv: string[]): Args {
         break;
       case "verbose":
         args.verbose = true;
+        break;
+      case "url":
+        args.url = value ?? null;
         break;
       case "attach":
         args.attach = value ?? null;
@@ -156,6 +161,19 @@ function parseArgs(argv: string[]): Args {
   // different hook settings, so they cannot drive one somebody else started.
   // Accepting --attach and quietly ignoring it produced a run that looked like
   // it measured a container and did not.
+  if (args.url !== null) {
+    if (!/^wss?:\/\//.test(args.url)) {
+      throw new Error('--url takes a websocket origin, for example --url=wss://relay.example');
+    }
+    if (args.attach !== null) {
+      throw new Error("--url and --attach both name a relay. Use one.");
+    }
+    if (SELF_HOSTED_PROFILES.has(args.profile)) {
+      throw new Error(
+        `--profile=${args.profile} starts and restarts its own relay, so it cannot drive a remote one.`,
+      );
+    }
+  }
   if (args.attach !== null && SELF_HOSTED_PROFILES.has(args.profile)) {
     throw new Error(
       `--profile=${args.profile} starts and restarts its own relay, so it cannot attach to one. ` +
@@ -263,12 +281,23 @@ interface RunReport {
 }
 
 async function runRamp(profile: Profile, args: Args): Promise<RunReport> {
-  const attaching = args.attach !== null;
+  const remote = args.url !== null;
+  const attaching = args.attach !== null || remote;
   const port = attaching ? parseInt(args.attach as string, 10) : await choosePort(args.port);
   const statusPort = port + 1000;
 
   console.log(`\nprofile: ${profile.name} — ${profile.description}`);
-  if (attaching) {
+  if (remote) {
+    console.log(
+      `target: ${args.url} (${args.label ?? "unlabelled"}). Nothing about that relay is ` +
+        `observable from here, so there are no memory figures in this run.`,
+    );
+    console.log(
+      `note: every connection arrives from one address, so MAX_CONNECTIONS_PER_IP ` +
+        `(${RELAY_LIMITS.MAX_CONNECTIONS_PER_IP}) binds long before any capacity limit does. ` +
+        `A remote run measures latency and cap behaviour, not capacity.`,
+    );
+  } else if (attaching) {
     console.log(
       `target: an already-running relay on port ${port} (${args.label ?? "unlabelled"}). ` +
         `This harness did not start it and will not stop it.`,
@@ -286,11 +315,16 @@ async function runRamp(profile: Profile, args: Args): Promise<RunReport> {
     );
   }
 
+  const httpOrigin = remote
+    ? (args.url as string).replace(/^ws/, "http")
+    : `http://127.0.0.1:${port}`;
+
   const relay = attaching
     ? await attachRelay({
-        label: args.label ?? `relay on port ${port}`,
-        healthUrl: `http://127.0.0.1:${port}/`,
-        statusUrl: args.statusUrl ?? `http://127.0.0.1:${statusPort}/`,
+        label: args.label ?? (remote ? (args.url as string) : `relay on port ${port}`),
+        healthUrl: `${httpOrigin}/`,
+        // A remote relay exposes no status endpoint, and should not.
+        statusUrl: remote ? null : (args.statusUrl ?? `http://127.0.0.1:${statusPort}/`),
         rssCommand: args.rssCommand,
         peakCommand: args.peakCommand,
       })
@@ -324,7 +358,7 @@ async function runRamp(profile: Profile, args: Args): Promise<RunReport> {
         config: {
           workerId: w.id,
           workerCount: profile.workers,
-          relayUrl: `ws://127.0.0.1:${port}`,
+          relayUrl: args.url ?? `ws://127.0.0.1:${port}`,
           clientsPerRoom: profile.clientsPerRoom,
           oneTimeKeyCount: profile.oneTimeKeyCount,
           connectBatch: profile.connectBatch,
