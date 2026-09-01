@@ -42,7 +42,7 @@
 	import { DEFAULT_QUIET_START, DEFAULT_QUIET_END } from '$lib/notifications/types';
 	import { initNotificationPrefsDB, saveNotificationPrefs, loadNotificationPrefs, clearNotificationPrefs } from '$lib/notifications/store';
 	import { shouldNotifyForEvent, getNotificationPayload, postNotifyToSW, postPrefsToSW } from '$lib/notifications/triggers';
-	import { isPushSupported, subscribeToPush, unsubscribeFromPush, initPushDB, storePushSubscription, clearPushSubscription } from '$lib/notifications/push';
+	import { isPushSupported, subscribeToPush, unsubscribeFromPush, initPushDB, storePushSubscription, clearPushSubscription, countPushSubscriptions } from '$lib/notifications/push';
 import { saveTaskSnapshot, loadTaskSnapshot, saveEventQueue, loadEventQueue, clearOfflineData } from '$lib/tasks/offline';
 	import { hasStoredIdentitySeed, purgeLegacyDeviceKey } from '$lib/identity/store';
 import ConnectionIndicator from '$lib/components/ConnectionIndicator.svelte';
@@ -237,14 +237,25 @@ import { TabSync } from '$lib/room/tab-sync';
 				}
 			} catch { /* push subscription failed silently */ }
 		} else {
-			await unsubscribeFromPush();
 			pushEnabled = false;
+			// Tell the relay to forget this room's endpoint regardless. That part
+			// is per room and is what actually stops the notifications.
+			session?.sendPushUnsubscription();
 			try {
 				const db = await initPushDB();
 				await clearPushSubscription(db, roomId);
+				// A browser has one push subscription for the whole origin, so
+				// unsubscribing ends push everywhere. Only do it once no room
+				// still wants notifications, or turning them off in one room
+				// silently turns them off in all the others.
+				const stillWanted = await countPushSubscriptions(db);
 				db.close();
-			} catch { /* cleanup failed silently */ }
-			session?.sendPushUnsubscription();
+				if (stillWanted === 0) await unsubscribeFromPush();
+			} catch {
+				// Storage unavailable, so the count is unknown. Leave the browser
+				// subscription alone: the relay has already been told to stop for
+				// this room, and keeping it costs nothing.
+			}
 		}
 	}
 

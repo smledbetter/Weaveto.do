@@ -57,6 +57,7 @@ Anyone who completes the Olm key exchange (via room link) can decrypt all room c
 | Timestamp manipulation in task events | Malicious member sends future timestamps, wins every conflict | No timestamp window validation (see Open Gaps) |
 | Reconnect Olm session divergence | Reconnect generates fresh OTKs but keeps stale Olm sessions; decrypt failures swallowed silently | Clear stale sessions on reconnect (see Open Gaps) |
 | Any member can burn the room | A single member destroys every online member's local copy | Accepted. Burn is an encrypted message, so holding the Megolm key is the only bar (see Open Gaps) |
+| Push endpoint links a device across rooms | Enabling notifications in two rooms registers the same endpoint under both, so the relay can tell they are the same device | Inherent to Web Push. One endpoint exists per browser (see below) |
 
 ## Open Gaps & Planned Mitigations
 
@@ -127,6 +128,21 @@ Burn used to be a relay operation. The relay held the creator's identity key and
 **Why the exposure is smaller than it looks**: every member can already read everything, and the task list is an event log every member can already write to, so a member who wants to destroy the shared state can do so without a burn. Burn adds the ability to clear other people's *local* copies. It does not reach offline members, and it does not reach anyone's data on a device that is not currently in the room.
 
 **Mitigation path**: if this becomes real, the fix is a signed burn tied to an ed25519 key established at room creation and carried in the invite link, so authorization travels with the link rather than with relay state.
+
+## What Push Notifications Cost
+
+Identity keys are derived per room, so the relay cannot tell that the same device joined two different rooms. Push notifications are the exception, and the reason is worth writing down because it is not obvious and cannot be engineered away here.
+
+A browser has **one** push subscription per service worker registration. `pushManager.subscribe()` returns the same endpoint whatever room asked for it. So a member who turns notifications on in two rooms causes the relay to store an identical endpoint string under both, and the relay can trivially link them. Per-room identities do not help, because the endpoint is the linking value.
+
+Turning notifications on is per room, which limits the exposure to the rooms where someone chose it rather than every room they have ever joined. That is a reduction, not a fix.
+
+Removing it entirely needs one of:
+
+- **Drop Web Push.** The property becomes true and the feature is gone.
+- **A service worker registration per room**, each with its own scope and therefore its own endpoint. Technically possible, and it means one registration per room accumulating on the device, with its own cleanup problem. Not attempted.
+
+The push itself carries nothing. `sendPushNotification` posts an empty body and the service worker shows a fixed string, so the push service learns that a device was pinged and nothing about what. That protects the content. It does not make the recipient anonymous to the relay, and the same is true of every app built on Web Push.
 
 ## Push Endpoint Validation
 
