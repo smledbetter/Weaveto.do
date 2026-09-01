@@ -13,6 +13,12 @@ npm run test:unit    # Vitest unit tests with coverage
 npm run test:e2e     # Playwright E2E tests (Chromium)
 ```
 
+The relay has no hot reload, and Playwright reuses whatever is already
+listening on 3001. A relay you started before an edit therefore serves the old
+code to the whole suite. The run refuses to start when that happens: it
+compares a fingerprint of `server/` against the one the relay reports, and
+tells you to stop the old process. Restart your relay after you change it.
+
 ## Environment
 
 - Node managed via fnm: `/Users/stevo/.local/share/fnm/aliases/default/bin`
