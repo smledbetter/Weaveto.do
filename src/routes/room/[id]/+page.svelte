@@ -699,6 +699,35 @@ import { TabSync } from '$lib/room/tab-sync';
 		}
 	}
 
+	/**
+	 * Replace the generic connection error with the actual reason, if known.
+	 *
+	 * The WebSocket API withholds the status of a failed upgrade, so the client
+	 * cannot tell a per-address refusal from the server being down. It used to
+	 * guess, and guessed wrong in the most embarrassing way: everyone turned
+	 * away was told to run `npm run relay`.
+	 *
+	 * Best effort. If this request fails too, the generic message stands.
+	 */
+	async function explainConnectionFailure(session: RoomSession) {
+		try {
+			const res = await fetch(`${session.getRelayOrigin()}/connection-status`);
+			if (!res.ok) return;
+			const status = await res.json();
+			if (status.atAddressLimit) {
+				error =
+					`Too many connections from your network. This server allows ${status.addressLimit} at once, ` +
+					`and everyone sharing your internet connection counts toward that. ` +
+					`Closing another tab or waiting for someone to leave should let you in.`;
+			} else if (status.serverFull) {
+				error = 'The server is at capacity. Try again shortly.';
+			}
+		} catch {
+			// Offline, or the relay is genuinely unreachable. The generic message
+			// is then the accurate one.
+		}
+	}
+
 	async function generateRandomSeed(roomId: string): Promise<Uint8Array> {
 		const encoder = new TextEncoder();
 		const nonce = crypto.randomUUID();
@@ -819,8 +848,12 @@ import { TabSync } from '$lib/room/tab-sync';
 			roomSession.setConnectionHandler((c) => {
 				connected = c;
 				if (!c && phase === 'connecting') {
-					error = 'Could not connect to relay server. Make sure it is running (npm run relay).';
+					// A browser cannot see why an upgrade failed, so ask. Until the
+					// answer arrives, say something true rather than the developer
+					// instruction this used to show people in production.
+					error = 'Could not reach the server. Retrying.';
 					phase = 'error';
+					void explainConnectionFailure(roomSession);
 				}
 			});
 

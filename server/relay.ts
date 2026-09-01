@@ -51,7 +51,29 @@ const MAX_CONNECTIONS = 5_000;
  * with more than ten people in it is a different product.
  */
 const MAX_CLIENTS_PER_ROOM = 10;
-const MAX_CONNECTIONS_PER_IP = 10;
+/**
+ * Concurrent connections allowed from one client address.
+ *
+ * This is the only thing bounding how much of MAX_CONNECTIONS a single source
+ * can take, so raising it weakens that. It is raised anyway, and the reasoning
+ * is worth keeping.
+ *
+ * Everyone in one office, school or cafe shares a public address, and the cap
+ * is keyed on the real client address rather than the proxy's. At 10, the
+ * eleventh colleague in a building could not connect at all. The people this
+ * app is for are frequently in the same room as each other, so that is not an
+ * edge case.
+ *
+ * What the cap buys is smaller than it looks. At 10 an attacker needed 500
+ * addresses to exhaust the relay, at 50 they need 100, and anyone with a cloud
+ * account has either for pennies. A single IPv6 /64 hands one client more
+ * addresses than the cap can ever count. It stops one naive host, and that is
+ * all it ever stopped.
+ *
+ * So this trades weak protection against someone trying for a failure that was
+ * certain to hit people who were not.
+ */
+const MAX_CONNECTIONS_PER_IP = 50;
 /**
  * Messages per second per connection, counted before the frame is parsed.
  *
@@ -663,6 +685,30 @@ const server = createServer((req, res) => {
   if (req.url === "/vapid-key" && req.method === "GET") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ publicKey: getVapidPublicKey() }));
+    return;
+  }
+
+  // Why a connection was refused, for the client that was refused.
+  //
+  // A browser cannot see the status of a failed WebSocket upgrade. The spec
+  // withholds it deliberately, so a client turned away by the per-address cap
+  // cannot tell that from the relay being down, and said so: it used to tell
+  // people to run `npm run relay`.
+  //
+  // Only ever describes the caller's own address, which the caller already
+  // knows, so it discloses nothing they could not measure by connecting.
+  if (req.url === "/connection-status" && req.method === "GET") {
+    const ipKey = hashClientIp(
+      resolveClientIp(req.headers, req.socket.remoteAddress, TRUST_PROXY),
+    );
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        atAddressLimit: (counts.perIp.get(ipKey) ?? 0) >= MAX_CONNECTIONS_PER_IP,
+        addressLimit: MAX_CONNECTIONS_PER_IP,
+        serverFull: counts.total >= MAX_CONNECTIONS,
+      }),
+    );
     return;
   }
   res.writeHead(200);

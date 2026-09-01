@@ -45,6 +45,24 @@ function fillBucket(ip: string, state: ReturnType<typeof emptyCounts>): number {
   return accepted;
 }
 
+/**
+ * The per-address cap, read from the relay rather than written down here.
+ *
+ * These assertions used to hardcode 10 and broke when the cap was raised to
+ * 50, which is the wrong kind of failure: the behaviour was still correct and
+ * only the number had moved. Reading it means the tests check the property and
+ * survive the value changing.
+ */
+function perIpCap(): number {
+  const src = readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), "../../server/relay.ts"),
+    "utf8",
+  );
+  const m = src.match(/^const MAX_CONNECTIONS_PER_IP = (\d+)/m);
+  if (!m) throw new Error("MAX_CONNECTIONS_PER_IP not found");
+  return Number(m[1]);
+}
+
 describe("resolveClientIp", () => {
   it("reads the fly proxy header when the deployment is behind the proxy", () => {
     const ip = resolveClientIp(
@@ -118,7 +136,7 @@ describe("per-IP cap keyed on the real client", () => {
     // Ten different people connect through the proxy. Every one of their
     // sockets reports PROXY_ADDRESS, so keying on the socket address would
     // count them as ten connections from a single client.
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < perIpCap(); i++) {
       const ip = resolveClientIp(
         { "fly-client-ip": `203.0.113.${i}` },
         PROXY_ADDRESS,
@@ -137,11 +155,11 @@ describe("per-IP cap keyed on the real client", () => {
     expect(upgrade(eleventh, state).accept).toBe(true);
 
     // Ten distinct buckets of one, not one bucket of ten.
-    expect(state.perIp.size).toBe(10);
+    expect(state.perIp.size).toBe(perIpCap());
     expect(state.perIp.get("203.0.113.0")).toBe(1);
   });
 
-  it("still caps a single real client at ten connections", () => {
+  it("still caps a single real client at the declared limit", () => {
     // The point of reading the header is a correct key, not a weaker cap.
     const state = emptyCounts();
     const ip = resolveClientIp(
@@ -150,13 +168,13 @@ describe("per-IP cap keyed on the real client", () => {
       true,
     );
 
-    expect(fillBucket(ip, state)).toBe(10);
+    expect(fillBucket(ip, state)).toBe(perIpCap());
     expect(upgrade(ip, state).status).toBe(429);
   });
 
   it("caps on the socket address when no proxy header is trusted", () => {
     const state = emptyCounts();
-    expect(fillBucket("127.0.0.1", state)).toBe(10);
+    expect(fillBucket("127.0.0.1", state)).toBe(perIpCap());
     expect(upgrade("127.0.0.1", state).status).toBe(429);
   });
 

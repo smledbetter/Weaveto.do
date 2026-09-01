@@ -19,6 +19,7 @@ weaveto.do enables trusted groups — caregiving collectives, event organizers, 
 - **Federation**: syncing between independently run nodes. There is no sync protocol in this repository yet.
 - **Tor hidden service**: the relay cannot avoid seeing the address a connection arrives from, and neither can the host in front of it. Reaching it over Tor is the way to remove that, and it is not built.
 - **Custom agents**: the sandbox and the host interface exist and the built-in agents run on them, but there is no way to add your own. Uploading one is not exposed anywhere in the app.
+- **Enforce the per-address cap only under pressure**: the limit on connections from one address exists to stop a single source taking the whole relay. Below a fraction of capacity nothing is being contended, so the cap costs people in shared offices and buys nothing. Raising the number, which is what happens today, trades one against the other permanently. Admitting freely while there is room and tightening as the relay fills would give both.
 
 ## Tech Stack
 
