@@ -85,7 +85,10 @@ describe("Host Imports: host_get_tasks", () => {
     const parsed = JSON.parse(json);
     expect(parsed).toHaveLength(1);
     expect(parsed[0].id).toBe("t1");
-    expect(parsed[0].title).toBe("Test task");
+    expect(parsed[0].status).toBe("pending");
+    // Free text is projected away before an agent ever sees it. See
+    // tests/unit/agent-content-projection.test.ts for why.
+    expect(parsed[0].title).toBeUndefined();
   });
 
   it("returns 0 if buffer too small", () => {
@@ -142,9 +145,14 @@ describe("Host Imports: host_get_members", () => {
 
     const parsed = JSON.parse(readString(memory, 0, written));
     expect(parsed).toHaveLength(2);
+    // Identity keys only. A display name is the member's own text, and an
+    // agent balancing a workload has no use for it.
     expect(
-      parsed.map((m: { displayName: string }) => m.displayName).sort(),
-    ).toEqual(["Alice", "Bob"]);
+      parsed.map((m: { identityKey: string }) => m.identityKey).sort(),
+    ).toEqual(["key1", "key2"]);
+    expect(
+      parsed.every((m: Record<string, unknown>) => m.displayName === undefined),
+    ).toBe(true);
   });
 
   it("returns 0 when read_members permission is denied", () => {
@@ -401,8 +409,13 @@ describe("Host Imports: bounds checking (M-2)", () => {
     const memory = makeMemory(1); // 64KB
     const imports = buildHostImports(memory, ALL_PERMS, ctx);
 
-    // JSON is ~260 bytes; ptr 65400 + 260 > 65536 → out of bounds
-    const written = (imports.host_get_tasks as Function)(65400, 4096);
+    // Start the write at the very end of memory, so any payload of one byte
+    // or more is out of bounds. An earlier version picked 65400 because the
+    // JSON was about 260 bytes, and projecting the title away shrank it to
+    // roughly 76, which quietly moved the write back inside the buffer and
+    // stopped this testing anything.
+    const end = memory.buffer.byteLength;
+    const written = (imports.host_get_tasks as Function)(end, 4096);
     expect(written).toBe(0);
   });
 
