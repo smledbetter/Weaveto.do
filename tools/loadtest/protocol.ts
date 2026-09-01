@@ -14,7 +14,6 @@
 
 export const RELAY_LIMITS = Object.freeze({
   MAX_IDENTITY_KEY_LENGTH: 64,
-  MAX_DISPLAY_NAME_LENGTH: 32,
   MAX_CIPHERTEXT_LENGTH: 65536,
   MAX_SESSION_ID_LENGTH: 64,
   MAX_ONE_TIME_KEYS: 20,
@@ -104,11 +103,6 @@ export function ed25519KeyFor(workerId: number, clientIndex: number): string {
   return padKey(`lted${workerId}x${clientIndex}`);
 }
 
-/** Display name inside the 32-char limit. Truncated rather than rejected. */
-export function displayNameFor(workerId: number, clientIndex: number): string {
-  return `lt${workerId}-${clientIndex}`.slice(0, RELAY_LIMITS.MAX_DISPLAY_NAME_LENGTH);
-}
-
 /** One-time keys shaped like a real client's batch. `count` is clamped to 1..20. */
 export function oneTimeKeysFor(
   workerId: number,
@@ -130,7 +124,6 @@ export interface JoinMessage {
   identityKey: string;
   ed25519Key: string;
   oneTimeKeys: Record<string, string>;
-  displayName: string;
   create: boolean;
   ephemeral?: boolean;
 }
@@ -154,7 +147,6 @@ export function buildJoin(
     identityKey: identityKeyFor(workerId, clientIndex),
     ed25519Key: ed25519KeyFor(workerId, clientIndex),
     oneTimeKeys: oneTimeKeysFor(workerId, clientIndex, oneTimeKeyCount),
-    displayName: displayNameFor(workerId, clientIndex),
     create: true,
   };
 }
@@ -212,7 +204,6 @@ export function checkJoinAgainstRelayRules(msg: JoinMessage): RuleViolation[] {
   if (msg.type !== "join") bad.push('type must be "join"');
   str(msg.identityKey, RELAY_LIMITS.MAX_IDENTITY_KEY_LENGTH, "identityKey");
   str(msg.ed25519Key, RELAY_LIMITS.MAX_IDENTITY_KEY_LENGTH, "ed25519Key");
-  str(msg.displayName, RELAY_LIMITS.MAX_DISPLAY_NAME_LENGTH, "displayName");
 
   const entries = Object.entries(msg.oneTimeKeys ?? {});
   if (entries.length === 0 || entries.length > RELAY_LIMITS.MAX_ONE_TIME_KEYS) {

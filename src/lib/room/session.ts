@@ -73,7 +73,6 @@ interface JoinMessage {
   identityKey: string;
   ed25519Key: string;
   oneTimeKeys: Record<string, string>;
-  displayName: string;
   create?: boolean;
   ephemeral?: boolean;
 }
@@ -83,7 +82,6 @@ interface NewMemberMessage {
   identityKey: string;
   ed25519Key: string;
   oneTimeKeys: Record<string, string>;
-  displayName: string;
 }
 
 interface KeyShareMessage {
@@ -103,7 +101,7 @@ interface EncryptedMessage {
 
 interface MemberListMessage {
   type: "member_list";
-  members: Array<{ identityKey: string; displayName: string }>;
+  members: Array<{ identityKey: string }>;
   /** False when this join is what brought the room back into existence. */
   roomExisted?: boolean;
 }
@@ -145,6 +143,30 @@ const OTK_REPLENISH_COUNT = 20;
  * The local echo is immediate, so this delay is only ever seen by other
  * members, and a quarter second in a shared task list is not noticeable.
  */
+/**
+ * Longest display name accepted from a peer.
+ *
+ * The relay used to enforce this on the join message. It cannot any more,
+ * because the name now travels inside Olm ciphertext the relay cannot read.
+ * The check moved here with the data: a name arrives from an authenticated
+ * member, which is not the same as a trusted one.
+ */
+const MAX_DISPLAY_NAME_LENGTH = 32;
+
+/**
+ * What to call a member before their name arrives.
+ *
+ * Names now come over the Olm session rather than in the join, so there is a
+ * short window after someone appears where the room knows they are there and
+ * not who they are. Showing part of their identity key is better than an empty
+ * space: it is stable, it distinguishes two unnamed members, and it is the
+ * same value the verification UI works from.
+ */
+export function placeholderName(identityKey: string): string {
+  const short = identityKey.replace(/[^A-Za-z0-9]/g, "").slice(0, 6);
+  return short ? `Member ${short}` : "Member";
+}
+
 const TASK_EVENT_FLUSH_MS = 250;
 
 /** Most task events in one frame, so a batch stays far under MAX_MESSAGE_SIZE. */
@@ -401,7 +423,6 @@ export class RoomSession {
           identityKey: this.identityKey,
           ed25519Key: this.ed25519Key,
           oneTimeKeys,
-          displayName: this.displayName,
           ...(this.isCreator ? { create: true } : {}),
           ...(this.isCreator && this.isEphemeral ? { ephemeral: true } : {}),
         };
@@ -487,7 +508,6 @@ export class RoomSession {
         identityKey: this.identityKey,
         ed25519Key: this.ed25519Key,
         oneTimeKeys,
-        displayName: this.displayName,
       };
       this.ws!.send(JSON.stringify(joinMsg));
     };
@@ -711,6 +731,7 @@ export class RoomSession {
           sessionId: this.outboundSessionId,
           sessionKey,
           senderIdentityKey: this.identityKey,
+          displayName: this.displayName,
         });
         const encrypted = olmEncrypt(olmSession, keyPayload);
         const keyShareMsg: KeyShareMessage = {
@@ -756,6 +777,7 @@ export class RoomSession {
           sessionId: this.outboundSessionId,
           sessionKey,
           senderIdentityKey: this.identityKey,
+          displayName: this.displayName,
           rotation: true, // Signal that this is a rotation
           previousSessionId: oldSessionId,
         });
@@ -898,13 +920,40 @@ export class RoomSession {
     }
   }
 
+  /**
+   * Store a display name learned from a peer over Olm.
+   *
+   * Ignores an absent or empty name so a peer that sends none keeps its
+   * placeholder rather than losing its entry. Truncates rather than rejects,
+   * because a name that is too long is a display problem and dropping the
+   * member would be worse than shortening them.
+   */
+  private recordDisplayName(identityKey: string, name: string | undefined): void {
+    if (typeof name !== "string") return;
+    const trimmed = name.trim().slice(0, MAX_DISPLAY_NAME_LENGTH);
+    if (trimmed.length === 0) return;
+
+    const existing = this.members.get(identityKey);
+    if (existing?.displayName === trimmed) return;
+
+    this.members.set(identityKey, {
+      ...(existing ?? { identityKey }),
+      identityKey,
+      displayName: trimmed,
+    });
+    this.onMembersChanged?.(this.members);
+  }
+
   private handleNewMember(msg: NewMemberMessage): void {
     if (!this.account || !this.outboundSession) return;
 
-    // Add to members
+    // Add to members under a placeholder. Their real name arrives with the
+    // key share, which is the first thing either side sends over Olm.
     this.members.set(msg.identityKey, {
       identityKey: msg.identityKey,
-      displayName: msg.displayName,
+      displayName:
+        this.members.get(msg.identityKey)?.displayName ??
+        placeholderName(msg.identityKey),
     });
     this.onMembersChanged?.(this.members);
 
@@ -933,6 +982,7 @@ export class RoomSession {
         sessionId: this.outboundSessionId,
         sessionKey,
         senderIdentityKey: this.identityKey,
+        displayName: this.displayName,
       });
 
       const encrypted = olmEncrypt(olmSession, keyPayload);
@@ -980,9 +1030,16 @@ export class RoomSession {
         sessionId: string;
         sessionKey: string;
         senderIdentityKey: string;
+        displayName?: string;
         rotation?: boolean;
         previousSessionId?: string;
       };
+
+      // The name rides in here rather than in the join, so the relay never
+      // sees it. It arrives from a peer over an Olm session, which means it is
+      // authenticated but not trusted: length is enforced here because the
+      // relay can no longer enforce it on a field it cannot read.
+      this.recordDisplayName(msg.senderIdentityKey, keyData.displayName);
 
       // If this is a rotation, clear the old session
       if (keyData.rotation && keyData.previousSessionId) {
@@ -1018,6 +1075,7 @@ export class RoomSession {
               sessionId: this.outboundSessionId,
               sessionKey: ourSessionKey,
               senderIdentityKey: this.identityKey,
+              displayName: this.displayName,
             });
             const encrypted = olmEncrypt(olmSession, ourKeyPayload);
             this.ws.send(
@@ -1211,9 +1269,13 @@ export class RoomSession {
     }
     for (const member of msg.members) {
       if (member.identityKey !== this.identityKey) {
+        // A reconnect re-lists everyone. Keep any name already learned over
+        // Olm rather than resetting known members to a placeholder.
         this.members.set(member.identityKey, {
           identityKey: member.identityKey,
-          displayName: member.displayName,
+          displayName:
+            this.members.get(member.identityKey)?.displayName ??
+            placeholderName(member.identityKey),
         });
         // During re-establishment, track which members we need fresh key
         // exchanges with so we can signal when all channels are restored.
