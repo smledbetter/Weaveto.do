@@ -109,6 +109,27 @@ export function isPushSupported(): boolean {
  * Waits for the service worker to be ready before subscribing.
  * Returns null on failure (permission denied, SW unavailable, etc.).
  */
+/**
+ * How many rooms still have push turned on.
+ *
+ * A browser has one push subscription per service worker registration, so
+ * every room shares the same endpoint. Unsubscribing is therefore a
+ * browser-wide act, and doing it because one room turned notifications off
+ * silently ends them everywhere else. Callers check this first.
+ */
+export async function countPushSubscriptions(db: IDBDatabase): Promise<number> {
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(PUSH_STORE_NAME, 'readonly');
+      const request = tx.objectStore(PUSH_STORE_NAME).count();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(0);
+    } catch {
+      resolve(0);
+    }
+  });
+}
+
 export async function subscribeToPush(vapidPublicKey: string): Promise<PushSubscription | null> {
   try {
     const registration = await navigator.serviceWorker.ready;
@@ -124,6 +145,11 @@ export async function subscribeToPush(vapidPublicKey: string): Promise<PushSubsc
 
 /**
  * Unsubscribe from push notifications.
+ *
+ * This ends the browser's single subscription, so it ends push for every room,
+ * not just the one asking. Only call it once no room has notifications on. See
+ * countPushSubscriptions.
+ *
  * Returns true if successfully unsubscribed or no subscription existed.
  * Returns false on error.
  */
