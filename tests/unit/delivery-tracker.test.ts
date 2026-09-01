@@ -77,6 +77,43 @@ describe('DeliveryTracker', () => {
     });
   });
 
+  describe('noteDeliveryFailure', () => {
+    /**
+     * Sequence gaps only catch messages lost in transit. A key share that will
+     * not decrypt is invisible to them: the sender's Megolm key never arrives,
+     * so their messages are never counted and never missed.
+     */
+    it('marks the tracker degraded with no sequence activity at all', () => {
+      const tracker = new DeliveryTracker();
+      expect(tracker.hasGap()).toBe(false);
+      tracker.noteDeliveryFailure();
+      expect(tracker.hasGap()).toBe(true);
+    });
+
+    it('latches, like a sequence gap does', () => {
+      const tracker = new DeliveryTracker();
+      tracker.noteDeliveryFailure();
+      tracker.checkReceived('sender1', 1);
+      tracker.checkReceived('sender1', 2);
+      expect(tracker.hasGap()).toBe(true);
+    });
+
+    it('is cleared by reset, so a reconnect starts clean', () => {
+      const tracker = new DeliveryTracker();
+      tracker.noteDeliveryFailure();
+      tracker.reset();
+      expect(tracker.hasGap()).toBe(false);
+    });
+
+    it('does not disturb sequence tracking', () => {
+      const tracker = new DeliveryTracker();
+      tracker.checkReceived('sender1', 1);
+      tracker.noteDeliveryFailure();
+      // The next in-order message must still read as expected 2, not a gap.
+      expect(tracker.checkReceived('sender1', 2)).toEqual({ gap: false, expected: 2 });
+    });
+  });
+
   describe('reset', () => {
     it('clears all state', () => {
       const tracker = new DeliveryTracker();

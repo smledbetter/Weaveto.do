@@ -64,7 +64,6 @@ export type MemberHandler = (members: Map<string, RoomMember>) => void;
 export type ConnectionHandler = (connected: boolean) => void;
 export type ErrorHandler = (error: string) => void;
 export type ReestablishingHandler = (active: boolean) => void;
-export type DecryptFailureHandler = (senderId: string) => void;
 
 // --- Protocol message types ---
 
@@ -263,7 +262,6 @@ export class RoomSession {
   private onConnectionChanged: ConnectionHandler | null = null;
   private onError: ErrorHandler | null = null;
   private onReestablishing: ReestablishingHandler | null = null;
-  private onDecryptFailure: DecryptFailureHandler | null = null;
   private syncHandler: ((events: TaskEvent[]) => void) | null = null;
   private onBurn: (() => void) | null = null;
 
@@ -297,9 +295,6 @@ export class RoomSession {
   }
   setReestablishingHandler(handler: ReestablishingHandler) {
     this.onReestablishing = handler;
-  }
-  setDecryptFailureHandler(handler: DecryptFailureHandler) {
-    this.onDecryptFailure = handler;
   }
   setSyncHandler(handler: (events: TaskEvent[]) => void): void {
     this.syncHandler = handler;
@@ -1092,9 +1087,12 @@ export class RoomSession {
         }
       }
     } catch {
-      // Key share decryption failed — report via callback so the UI can surface
-      // the failure without exposing internal error details.
-      this.onDecryptFailure?.(msg.senderIdentityKey);
+      // A key share that will not decrypt means this peer's Megolm key never
+      // arrived, so nothing they send will ever be readable. Nothing else
+      // notices: their messages are not counted, so they leave no sequence
+      // gap, and the room reads as healthy while one member is silently
+      // unreadable. Mark delivery degraded so the shield turns amber.
+      this.deliveryTracker.noteDeliveryFailure();
     }
   }
 
