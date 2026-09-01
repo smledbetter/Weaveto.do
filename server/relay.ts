@@ -18,6 +18,7 @@ import { createServer } from "http";
 import type { IncomingHttpHeaders } from "http";
 import { parse } from "url";
 import { initVapid, getVapidPublicKey, sendPushNotification } from "./vapid.js";
+import { checkPushEndpoint } from "./push-endpoint.js";
 import type { PushSubscriptionData } from "./push-types.js";
 
 const PORT = parseInt(process.env.PORT || "3001", 10);
@@ -380,6 +381,11 @@ function validateMessage(raw: unknown): ValidatedMessage | null {
       if (!isObject(raw.subscription)) return null;
       const sub = raw.subscription;
       if (!isNonEmptyString(sub.endpoint, 2048)) return null;
+      // Refuse an endpoint the relay must never POST to, at the door rather
+      // than at send time, so it is never stored and never retried. The
+      // request-time check in vapid.ts is the one that stops a hostname whose
+      // answer changes after this point.
+      if (!checkPushEndpoint(sub.endpoint).ok) return null;
       if (!isObject(sub.keys)) return null;
       const keys = sub.keys;
       if (!isNonEmptyString(keys.p256dh, 256)) return null;

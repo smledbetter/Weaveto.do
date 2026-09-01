@@ -45,8 +45,19 @@ export interface PushReport {
 // Stub push service
 // ---------------------------------------------------------------------------
 
+/**
+ * The hostname subscriptions are registered under.
+ *
+ * A real https URL, because the relay now refuses anything else and refuses
+ * any literal address that is not publicly routable. The relay never connects
+ * to it: the load-test hook gives requests for this host a socket to the stub
+ * below. Kept in step with PUSH_STUB_HOST in relay-hook.mjs.
+ */
+const PUSH_STUB_HOST = "push-stub.loadtest.example";
+
 interface StubPushService {
-  origin: string;
+  /** Port the hook redirects the relay's push connections to. */
+  port: number;
   /** Every request the relay has made, in arrival order. */
   hits: Array<{ path: string; at: number }>;
   /** Highest number of requests the stub held open at once. */
@@ -85,7 +96,7 @@ async function startStubPushService(): Promise<StubPushService> {
   const { port } = server.address() as AddressInfo;
 
   return {
-    origin: `http://127.0.0.1:${port}`,
+    port,
     hits,
     get peakConcurrent() {
       return peakConcurrent;
@@ -162,7 +173,7 @@ function subscribe(
       roomId: roomIdFor(roomIndex),
       identityKey: client.identityKey,
       subscription: {
-        endpoint: `${stub.origin}/p/${tag}`,
+        endpoint: `https://${PUSH_STUB_HOST}/p/${tag}`,
         keys: { p256dh: "x".repeat(87), auth: "y".repeat(22) },
       },
     }),
@@ -394,6 +405,67 @@ async function checkGoneIsForgotten(
   };
 }
 
+/**
+ * An endpoint the relay must never POST to is refused when it is offered.
+ *
+ * The relay used to accept any string up to 2048 characters as an endpoint and
+ * POST to it, which let a client aim it at addresses inside the network the
+ * relay runs in. Refusing at subscribe time means such an endpoint is never
+ * stored and never retried.
+ */
+async function checkBlockedEndpointsRefused(url: string): Promise<PushCheck> {
+  const roomIndex = 500;
+  const blocked = [
+    "http://push-stub.loadtest.example/p/plain",
+    "https://127.0.0.1/p/loopback",
+    "https://169.254.169.254/latest/meta-data/",
+    "https://[::1]/p/loopback6",
+    "https://10.0.0.1/p/private",
+  ];
+
+  const refused: string[] = [];
+  for (const endpoint of blocked) {
+    const c = await connectAndJoin(url, roomIndex, 5000 + refused.length);
+    if (!c) continue;
+
+    const closed = new Promise<number | null>((resolve) => {
+      const timer = setTimeout(() => resolve(null), 2500);
+      c.ws.once("close", (code: number) => {
+        clearTimeout(timer);
+        resolve(code);
+      });
+    });
+
+    c.ws.send(
+      JSON.stringify({
+        type: "push_subscribe",
+        roomId: roomIdFor(roomIndex),
+        identityKey: c.identityKey,
+        subscription: {
+          endpoint,
+          keys: { p256dh: "x".repeat(87), auth: "y".repeat(22) },
+        },
+      }),
+    );
+
+    const code = await closed;
+    if (code !== null) refused.push(endpoint);
+    if (c.ws.readyState === WebSocket.OPEN) c.ws.close();
+    await sleep(100);
+  }
+
+  return {
+    check: "blocked endpoints refused",
+    expected: blocked.length,
+    observed: refused.length,
+    matches: refused.length === blocked.length,
+    note:
+      "each endpoint was offered on its own connection. A refusal closes the socket, the same as " +
+      "any other message the relay will not accept, so it is visible rather than silent. " +
+      "169.254.169.254 is the cloud metadata address, which answers unauthenticated requests.",
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Driver
 // ---------------------------------------------------------------------------
@@ -404,7 +476,9 @@ export async function runPushChecks(
 ): Promise<PushReport> {
   const url = `ws://127.0.0.1:${port}`;
   const stub = await startStubPushService();
-  console.log(`stub push service on ${stub.origin}`);
+  console.log(
+    `stub push service on 127.0.0.1:${stub.port}, answering for https://${PUSH_STUB_HOST}`,
+  );
 
   let relay: RelayHandle = await startRelay({
     port,
@@ -412,6 +486,7 @@ export async function runPushChecks(
     ipSpread: true,
     ipPerAddr: 1,
     verbose,
+    pushStubPort: stub.port,
   });
 
   const checks: PushCheck[] = [];
@@ -420,6 +495,7 @@ export async function runPushChecks(
     checks.push(await checkSubscriptionCap(url, stub));
     checks.push(await checkInFlightCeiling(url, stub));
     checks.push(await checkGoneIsForgotten(url, stub));
+    checks.push(await checkBlockedEndpointsRefused(url));
   } finally {
     await stopRelay(relay);
     await stub.close();

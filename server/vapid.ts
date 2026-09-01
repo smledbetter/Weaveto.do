@@ -5,11 +5,17 @@
  * Security invariants:
  * - No console.log in production paths
  * - VAPID private key never leaves this module
- * - Subscription endpoints treated as opaque URLs
+ * - Subscription endpoints are checked, not trusted. They used to be treated
+ *   as opaque URLs, which meant a client could aim the relay at any address
+ *   reachable from the network the relay runs in. See server/push-endpoint.ts.
  */
 
 import * as crypto from "crypto";
+import * as https from "node:https";
+import * as dns from "node:dns";
+import type { LookupAddress } from "node:dns";
 import type { PushSubscriptionData } from "./push-types.js";
+import { checkPushEndpoint, isBlockedAddress } from "./push-endpoint.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -86,26 +92,104 @@ export async function sendPushNotification(
 ): Promise<"ok" | "gone" | "error"> {
   if (!vapidKeys) throw new Error("VAPID not initialized — call initVapid() first");
 
-  const aud = new URL(subscription.endpoint).origin;
-  const jwt = generateVapidJwt(aud);
+  // Checked again here rather than trusted from storage. A subscription may
+  // have been stored before this check existed, and defence that only runs at
+  // the front door is defence that runs once.
+  const checked = checkPushEndpoint(subscription.endpoint);
+  if (!checked.ok) return "error";
 
-  try {
-    const response = await fetch(subscription.endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `vapid t=${jwt}, k=${vapidKeys.publicKey}`,
-        "Content-Length": "0",
-        TTL: "86400",
-        Urgency: "normal",
+  const jwt = generateVapidJwt(checked.url.origin);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (r: "ok" | "gone" | "error") => {
+      if (settled) return;
+      settled = true;
+      resolve(r);
+    };
+
+    const req = https.request(
+      checked.url,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `vapid t=${jwt}, k=${vapidKeys!.publicKey}`,
+          "Content-Length": "0",
+          TTL: "86400",
+          Urgency: "normal",
+        },
+        // The socket connects to the address this returns, so the address that
+        // was checked is the address that is dialled. Resolving separately and
+        // then letting the agent resolve again would leave a gap between the
+        // check and the connection, which is exactly what DNS rebinding walks
+        // through.
+        lookup: guardedLookup,
       },
-    });
+      (res) => {
+        // Nothing reads the body, so drain it rather than leaving the socket
+        // half-consumed and the connection unusable.
+        res.resume();
+        if (res.statusCode === 201) return finish("ok");
+        if (res.statusCode === 410) return finish("gone");
+        finish("error");
+      },
+    );
 
-    if (response.status === 201) return "ok";
-    if (response.status === 410) return "gone"; // Subscription has expired
-    return "error";
-  } catch {
-    return "error";
-  }
+    // Without this an unanswered request holds one of the relay's limited
+    // in-flight push slots until the OS gives up, which can be minutes.
+    req.setTimeout(PUSH_REQUEST_TIMEOUT_MS, () => {
+      req.destroy();
+      finish("error");
+    });
+    req.on("error", () => finish("error"));
+    req.end();
+  });
+}
+
+/** How long to wait for a push service before giving the slot back. */
+const PUSH_REQUEST_TIMEOUT_MS = 10_000;
+
+/**
+ * Resolve a push endpoint's hostname and refuse anything not publicly routable.
+ *
+ * Refuses when ANY answer is blocked rather than picking a public one. A push
+ * service has no legitimate reason to resolve to a private address, and
+ * quietly selecting the acceptable answer from a mixed set turns a clear
+ * refusal into a race the attacker gets to keep re-entering.
+ *
+ * Exported for the tests. Nothing else should call it.
+ */
+export function guardedLookup(
+  hostname: string,
+  options: dns.LookupOneOptions | dns.LookupAllOptions,
+  callback: (
+    err: NodeJS.ErrnoException | null,
+    address: string | LookupAddress[],
+    family?: number,
+  ) => void,
+): void {
+  dns.lookup(hostname, { ...options, all: true }, (err, addresses) => {
+    if (err) return callback(err, "", 0);
+
+    const found = addresses as LookupAddress[];
+    if (found.length === 0) {
+      return callback(new Error(`${hostname} did not resolve`), "", 0);
+    }
+    for (const entry of found) {
+      if (isBlockedAddress(entry.address)) {
+        return callback(
+          new Error(`${hostname} resolves to ${entry.address}, which is not publicly routable`),
+          "",
+          0,
+        );
+      }
+    }
+
+    if ((options as dns.LookupAllOptions).all === true) {
+      return callback(null, found);
+    }
+    callback(null, found[0].address, found[0].family);
+  });
 }
 
 // ---------------------------------------------------------------------------

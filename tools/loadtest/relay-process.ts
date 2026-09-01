@@ -26,6 +26,8 @@ export interface RelayOptions {
   ipPerAddr: number;
   /** Echo the relay's stdout and stderr. Useful when a run misbehaves. */
   verbose: boolean;
+  /** Port of a local push stub. Set only by the push profile. */
+  pushStubPort?: number;
 }
 
 export interface SpawnedRelay {
@@ -116,6 +118,11 @@ export async function startRelay(options: RelayOptions): Promise<SpawnedRelay> {
       LOADTEST_IP_SPREAD: options.ipSpread ? "1" : "0",
       LOADTEST_IP_PER_ADDR: String(options.ipPerAddr),
       LOADTEST_STATUS_PORT: String(options.statusPort),
+      // Only set when a profile runs a push stub. The hook is a no-op
+      // without it, so an ordinary run makes real outbound requests or none.
+      ...(options.pushStubPort !== undefined
+        ? { LOADTEST_PUSH_STUB: String(options.pushStubPort) }
+        : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

@@ -123,3 +123,54 @@ if (isRelayProcess && statusPort > 0) {
     );
   });
 }
+
+/**
+ * 3. LOADTEST_PUSH_STUB=<port>
+ *    Answers the relay's outbound push requests from a stub on this host.
+ *
+ *    Why: the relay refuses a push endpoint that is not https, and refuses any
+ *    host resolving to an address that is not publicly routable. That is the
+ *    point of the check, and it means the harness can no longer run a plain
+ *    HTTP stub on loopback and point subscriptions at it.
+ *
+ *    How: it replaces `createConnection` on the https global agent, so
+ *    requests to one designated hostname get a plain TCP socket to the
+ *    harness's stub instead of a TLS socket to the internet. Everything else
+ *    connects normally.
+ *
+ *    Why that seam and not https.request: patching the module does not work.
+ *    Named exports of a builtin are snapshotted when an importing module is
+ *    instantiated, so `https.default.request = fn` leaves `import * as https`
+ *    consumers calling the original, and an ESM namespace object cannot be
+ *    assigned to at all. A hook written that way fails silently: the profile
+ *    reports zero pushes against a relay that is working. The agent is an
+ *    ordinary mutable object that ClientRequest looks up at request time, so
+ *    patching it actually takes effect. Verified before it was relied on.
+ *
+ *    What it costs in validity, stated plainly: the connection is replaced, so
+ *    this measures the fan-out decisions — who gets pushed, how often, how
+ *    many at once — and NOT the address guard or TLS. The address guard is
+ *    pure logic covered by tests/unit/push-endpoint.test.ts. Do not read a
+ *    push profile run as evidence that the guard works.
+ */
+/** The one hostname the push stub answers for. Kept in step with push.ts. */
+const PUSH_STUB_HOST = "push-stub.loadtest.example";
+
+const pushStubPort = process.env.LOADTEST_PUSH_STUB;
+if (pushStubPort) {
+  const https = await import("node:https");
+  const net = await import("node:net");
+  const agent = https.globalAgent;
+  const realCreateConnection = agent.createConnection.bind(agent);
+
+  agent.createConnection = (options, callback) => {
+    const host = options?.host ?? options?.hostname ?? options?.servername;
+    if (host !== PUSH_STUB_HOST) {
+      // Not the stub. Let it connect for real, so an accidental outbound
+      // request stays an accidental outbound request rather than being
+      // quietly answered by the harness.
+      return realCreateConnection(options, callback);
+    }
+    return net.connect(Number(pushStubPort), "127.0.0.1", callback);
+  };
+}

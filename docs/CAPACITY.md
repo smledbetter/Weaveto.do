@@ -377,8 +377,19 @@ The push also carries no payload. `sendPushNotification` posts an empty body, so
 | Subscriptions surviving after 15 identities subscribe to one room | 10 | **10** |
 | Peak concurrent push requests with 80 due at once | at most 64 | **64** |
 | Pushes to a subscription the service reported 410 Gone | 1 | **1** |
+| Endpoints the relay must never POST to, refused when offered | 5 | **5** |
 
 The in-flight figure is worth reading carefully. 80 requests were due and the stub held each response open for 1.5 seconds, so the load was well past the ceiling and the ceiling is what stopped it. A lower number would have meant the probe was too weak to reach it.
+
+### What this profile does not measure
+
+The relay refuses a push endpoint that is not https, and refuses any host resolving to an address that is not publicly routable. That is deliberate, and it means the harness cannot point subscriptions at a plain stub on loopback any more.
+
+Subscriptions are registered under a real https URL, and the load-test hook gives requests for that one hostname a socket to the harness's stub instead of a TLS socket to the internet. The relay is neither edited nor imported, and nothing in it relaxes its own validation.
+
+The cost, stated plainly: the connection is replaced, so this measures the fan-out decisions and **not** the address guard or TLS. The address guard is pure logic and is covered by `tests/unit/push-endpoint.test.ts` and `tests/unit/push-lookup.test.ts`. Do not read a push profile run as evidence that the guard works. The one thing here that does exercise it is the refusal check, which offers blocked endpoints and confirms they are rejected at subscribe time.
+
+Worth recording how the hook had to be written. Patching `https.request` does not work: named exports of a builtin are snapshotted when an importing module is instantiated, so assigning to the module leaves `import * as https` consumers calling the original, and an ESM namespace cannot be assigned to at all. A hook written that way fails silently and the profile reports zero pushes against a working relay. The agent object is ordinary and mutable and is looked up at request time, so patching that takes effect. This was checked before it was relied on, rather than after the numbers looked wrong.
 
 ### One behaviour worth knowing
 

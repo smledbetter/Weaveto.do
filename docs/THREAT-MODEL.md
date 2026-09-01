@@ -40,6 +40,7 @@ Anyone who completes the Olm key exchange (via room link) can decrypt all room c
 | Console side-channel | Zero `console.*` policy in client code; generic notification bodies | M8 |
 | Cross-origin WebSocket hijack | Origin validation on upgrade | M8 |
 | Relay DoS / resource exhaustion | Per-connection rate limiting, room/connection/IP caps | M8 |
+| Relay aimed at internal addresses by a client (SSRF) | Push endpoints must be https, and the host is resolved at request time with the socket pinned to the checked address | P3 |
 
 ## Undefended Threats
 
@@ -56,7 +57,6 @@ Anyone who completes the Olm key exchange (via room link) can decrypt all room c
 | Timestamp manipulation in task events | Malicious member sends future timestamps, wins every conflict | No timestamp window validation (see Open Gaps) |
 | Reconnect Olm session divergence | Reconnect generates fresh OTKs but keeps stale Olm sessions; decrypt failures swallowed silently | Clear stale sessions on reconnect (see Open Gaps) |
 | Any member can burn the room | A single member destroys every online member's local copy | Accepted. Burn is an encrypted message, so holding the Megolm key is the only bar (see Open Gaps) |
-| Relay makes outbound requests to a client-chosen URL | A client can aim the relay at internal addresses it cannot reach itself | Endpoint is not validated beyond length (see Open Gaps) |
 
 ## Open Gaps & Planned Mitigations
 
@@ -128,19 +128,21 @@ Burn used to be a relay operation. The relay held the creator's identity key and
 
 **Mitigation path**: if this becomes real, the fix is a signed burn tied to an ed25519 key established at room creation and carried in the invite link, so authorization travels with the link rather than with relay state.
 
-### 9. Push Endpoints Are Not Validated
+## Push Endpoint Validation
 
-**Risk**: A client can make the relay issue HTTP POSTs to any URL it chooses.
+The relay POSTs to the endpoint a client supplies. Unchecked, that is a request the relay makes on the client's behalf, from inside the network it is deployed in, to an address the client could not reach itself. The response never goes back, so it is blind, but reachability is inferable from timing and anything acting on an unauthenticated POST can still be triggered. 169.254.169.254 is the address that matters most, because the cloud metadata service answers unauthenticated requests with credentials.
 
-`push_subscribe` accepts any `endpoint` string up to 2048 characters. Nothing checks the scheme or the host. `sendPushNotification` then posts to it. A client can point that at a loopback address, a private range, or a cloud metadata endpoint, and the relay will make the request from inside the network it is deployed in.
+Two checks, at two different times, because one time is not enough.
 
-The relay does not return the response to the client, so this is blind: it can reach and act on internal endpoints, but it cannot read what they say. It can still be used to probe reachability by timing, and to trigger side effects on anything that acts on an unauthenticated POST.
+**At subscribe time**, syntactically: the scheme must be `https:`, there must be no credentials in the URL, and a literal address must not be one of the unroutable ranges. A refusal closes the connection, the same as any other message the relay will not accept, so it is visible rather than silent.
 
-**Found while building the push load test.** The measurement points subscriptions at a local stub over plain HTTP, and it works, which is the flaw demonstrating itself.
+**At request time**, the hostname is resolved and every answer is checked, and the socket is pinned to the address that was checked. This is the part that matters. Validating a hostname when the subscription arrives and resolving it again when the request is sent is not a check at all, because the second answer can differ from the first and an attacker controls both. That gap is DNS rebinding. The guard is passed to the request as its `lookup` option, so the socket connects to exactly what the guard returned.
 
-**Mitigation path**: require `https:`, reject hosts that resolve to loopback, link-local, or private ranges, and re-resolve at request time rather than at subscribe time so a DNS answer cannot change between the check and the fetch. Real push services are all public HTTPS, so nothing legitimate is lost. The load test would then need the stub behind TLS the relay trusts.
+It refuses when **any** answer is blocked rather than picking a public one out of a mixed set. A real push service has no reason to resolve to a private address, and quietly selecting the acceptable answer turns a clear refusal into a race an attacker can keep re-entering.
 
-**Not fixed here.** It is a change to what the relay accepts, it needs the load test reworked at the same time, and it is a security fix that deserves its own review rather than riding along with a capacity change.
+Anything the classifier cannot parse is treated as blocked. The endpoint comes from an unauthenticated client, so an address it does not understand is a reason to refuse, not a reason to try.
+
+Covered by `tests/unit/push-endpoint.test.ts` and `tests/unit/push-lookup.test.ts`, and by the `blocked endpoints refused` check in `npm run loadtest -- --profile=push`.
 
 ## Review Cadence
 
