@@ -141,7 +141,7 @@
 	</div>
 
 	<footer>
-		<span class="lock">&#128274;</span> End-to-end encrypted. Your data never leaves your device unencrypted.
+		<span class="lock">&#128274;</span> End-to-end encrypted. Your messages and tasks never leave your device unencrypted.
 	</footer>
 </main>
 
