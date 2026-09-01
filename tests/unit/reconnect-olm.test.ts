@@ -334,81 +334,81 @@ describe("RoomSession reconnect — re-establishment tracking", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests — Part C: decrypt failure callback
+// ---------------------------------------------------------------------------
+// Tests — Part C: undecryptable key shares degrade delivery health
 // ---------------------------------------------------------------------------
 
-describe("RoomSession — decrypt failure callback", () => {
+/**
+ * A key share that will not decrypt is the worst delivery failure available
+ * and the only one nothing else can see. The peer's Megolm key never arrives,
+ * so their messages are never counted, leave no sequence gap, and the room
+ * reads as healthy while that member is silently unreadable.
+ *
+ * This used to fire a `setDecryptFailureHandler` callback that nothing in the
+ * app ever subscribed to. The tests passed, the accessor was dead, and the
+ * catch was silent in production. It now marks the delivery tracker, which
+ * the room page already polls to drive the shield icon.
+ */
+describe("RoomSession — undecryptable key share marks delivery degraded", () => {
   let session: RoomSession;
-  let decryptFailures: string[];
 
   beforeEach(() => {
     vi.clearAllMocks();
     session = makeSession();
-    decryptFailures = [];
-    session.setDecryptFailureHandler((senderId) => decryptFailures.push(senderId));
 
-    // Provide a live WS on the session
     const ws = new TrackingWebSocket("ws://test");
     const s = session as unknown as Record<string, unknown>;
     s.ws = ws;
     s.outboundSession = { id: "mgm-group" };
   });
 
-  it("fires onDecryptFailure when Olm decryption throws on an existing session", () => {
-    // Override olmDecrypt to throw for this test
+  /** Invoke handleKeyShare directly. The hand-built WS has no onmessage. */
+  function callHandleKeyShare(targetIdentityKey: string) {
+    (
+      session as unknown as {
+        handleKeyShare(msg: {
+          type: "key_share";
+          targetIdentityKey: string;
+          senderIdentityKey: string;
+          olmMessage: { type: number; body: string };
+        }): void;
+      }
+    ).handleKeyShare.bind(session)({
+      type: "key_share",
+      targetIdentityKey,
+      senderIdentityKey: "bad-peer",
+      olmMessage: { type: 1, body: "corrupted" },
+    });
+  }
+
+  it("starts healthy, so the assertions below mean something", () => {
+    expect(session.getDeliveryTracker().hasGap()).toBe(false);
+  });
+
+  it("marks delivery degraded when Olm decryption throws on an existing session", () => {
     (mockOlmDecrypt as ReturnType<typeof vi.fn>).mockImplementation(() => {
       throw new Error("olmDecrypt: simulated failure");
     });
 
     // Seed an existing Olm session so handleKeyShare takes the
-    // "existingOlm → olmDecrypt" branch (not createInboundSession).
+    // "existingOlm -> olmDecrypt" branch rather than createInboundSession.
     const s = session as unknown as Record<string, unknown>;
     (s.olmSessions as Map<string, unknown>).set("bad-peer", { id: "existing-olm" });
 
-    // Call handleKeyShare directly via reflection — the manually-created WS
-    // above has no session onmessage handler attached to it, so we bypass
-    // the transport layer entirely and invoke the method directly.
-    const handleKeyShare = (
-      session as unknown as {
-        handleKeyShare(msg: {
-          type: "key_share";
-          targetIdentityKey: string;
-          senderIdentityKey: string;
-          olmMessage: { type: number; body: string };
-        }): void;
-      }
-    ).handleKeyShare.bind(session);
+    callHandleKeyShare("my-identity-key");
 
-    handleKeyShare({
-      type: "key_share",
-      targetIdentityKey: "my-identity-key",
-      senderIdentityKey: "bad-peer",
-      olmMessage: { type: 1, body: "corrupted" },
-    });
-
-    expect(decryptFailures).toEqual(["bad-peer"]);
+    expect(session.getDeliveryTracker().hasGap()).toBe(true);
   });
 
-  it("does not fire onDecryptFailure for key_share messages not addressed to us", () => {
-    const handleKeyShare = (
-      session as unknown as {
-        handleKeyShare(msg: {
-          type: "key_share";
-          targetIdentityKey: string;
-          senderIdentityKey: string;
-          olmMessage: { type: number; body: string };
-        }): void;
-      }
-    ).handleKeyShare.bind(session);
-
-    handleKeyShare({
-      type: "key_share",
-      targetIdentityKey: "someone-else",
-      senderIdentityKey: "bad-peer",
-      olmMessage: { type: 1, body: "corrupted" },
+  it("leaves delivery healthy for key shares not addressed to us", () => {
+    (mockOlmDecrypt as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error("olmDecrypt: simulated failure");
     });
+    const s = session as unknown as Record<string, unknown>;
+    (s.olmSessions as Map<string, unknown>).set("bad-peer", { id: "existing-olm" });
 
-    // Message was not for us — handler must not fire
-    expect(decryptFailures).toHaveLength(0);
+    callHandleKeyShare("someone-else");
+
+    expect(session.getDeliveryTracker().hasGap()).toBe(false);
   });
 });

@@ -68,6 +68,23 @@ export class DeliveryTracker {
   }
 
   /**
+   * Record a delivery failure that no sequence number can reveal.
+   *
+   * Sequence gaps only catch messages that went missing in transit. A key
+   * share that fails to decrypt is worse and invisible here: the sender's
+   * Megolm key never arrives, so their messages are never counted, never
+   * missed, and never produce a gap. The room looks healthy while one member
+   * has been silently unreadable since they joined.
+   *
+   * Routing that into the same flag reuses the indicator the UI already
+   * polls, at the severity it already means: something may not have reached
+   * you. Cleared by reset() along with the rest of the tracking state.
+   */
+  noteDeliveryFailure(): void {
+    this.gapDetected = true;
+  }
+
+  /**
    * Returns true if any gap has been detected since the last reset().
    * Useful for surfacing a "possible missed messages" indicator in the UI.
    */
