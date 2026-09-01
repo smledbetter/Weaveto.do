@@ -236,4 +236,7 @@ SERVER (Node.js)
 
 ## License
 
-All dependencies are MIT or Apache 2.0 licensed.
+MIT. See [LICENSE](LICENSE).
+
+Every dependency is MIT or Apache 2.0, so a self-hosted node carries no
+copyleft obligation.
