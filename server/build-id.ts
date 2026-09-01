@@ -13,7 +13,7 @@
  * the working tree and refuses to start when the two disagree. See
  * tests/e2e/utils/relay-build.ts and tests/e2e/global-setup.ts.
  *
- * Scope: the TypeScript files in this directory, which are the only files the
+ * Scope: the source files in this directory, which are the only files the
  * relay process loads from the repository. A dependency upgrade is outside it,
  * because installing one already restarts nothing and the failure this guards
  * against is an edit to code the developer is holding in their head.
@@ -38,17 +38,57 @@ export const RELAY_BUILD_HEADER = "x-relay-build";
 export const RELAY_SOURCE_DIR = resolve(dirname(fileURLToPath(import.meta.url)));
 
 /**
- * Every TypeScript file in the relay source directory, sorted by name.
+ * Extensions the relay can be loaded from.
+ *
+ * TypeScript today, under tsx. server/Dockerfile contemplates dropping tsx and
+ * shipping compiled JavaScript, so the compiled forms are covered too. That
+ * change must not decide whether the relay can be fingerprinted.
+ *
+ * One limit follows. A precompiled relay fingerprints its .js files and a
+ * working tree fingerprints its .ts files, so the two forms never match. The
+ * digest compares relays of the same form only. That holds today, because the
+ * run compares against a relay it spawned from this tree. Anything that later
+ * checks a built image against a locally computed digest has to account for
+ * it, or every precompiled image will read as stale.
+ */
+export const SOURCE_EXTENSIONS = [".ts", ".js", ".mjs", ".cjs"];
+
+/**
+ * Pick the source files out of a directory listing, sorted by name.
+ *
+ * Separate from the directory read so the empty case below can be tested
+ * without emptying the real directory.
+ */
+export function selectSourceFiles(names: string[]): string[] {
+  const files = names
+    .filter((name) => SOURCE_EXTENSIONS.some((ext) => name.endsWith(ext)))
+    .sort();
+
+  // A digest over no files is the digest of the empty input, and it is the
+  // same constant everywhere. Both sides would compute it, both sides would
+  // agree, and the guard would pass against every relay including the stale
+  // one it exists to catch. Refusing to produce a fingerprint is the only
+  // safe answer, so this is the one case where the scan does not err toward a
+  // needless restart and has to fail instead.
+  if (files.length === 0) {
+    throw new Error(
+      `No relay sources in ${RELAY_SOURCE_DIR}. Cannot fingerprint the relay, ` +
+        "and a fingerprint over nothing would match every relay.",
+    );
+  }
+  return files;
+}
+
+/**
+ * Every source file in the relay source directory, sorted by name.
  *
  * Scanned rather than listed. A hand-written list is one more thing that goes
- * stale, and a file missing from it is a blind spot that reports green. A scan
- * can only err toward asking for a restart that was not needed, never toward
- * missing one that was.
+ * stale, and a file missing from it is a blind spot that reports green. Apart
+ * from the empty case above, a scan can only err toward asking for a restart
+ * that was not needed, never toward missing one that was.
  */
 export function relaySourceFiles(): string[] {
-  return readdirSync(RELAY_SOURCE_DIR)
-    .filter((name) => name.endsWith(".ts"))
-    .sort();
+  return selectSourceFiles(readdirSync(RELAY_SOURCE_DIR));
 }
 
 /**

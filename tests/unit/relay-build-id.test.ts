@@ -9,8 +9,10 @@ import { fileURLToPath } from "node:url";
 import {
   computeRelayBuildId,
   relaySourceFiles,
+  selectSourceFiles,
   RELAY_BUILD_HEADER,
   RELAY_SOURCE_DIR,
+  SOURCE_EXTENSIONS,
 } from "../../server/build-id";
 import { checkRelayIsCurrent, RELAY_URL } from "../e2e/utils/relay-build";
 
@@ -132,12 +134,12 @@ async function stopRelay(child: ChildProcess, url: string): Promise<void> {
 }
 
 describe("what the fingerprint covers", () => {
-  it("covers every TypeScript file in the relay source directory", () => {
+  it("covers every source file in the relay source directory", () => {
     // Scanned, not listed, so this reads the directory the same way. The
     // assertion that matters is the second one: the files the relay actually
     // loads are all inside the scan.
     const onDisk = readdirSync(RELAY_SOURCE_DIR)
-      .filter((n) => n.endsWith(".ts"))
+      .filter((n) => SOURCE_EXTENSIONS.some((ext) => n.endsWith(ext)))
       .sort();
     expect(relaySourceFiles()).toEqual(onDisk);
     expect(relaySourceFiles()).toEqual(
@@ -157,10 +159,50 @@ describe("what the fingerprint covers", () => {
           specifier.startsWith("../"),
           `${name} imports ${specifier}, which is outside the fingerprinted directory`,
         ).toBe(false);
-        const target = specifier.replace(/^\.\//, "").replace(/\.js$/, ".ts");
-        expect(relaySourceFiles(), `${name} imports ${specifier}`).toContain(target);
+        // Compared without the extension. The relay imports "./vapid.js" and
+        // that resolves to vapid.ts today, or to vapid.js after a precompile.
+        const strip = (f: string) => f.replace(/\.(ts|js|mjs|cjs)$/, "");
+        const target = strip(specifier.replace(/^\.\//, ""));
+        expect(
+          relaySourceFiles().map(strip),
+          `${name} imports ${specifier}`,
+        ).toContain(target);
       }
     }
+  });
+});
+
+describe("a fingerprint over nothing", () => {
+  /**
+   * SHA-256 of the empty input.
+   *
+   * If the scan ever matches no files, this is what every side computes. The
+   * relay would report it, the run would expect it, they would agree, and the
+   * guard would pass against any relay including the stale one. It is the
+   * failure this whole file exists to prevent, arrived at from the other end.
+   */
+  const EMPTY_DIGEST =
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+  it("is refused rather than returned", () => {
+    expect(() => selectSourceFiles([])).toThrow(/fingerprint/i);
+    expect(() => selectSourceFiles(["Dockerfile", "README.md"])).toThrow();
+  });
+
+  it("never comes back from the real directory", () => {
+    expect(computeRelayBuildId()).not.toBe(EMPTY_DIGEST);
+  });
+
+  it("does not happen when the relay is precompiled to JavaScript", () => {
+    // server/Dockerfile weighs dropping tsx and shipping compiled JS. That
+    // removes every .ts file from this directory. A scan matching only .ts
+    // would return nothing and agree with itself forever, so the change that
+    // reads as a cleanup would disarm the guard while every run stayed green.
+    expect(selectSourceFiles(["Dockerfile", "relay.js", "vapid.js"])).toEqual([
+      "relay.js",
+      "vapid.js",
+    ]);
+    expect(selectSourceFiles(["relay.mjs"])).toEqual(["relay.mjs"]);
   });
 });
 
