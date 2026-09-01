@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { createAndJoinRoom, sendMessage } from "./utils/room-helpers";
 import { newDeviceContext, joinExistingRoom } from "./utils/context-helpers";
-import { restartRelay, handBackRelay } from "./utils/relay-control";
+import { restartRelay, handBackRelay, releaseRelay } from "./utils/relay-control";
 import type { ChildProcess } from "node:child_process";
 
 /**
@@ -24,6 +24,13 @@ let spawned: ChildProcess | null = null;
 test.afterEach(async () => {
 	await handBackRelay(spawned);
 	spawned = null;
+});
+
+// handBackRelay leaves a relay running so the next test has one to connect to.
+// After the last test nothing needs it, and leaving it behind is what put a
+// stale relay on this port after every run.
+test.afterAll(async () => {
+	await releaseRelay();
 });
 
 /** Text the client shows when the relay reports a room it does not know. */
