@@ -116,6 +116,40 @@ jobs:
             test-results/
           retention-days: 7
 
+  e2e-preview:
+    name: E2E (production build)
+    runs-on: ubuntu-latest
+    # playwright-preview.config.ts runs against a real production build, where
+    # import.meta.env.DEV is false. That is the only way to exercise the
+    # WebAuthn path the dev build skips, and it is where identity persistence
+    # is covered. Nothing ran this config until now, so the one spec covering
+    # that path was running nowhere at all.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E against the production build
+        run: npx playwright test --config playwright-preview.config.ts
+
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-preview
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
   relay-container:
     name: Relay container boots
     runs-on: ubuntu-latest

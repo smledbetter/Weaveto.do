@@ -74,6 +74,38 @@ describe("every Playwright project is run", () => {
     expect(projectsInScript("test:e2e:restart")).toEqual(["relay-restart"]);
   });
 
+  it("every Playwright config is run by CI", () => {
+    // The project guard above only looks inside playwright.config.ts, so a
+    // whole second config could go unrun and it would stay green. That
+    // happened: playwright-preview.config.ts builds the app for production and
+    // is the only place the WebAuthn identity path is exercised, and nothing
+    // ran it, so the one spec covering that path ran nowhere.
+    const { readdirSync } = require("node:fs") as typeof import("node:fs");
+    const configs = readdirSync(ROOT).filter((f) =>
+      /^playwright.*\.config\.ts$/.test(f),
+    );
+    expect(configs.length).toBeGreaterThan(1);
+
+    const ci = read(".github/workflows/ci.yml");
+    for (const config of configs) {
+      if (config === "playwright.config.ts") {
+        // The default config is the one the --project matrix uses.
+        expect(ci).toMatch(/--project=/);
+        continue;
+      }
+      // Look for an actual invocation, not a mention. A first version of this
+      // asserted the filename appeared anywhere in the workflow, which the
+      // comment naming the config satisfied all by itself.
+      const invoked = new RegExp(
+        `playwright\\s+test[^\\n]*--config\\s+${config.replace(".", "\\.")}`,
+      );
+      expect(
+        invoked.test(ci),
+        `${config} is never run by CI, so the specs only it covers run nowhere`,
+      ).toBe(true);
+    }
+  });
+
   it("test:e2e runs both halves", () => {
     const pkg = JSON.parse(read("package.json"));
     expect(pkg.scripts["test:e2e"]).toContain("test:e2e:shared");

@@ -44,6 +44,7 @@
 	import { shouldNotifyForEvent, getNotificationPayload, postNotifyToSW, postPrefsToSW } from '$lib/notifications/triggers';
 	import { isPushSupported, subscribeToPush, unsubscribeFromPush, initPushDB, storePushSubscription, clearPushSubscription } from '$lib/notifications/push';
 import { saveTaskSnapshot, loadTaskSnapshot, saveEventQueue, loadEventQueue, clearOfflineData } from '$lib/tasks/offline';
+	import { hasStoredIdentitySeed, purgeLegacyDeviceKey } from '$lib/identity/store';
 import ConnectionIndicator from '$lib/components/ConnectionIndicator.svelte';
 import { deriveEmojiString } from '$lib/room/verification';
 import ShieldIcon from '$lib/components/ShieldIcon.svelte';
@@ -74,6 +75,19 @@ import { TabSync } from '$lib/room/tab-sync';
 	let error = $state('');
 	let showKeyWarning = $state(false);
 	let usingTempIdentity = $state(false);
+	/**
+	 * Whether this room has an identity saved on this device.
+	 *
+	 * Checked without the PIN, so the join form knows whether to ask for one.
+	 * Only ever true on devices without WebAuthn, where the seed is the fallback.
+	 */
+	let identitySeedStored = $state(false);
+	/** PIN that unlocks the saved identity. Never stored, never sent anywhere. */
+	let identityPin = $state('');
+	/** PIN being set to save an identity on this device. */
+	let keepPin = $state('');
+	let showKeepOnDevice = $state(false);
+	let keepError = $state('');
 	let roomUrl = $derived(browser ? (() => {
 		const base = `${window.location.origin}/room/${roomId}`;
 		const params = new URLSearchParams();
@@ -252,6 +266,11 @@ import { TabSync } from '$lib/room/tab-sync';
 	// Restore panel state from sessionStorage and set up keyboard shortcuts
 	onMount(async () => {
 		if (browser) {
+			// The old scheme left a wrapping key in localStorage. Remove it on
+			// sight rather than waiting for someone to open a room again.
+			purgeLegacyDeviceKey();
+			identitySeedStored = await hasStoredIdentitySeed(roomId);
+
 			const stored = sessionStorage.getItem('weave-task-panel-open');
 			showTaskPanel = stored !== 'false';
 
@@ -660,6 +679,29 @@ import { TabSync } from '$lib/room/tab-sync';
 		usingTempIdentity = false;
 	}
 
+	/**
+	 * Save this session's identity on this device, wrapped by a PIN.
+	 *
+	 * Only reachable from the banner, so nothing is ever written without the
+	 * person asking for it and choosing the PIN that protects it.
+	 */
+	async function keepIdentityOnDevice() {
+		keepError = '';
+		if (!prfSeedRef) {
+			keepError = 'No identity to save yet.';
+			return;
+		}
+		try {
+			await storeIdentitySeed(roomId, prfSeedRef, keepPin);
+			identitySeedStored = true;
+			usingTempIdentity = false;
+			showKeepOnDevice = false;
+			keepPin = '';
+		} catch {
+			keepError = 'Could not save on this device.';
+		}
+	}
+
 	async function generateRandomSeed(roomId: string): Promise<Uint8Array> {
 		const encoder = new TextEncoder();
 		const nonce = crypto.randomUUID();
@@ -690,17 +732,20 @@ import { TabSync } from '$lib/room/tab-sync';
 					}
 					prfSeed = result.seed;
 				} catch {
-					// WebAuthn PRF not supported — try IndexedDB-persisted identity
-					const storedSeed = await loadIdentitySeed(roomId);
+					// WebAuthn PRF not supported. An identity can be kept on this
+					// device, but only if the person asked for one and gave a PIN to
+					// wrap it with. Nothing is saved without both.
+					const storedSeed =
+						identitySeedStored && identityPin
+							? await loadIdentitySeed(roomId, identityPin)
+							: null;
 					if (storedSeed) {
 						prfSeed = storedSeed;
 					} else {
+						// A wrong PIN lands here too, which is deliberate. The room
+						// still opens, with an identity that lasts for this session.
 						prfSeed = await generateRandomSeed(roomId);
-						try {
-							await storeIdentitySeed(roomId, prfSeed);
-						} catch {
-							usingTempIdentity = true;
-						}
+						usingTempIdentity = true;
 					}
 				}
 			}
@@ -1135,10 +1180,22 @@ import { TabSync } from '$lib/room/tab-sync';
 				maxlength="32"
 				onkeydown={(e) => e.key === 'Enter' && joinRoom()}
 			/>
+			{#if identitySeedStored}
+				<input
+					type="password"
+					inputmode="numeric"
+					bind:value={identityPin}
+					placeholder="PIN for this device"
+					maxlength="12"
+					aria-label="PIN that unlocks your saved identity on this device"
+					onkeydown={(e) => e.key === 'Enter' && joinRoom()}
+				/>
+				<p class="auth-note">You saved an identity on this device. Enter its PIN to rejoin as the same person. Skip it and you will join as someone new.</p>
+			{/if}
 			<button onclick={joinRoom} disabled={!displayName.trim()} class="primary-btn">
 				Join Securely
 			</button>
-			<p class="auth-note">We'll use your device to generate an encryption key. No account, no password, nothing stored.</p>
+			<p class="auth-note">We'll use your device to generate an encryption key. No account, no password, and nothing kept unless you ask.</p>
 		</div>
 
 	{:else if phase === 'auth'}
@@ -1224,8 +1281,31 @@ import { TabSync } from '$lib/room/tab-sync';
 			{/if}
 			{#if usingTempIdentity && !walkthroughCompleted}
 				<div class="warning-banner temp-identity" role="status">
-					<p>Using temporary identity — your identity will change next session.</p>
-					<button onclick={() => { usingTempIdentity = false; }}>Dismiss</button>
+					{#if showKeepOnDevice}
+						<p>
+							Pick a PIN. It wraps your identity on this device and is never
+							stored or sent anywhere, so losing it means losing the identity.
+						</p>
+						<span class="keep-row">
+							<input
+								type="password"
+								inputmode="numeric"
+								bind:value={keepPin}
+								placeholder="New PIN"
+								maxlength="12"
+								aria-label="PIN to protect your identity on this device"
+							/>
+							<button onclick={keepIdentityOnDevice} disabled={keepPin.length < 4}>Save</button>
+							<button onclick={() => { showKeepOnDevice = false; keepPin = ''; keepError = ''; }}>Cancel</button>
+						</span>
+						{#if keepError}<p class="keep-error">{keepError}</p>{/if}
+					{:else}
+						<p>This device cannot use a security key, so this identity lasts for this session only.</p>
+						<span class="keep-row">
+							<button onclick={() => { showKeepOnDevice = true; }}>Keep me on this device</button>
+							<button onclick={() => { usingTempIdentity = false; }}>Dismiss</button>
+						</span>
+					{/if}
 				</div>
 			{/if}
 			<header>
@@ -1515,6 +1595,22 @@ import { TabSync } from '$lib/room/tab-sync';
 	}
 
 	.warning-banner p { margin: 0; }
+	.keep-row {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+		flex-shrink: 0;
+	}
+	.keep-row input {
+		padding: 0.25rem 0.5rem;
+		border: 1px solid var(--status-caution-btn-border);
+		border-radius: 4px;
+		font-size: 0.8rem;
+		width: 8rem;
+		background: transparent;
+		color: inherit;
+	}
+	.keep-error { color: var(--status-caution); font-size: 0.8rem; }
 	.warning-banner button {
 		background: none;
 		border: 1px solid var(--status-caution-btn-border);
