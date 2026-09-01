@@ -119,6 +119,43 @@ const BROADCAST_BUDGET =
  */
 const MAX_BUFFERED_BYTES = 8 * MAX_MESSAGE_SIZE;
 
+/**
+ * Push subscriptions kept for one room.
+ *
+ * The map is keyed by identity key, so it grows with every distinct identity
+ * that has ever subscribed while the room lived, not with the current member
+ * count. MAX_CLIENTS_PER_ROOM does not bound it. Without a cap, a long-lived
+ * room accumulates endpoints without limit, and every one of them costs an
+ * outbound HTTPS request on every message.
+ *
+ * A push subscription is only useful to a member, and a room can never hold
+ * more than MAX_CLIENTS_PER_ROOM members at once, so that is the cap.
+ */
+const MAX_PUSH_SUBS_PER_ROOM = MAX_CLIENTS_PER_ROOM;
+
+/**
+ * How long to wait before pushing to the same subscriber again.
+ *
+ * The push carries no payload. sendPushNotification posts an empty body, so
+ * twenty messages produce twenty identical contentless notifications. That is
+ * twenty outbound HTTPS requests to tell someone the same thing once.
+ *
+ * A cooldown bounds the push rate independently of the message rate, which is
+ * the property that matters: without it, one chatty room turns into an
+ * unbounded outbound request rate against a third-party push service.
+ */
+const PUSH_COOLDOWN_MS = 30_000;
+
+/**
+ * Most push requests in flight at once, across every room.
+ *
+ * These are fire-and-forget fetches. Nothing awaited them and nothing counted
+ * them, so a burst could open an unbounded number of sockets and hold their
+ * buffers. Push is best-effort by nature, so shedding past the cap is the
+ * correct behaviour rather than a compromise.
+ */
+const MAX_PUSH_IN_FLIGHT = 64;
+
 // --- Liveness and shutdown constants ---
 
 /** How often every connection is pinged to prove it is still there. */
@@ -366,6 +403,19 @@ const rooms = new Map<string, Room>();
 
 // Push subscriptions per room: Map<roomId, Map<identityKey, PushSubscriptionData>>
 const pushSubscriptions = new Map<string, Map<string, PushSubscriptionData>>();
+
+/**
+ * When each subscriber was last pushed to, per room.
+ *
+ * Nested rather than keyed on a joined string so deleteRoomState can drop a
+ * room's cooldowns in one operation. A third registry keyed independently of
+ * `rooms` is exactly the leak deleteRoomState was written to fix, and a flat
+ * map would have reintroduced it in a form no existing test covered.
+ */
+const lastPushAt = new Map<string, Map<string, number>>();
+
+/** Push requests currently in flight. See MAX_PUSH_IN_FLIGHT. */
+let pushInFlight = 0;
 
 // --- Connection tracking ---
 
@@ -689,7 +739,13 @@ wss.on(
       releaseConnection(counts, ip);
 
       if (client) {
-        removeClient(roomId, client.identityKey, rooms, pushSubscriptions);
+        removeClient(
+          roomId,
+          client.identityKey,
+          rooms,
+          pushSubscriptions,
+          lastPushAt,
+        );
       }
     });
   },
@@ -848,6 +904,75 @@ export function admitToWindow(
   return true;
 }
 
+/**
+ * Record a push subscription, evicting the oldest if the room is full.
+ *
+ * Evicts rather than refuses. Refusing means a new member cannot get
+ * notifications because identities that left still hold every slot, which
+ * fails in favour of the people least likely to still want them. Insertion
+ * order is subscription order, so the first key is the oldest.
+ *
+ * Re-subscribing moves an identity to the back, so an active member is never
+ * the one evicted.
+ *
+ * Returns the identity key evicted, or null.
+ */
+export function admitPushSubscription(
+  roomSubs: Map<string, PushSubscriptionData>,
+  identityKey: string,
+  subscription: PushSubscriptionData,
+  limit: number = MAX_PUSH_SUBS_PER_ROOM,
+): string | null {
+  roomSubs.delete(identityKey);
+
+  let evicted: string | null = null;
+  if (roomSubs.size >= limit) {
+    const oldest = roomSubs.keys().next();
+    if (!oldest.done) {
+      evicted = oldest.value;
+      roomSubs.delete(evicted);
+    }
+  }
+
+  roomSubs.set(identityKey, subscription);
+  return evicted;
+}
+
+/**
+ * Choose which absent subscribers to push to, and charge them a cooldown.
+ *
+ * Skips the sender, anyone currently connected, and anyone pushed to inside
+ * the cooldown. That last one is what bounds the outbound request rate: the
+ * push carries no payload, so repeated notifications say the same thing, and
+ * without a cooldown one busy room produces an unbounded rate of outbound
+ * HTTPS requests to a third-party service.
+ *
+ * Mutates `cooldowns` for the recipients it returns, so a caller that drops a
+ * request still pays the cooldown. That is deliberate. Push is best-effort,
+ * and retrying immediately is how a shed load turns into a hot loop.
+ */
+export function selectPushRecipients(
+  roomSubs: Map<string, PushSubscriptionData>,
+  isConnected: (identityKey: string) => boolean,
+  senderIdentityKey: string,
+  now: number,
+  cooldowns: Map<string, number>,
+  cooldownMs: number = PUSH_COOLDOWN_MS,
+): Array<[string, PushSubscriptionData]> {
+  const recipients: Array<[string, PushSubscriptionData]> = [];
+  for (const [identityKey, subscription] of roomSubs) {
+    if (identityKey === senderIdentityKey) continue;
+    if (isConnected(identityKey)) continue;
+
+    const last = cooldowns.get(identityKey);
+    if (last !== undefined && now - last < cooldownMs) continue;
+
+    cooldowns.set(identityKey, now);
+    recipients.push([identityKey, subscription]);
+  }
+  return recipients;
+}
+
 /** The part of a WebSocket that fan-out needs, so it can be exercised directly. */
 export interface FanOutSocket {
   readyState: number;
@@ -914,21 +1039,38 @@ function handleEncrypted(
   const serialized = JSON.stringify(msg);
   fanOut(room.clients, sender.identityKey, serialized);
 
-  // Send push notifications to subscribed clients who are NOT connected via WebSocket
+  // Push to subscribed members who are not connected. One outbound HTTPS
+  // request each, so this is the second amplifying path in this function and
+  // the one that leaves the machine.
   const roomSubs = pushSubscriptions.get(roomId);
   if (roomSubs) {
-    for (const [subIdentityKey, subscription] of roomSubs) {
-      // Don't push to the sender
-      if (subIdentityKey === sender.identityKey) continue;
-      // Don't push to clients currently connected via WebSocket
-      if (room.clients.has(subIdentityKey)) continue;
-      // Fire-and-forget: handle 410 Gone to remove stale subscriptions
-      sendPushNotification(subscription, "").then((result) => {
-        if (result === "gone") {
-          roomSubs.delete(subIdentityKey);
-          if (roomSubs.size === 0) pushSubscriptions.delete(roomId);
-        }
-      });
+    const cooldowns = lastPushAt.get(roomId) ?? new Map<string, number>();
+    lastPushAt.set(roomId, cooldowns);
+    const recipients = selectPushRecipients(
+      roomSubs,
+      (identityKey) => room.clients.has(identityKey),
+      sender.identityKey,
+      Date.now(),
+      cooldowns,
+    );
+
+    for (const [subIdentityKey, subscription] of recipients) {
+      // Shed rather than queue. Push is best-effort, and an unbounded number
+      // of in-flight fetches is the failure this cap exists to prevent.
+      if (pushInFlight >= MAX_PUSH_IN_FLIGHT) break;
+
+      pushInFlight++;
+      sendPushNotification(subscription, "")
+        .then((result) => {
+          if (result === "gone") {
+            roomSubs.delete(subIdentityKey);
+            cooldowns.delete(subIdentityKey);
+            if (roomSubs.size === 0) pushSubscriptions.delete(roomId);
+          }
+        })
+        .finally(() => {
+          pushInFlight--;
+        });
     }
   }
 }
@@ -942,7 +1084,12 @@ function handlePushSubscribe(
 
   const roomSubs =
     pushSubscriptions.get(msg.roomId) ?? new Map<string, PushSubscriptionData>();
-  roomSubs.set(msg.identityKey, msg.subscription);
+  const evicted = admitPushSubscription(
+    roomSubs,
+    msg.identityKey,
+    msg.subscription,
+  );
+  if (evicted !== null) lastPushAt.get(msg.roomId)?.delete(evicted);
   pushSubscriptions.set(msg.roomId, roomSubs);
 }
 
@@ -956,6 +1103,7 @@ function handlePushUnsubscribe(
   const roomSubs = pushSubscriptions.get(msg.roomId);
   if (roomSubs) {
     roomSubs.delete(msg.identityKey);
+    lastPushAt.get(msg.roomId)?.delete(msg.identityKey);
     if (roomSubs.size === 0) pushSubscriptions.delete(msg.roomId);
   }
 }
@@ -963,19 +1111,23 @@ function handlePushUnsubscribe(
 /**
  * Drop every trace of a room from memory.
  *
- * `rooms` and `pushSubscriptions` are keyed independently, so deleting the room
- * alone strands its push endpoints for the life of the process — an unbounded
- * leak, and retention of contact data the privacy policy says is not retained.
- * The stranded entries are also unreachable: once the room is gone
- * handleEncrypted returns early, so nothing can ever push to them again.
+ * Every room-keyed registry is keyed independently of `rooms`, so deleting the
+ * room alone strands its entries for the life of the process. For push
+ * endpoints that is an unbounded leak and retention of contact data the
+ * privacy policy says is not retained. The stranded entries are also
+ * unreachable: once the room is gone handleEncrypted returns early, so nothing
+ * can ever reach them again.
+ *
+ * Variadic on purpose. Adding a registry and forgetting to clear it here is
+ * the exact bug this function was written to fix, and it has now been made
+ * twice. tests/unit/relay-room-cleanup.test.ts enumerates the room-keyed maps
+ * in this file and fails if one of them is not passed in.
  */
 export function deleteRoomState(
   roomId: string,
-  roomRegistry: Map<string, unknown>,
-  pushRegistry: Map<string, unknown>,
+  ...registries: Array<Map<string, unknown>>
 ): void {
-  roomRegistry.delete(roomId);
-  pushRegistry.delete(roomId);
+  for (const registry of registries) registry.delete(roomId);
 }
 
 /**
@@ -989,6 +1141,7 @@ export function removeClient(
   identityKey: string,
   roomRegistry: Map<string, Room>,
   pushRegistry: Map<string, Map<string, PushSubscriptionData>>,
+  cooldownRegistry: Map<string, Map<string, number>> = new Map(),
 ): void {
   const room = roomRegistry.get(roomId);
   if (!room) return;
@@ -997,7 +1150,12 @@ export function removeClient(
 
   // Clean up empty rooms
   if (room.clients.size === 0) {
-    deleteRoomState(roomId, roomRegistry, pushRegistry);
+    deleteRoomState(
+      roomId,
+      roomRegistry as Map<string, unknown>,
+      pushRegistry as Map<string, unknown>,
+      cooldownRegistry as Map<string, unknown>,
+    );
   } else {
     // Notify remaining members
     const leaveMsg = JSON.stringify({

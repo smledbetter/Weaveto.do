@@ -36,6 +36,7 @@ import {
 } from "./relay-process.js";
 import { RELAY_LIMITS } from "./protocol.js";
 import { runCapChecks } from "./caps.js";
+import { runPushChecks } from "./push.js";
 
 const execFileAsync = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -151,8 +152,21 @@ function parseArgs(argv: string[]): Args {
   if (args.attach !== null && !/^\d+$/.test(args.attach)) {
     throw new Error('--attach takes the relay port, for example --attach=3081');
   }
+  // These profiles restart the relay themselves, between phases and with
+  // different hook settings, so they cannot drive one somebody else started.
+  // Accepting --attach and quietly ignoring it produced a run that looked like
+  // it measured a container and did not.
+  if (args.attach !== null && SELF_HOSTED_PROFILES.has(args.profile)) {
+    throw new Error(
+      `--profile=${args.profile} starts and restarts its own relay, so it cannot attach to one. ` +
+        "Drop --attach, or use a ramp profile to measure an attached relay.",
+    );
+  }
   return args;
 }
+
+/** Profiles that own their relay process and therefore reject --attach. */
+const SELF_HOSTED_PROFILES = new Set(["caps", "push"]);
 
 async function portIsFree(port: number): Promise<boolean> {
   try {
@@ -592,6 +606,9 @@ async function main(): Promise<void> {
   if (args.profile === "caps") {
     const port = await choosePort(args.port);
     report = await runCapChecks(port, args.verbose);
+  } else if (args.profile === "push") {
+    const port = await choosePort(args.port);
+    report = await runPushChecks(port, args.verbose);
   } else {
     report = await runRamp(resolveProfile(args.profile), args);
   }

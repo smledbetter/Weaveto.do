@@ -56,6 +56,7 @@ Anyone who completes the Olm key exchange (via room link) can decrypt all room c
 | Timestamp manipulation in task events | Malicious member sends future timestamps, wins every conflict | No timestamp window validation (see Open Gaps) |
 | Reconnect Olm session divergence | Reconnect generates fresh OTKs but keeps stale Olm sessions; decrypt failures swallowed silently | Clear stale sessions on reconnect (see Open Gaps) |
 | Any member can burn the room | A single member destroys every online member's local copy | Accepted. Burn is an encrypted message, so holding the Megolm key is the only bar (see Open Gaps) |
+| Relay makes outbound requests to a client-chosen URL | A client can aim the relay at internal addresses it cannot reach itself | Endpoint is not validated beyond length (see Open Gaps) |
 
 ## Open Gaps & Planned Mitigations
 
@@ -126,6 +127,20 @@ Burn used to be a relay operation. The relay held the creator's identity key and
 **Why the exposure is smaller than it looks**: every member can already read everything, and the task list is an event log every member can already write to, so a member who wants to destroy the shared state can do so without a burn. Burn adds the ability to clear other people's *local* copies. It does not reach offline members, and it does not reach anyone's data on a device that is not currently in the room.
 
 **Mitigation path**: if this becomes real, the fix is a signed burn tied to an ed25519 key established at room creation and carried in the invite link, so authorization travels with the link rather than with relay state.
+
+### 9. Push Endpoints Are Not Validated
+
+**Risk**: A client can make the relay issue HTTP POSTs to any URL it chooses.
+
+`push_subscribe` accepts any `endpoint` string up to 2048 characters. Nothing checks the scheme or the host. `sendPushNotification` then posts to it. A client can point that at a loopback address, a private range, or a cloud metadata endpoint, and the relay will make the request from inside the network it is deployed in.
+
+The relay does not return the response to the client, so this is blind: it can reach and act on internal endpoints, but it cannot read what they say. It can still be used to probe reachability by timing, and to trigger side effects on anything that acts on an unauthenticated POST.
+
+**Found while building the push load test.** The measurement points subscriptions at a local stub over plain HTTP, and it works, which is the flaw demonstrating itself.
+
+**Mitigation path**: require `https:`, reject hosts that resolve to loopback, link-local, or private ranges, and re-resolve at request time rather than at subscribe time so a DNS answer cannot change between the check and the fetch. Real push services are all public HTTPS, so nothing legitimate is lost. The load test would then need the stub behind TLS the relay trusts.
+
+**Not fixed here.** It is a change to what the relay accepts, it needs the load test reworked at the same time, and it is a security fix that deserves its own review rather than riding along with a capacity change.
 
 ## Review Cadence
 

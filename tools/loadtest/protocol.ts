@@ -26,6 +26,8 @@ export const RELAY_LIMITS = Object.freeze({
   MSG_RATE_LIMIT: 20,
   BROADCAST_RATE_LIMIT: 5,
   BROADCAST_WINDOW_MS: 4000,
+  PUSH_COOLDOWN_MS: 30000,
+  MAX_PUSH_IN_FLIGHT: 64,
 });
 
 /**
@@ -36,6 +38,13 @@ export const RELAY_LIMITS = Object.freeze({
  * in that table is checked against a numeric literal in server/relay.ts, and
  * this one is a computed expression there too.
  */
+/**
+ * Push subscriptions kept per room. Derived exactly as the relay derives it.
+ * A subscription is only useful to a member, and a room can never hold more
+ * members than MAX_CLIENTS_PER_ROOM at once.
+ */
+export const MAX_PUSH_SUBS_PER_ROOM = RELAY_LIMITS.MAX_CLIENTS_PER_ROOM;
+
 export const BROADCAST_BUDGET =
   RELAY_LIMITS.BROADCAST_RATE_LIMIT * (RELAY_LIMITS.BROADCAST_WINDOW_MS / 1000);
 

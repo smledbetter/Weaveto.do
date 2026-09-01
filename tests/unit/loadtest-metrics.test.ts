@@ -45,6 +45,7 @@ import {
   buildKeyShare,
   checkKeyShareAgainstRelayRules,
   BROADCAST_BUDGET,
+  MAX_PUSH_SUBS_PER_ROOM,
 } from "../../tools/loadtest/protocol";
 
 // ---------------------------------------------------------------------------
@@ -652,6 +653,15 @@ describe("RELAY_LIMITS", () => {
     expect(BROADCAST_BUDGET).toBe(
       declared("BROADCAST_RATE_LIMIT") * (declared("BROADCAST_WINDOW_MS") / 1000),
     );
+  });
+
+  it("derives the push subscription cap the same way the relay does", () => {
+    // The relay sets it from MAX_CLIENTS_PER_ROOM rather than writing a number,
+    // because a push subscription is only useful to a member.
+    const decl = relaySource.match(/const MAX_PUSH_SUBS_PER_ROOM = .*;/);
+    expect(decl, "MAX_PUSH_SUBS_PER_ROOM not found in server/relay.ts").toBeTruthy();
+    expect(decl![0]).toMatch(/MAX_CLIENTS_PER_ROOM/);
+    expect(MAX_PUSH_SUBS_PER_ROOM).toBe(declared("MAX_CLIENTS_PER_ROOM"));
   });
 
   it("no longer declares a room ceiling that cannot be reached", () => {
