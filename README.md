@@ -18,6 +18,7 @@ weaveto.do enables trusted groups — caregiving collectives, event organizers, 
 
 - **Federation**: syncing between independently run nodes. There is no sync protocol in this repository yet.
 - **Tor hidden service**: the relay cannot avoid seeing the address a connection arrives from, and neither can the host in front of it. Reaching it over Tor is the way to remove that, and it is not built.
+- **Custom agents**: the sandbox and the host interface exist and the built-in agents run on them, but there is no way to add your own. Uploading one is not exposed anywhere in the app.
 
 ## Tech Stack
 
@@ -74,9 +75,9 @@ Dependencies, natural language dates, and productivity features.
 
 ### M3: Agent Infrastructure ✓
 
-WASM sandboxing for user-uploaded agent modules.
+WASM sandboxing for agent modules. The runtime, not a way to add your own.
 
-- Upload and run custom WASM agent modules (raw WebAssembly API, zero dependencies)
+- Runtime for WASM agent modules (raw WebAssembly API, zero dependencies). Uploading your own is not exposed, see Planned
 - Host function imports: read tasks, emit events, persist state
 - AES-256-GCM encrypted persistent state per agent
 - Security hardened: hash verification, memory isolation, circuit breaker, bounds checking
@@ -115,7 +116,7 @@ Onboarding clarity, room identity, and mode explanations so new users can unders
 - Memorable 2-word room names derived from room ID (e.g. "swift-falcon"), shown in header, title, join page, and invite modal
 - Better onboarding copy on Join Room page (context for invited users, friendlier auth language)
 - Show user's own display name in room header
-- Agent panel explainer text (what agents are, where to find custom agents, more defaults coming)
+- Agent panel explainer text (what agents are and what the built-in ones do)
 - Invite modal with zero-dependency QR code SVG encoder, copyable URL, and member list
 
 ### M6: Session Security ✓

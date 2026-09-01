@@ -443,7 +443,8 @@ import { TabSync } from '$lib/room/tab-sync';
 		});
 		await refreshAgentModules();
 
-		// Load built-in agents and merge with user-uploaded
+		// Load the built-in agents. There is no upload path, so the stored set
+		// is only ever what shipped. See README, Planned.
 		const builtIns = await getBuiltInAgents(roomId);
 		for (const builtin of builtIns) {
 			// Check localStorage for explicit disable; default is active
@@ -515,21 +516,6 @@ import { TabSync } from '$lib/room/tab-sync';
 		activeAgentIds = agentExecutor.getActiveAgents();
 	}
 
-	async function handleAgentDelete(moduleId: string) {
-		// Built-in agents cannot be deleted
-		if (isBuiltIn(moduleId)) return;
-
-		// Deactivate first if active
-		if (agentExecutor?.isActive(moduleId)) {
-			await agentExecutor.deactivate(moduleId);
-		}
-
-		const db = await openModuleDB();
-		await deleteModule(db, moduleId);
-		db.close();
-		await refreshAgentModules();
-		activeAgentIds = agentExecutor?.getActiveAgents() ?? [];
-	}
 
 	onMount(() => {
 		// Show tab-close warning once
@@ -1484,7 +1470,6 @@ import { TabSync } from '$lib/room/tab-sync';
 							activeAgents={activeAgentIds}
 							onActivate={handleAgentActivate}
 							onDeactivate={handleAgentDeactivate}
-							onDelete={handleAgentDelete}
 							onClose={toggleAgentPanel}
 						/>
 					</div>

@@ -1,13 +1,11 @@
 <script lang="ts">
 	import type { StoredAgentModule } from '$lib/agents/types';
-	import { isBuiltIn } from '$lib/agents/builtin';
 
 	interface Props {
 		modules: StoredAgentModule[];
 		activeAgents: string[];
 		onActivate: (moduleId: string) => void;
 		onDeactivate: (moduleId: string) => void;
-		onDelete: (moduleId: string) => void;
 		onClose: () => void;
 	}
 
@@ -16,12 +14,8 @@
 		activeAgents,
 		onActivate,
 		onDeactivate,
-		onDelete,
 		onClose,
 	}: Props = $props();
-
-	// Delete confirmation
-	let confirmDelete = $state<string | null>(null);
 
 	function toggleActive(moduleId: string) {
 		if (activeAgents.includes(moduleId)) {
@@ -31,29 +25,7 @@
 		}
 	}
 
-	function initiateDelete(moduleId: string) {
-		confirmDelete = moduleId;
-	}
 
-	function confirmDeleteModule() {
-		if (confirmDelete) {
-			onDelete(confirmDelete);
-			confirmDelete = null;
-		}
-	}
-
-	function cancelDelete() {
-		confirmDelete = null;
-	}
-
-	function formatDate(timestamp: number): string {
-		const date = new Date(timestamp);
-		return date.toLocaleDateString('en-US', {
-			month: 'short',
-			day: 'numeric',
-			year: date.getFullYear() !== new Date().getFullYear() ? '2-digit' : undefined,
-		});
-	}
 </script>
 
 <aside class="agent-panel" role="complementary" aria-label="Automation panel">
@@ -76,18 +48,15 @@
 			</p>
 		</div>
 
-		<!-- Custom agent upload UI removed — deferred to a later milestone -->
-
 		{#if modules.length === 0}
 			<div class="empty-state">
-				<p>No agent modules uploaded</p>
+				<p>No agents available</p>
 			</div>
 		{:else}
 			<ul class="module-list" role="list">
 				{#each modules as module (module.id)}
 					{@const isActive = activeAgents.includes(module.id)}
-					{@const builtin = isBuiltIn(module.id)}
-					<li class="module-item" class:builtin>
+					<li class="module-item">
 						<div class="module-header">
 							<div class="module-title-section">
 								<div class="status-badge" class:active={isActive} title={isActive ? 'Active' : 'Inactive'}>
@@ -97,12 +66,6 @@
 									<h4 class="module-name">{module.manifest.name}</h4>
 									<div class="module-meta">
 										<span class="version">v{module.manifest.version}</span>
-										{#if builtin}
-											<span class="builtin-badge">Built-in</span>
-										{:else}
-											<span class="author">{module.manifest.author}</span>
-											<span class="uploaded">Uploaded {formatDate(module.uploadedAt)}</span>
-										{/if}
 									</div>
 								</div>
 							</div>
@@ -116,16 +79,6 @@
 								>
 									{isActive ? 'Deactivate' : 'Activate'}
 								</button>
-								{#if !builtin}
-									<button
-										class="delete-btn"
-										onclick={() => initiateDelete(module.id)}
-										aria-label="Delete agent module"
-										title="Delete"
-									>
-										&#128465;
-									</button>
-								{/if}
 							</div>
 						</div>
 
@@ -149,26 +102,6 @@
 	</div>
 </aside>
 
-{#if confirmDelete}
-	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-	<div
-		class="modal-backdrop"
-		role="dialog"
-		aria-modal="true"
-		aria-label="Confirm delete"
-		onkeydown={(e) => e.key === 'Escape' && cancelDelete()}
-		onclick={(e) => e.target === e.currentTarget && cancelDelete()}
-	>
-		<div class="confirm-modal">
-			<h4>Delete agent module?</h4>
-			<p>This action cannot be undone.</p>
-			<div class="confirm-actions">
-				<button class="delete-confirm-btn" onclick={confirmDeleteModule}>Delete</button>
-				<button class="cancel-btn" onclick={cancelDelete}>Cancel</button>
-			</div>
-		</div>
-	</div>
-{/if}
 
 <style>
 	.agent-panel {
@@ -324,37 +257,13 @@
 	}
 
 	.version,
-	.author,
-	.uploaded {
-		display: inline-block;
-	}
 
 	.version::before {
 		content: '';
 	}
 
-	.builtin-badge {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.1rem 0.4rem;
-		background: var(--accent-muted);
-		color: var(--accent-default);
-		border-radius: 3px;
-		font-size: 0.7rem;
-		font-weight: 500;
-		border: 1px solid var(--accent-border);
-	}
 
-	.builtin-badge::before {
-		content: '•';
-		margin: 0 0.35rem;
-	}
 
-	.author::before,
-	.uploaded::before {
-		content: '•';
-		margin: 0 0.35rem;
-	}
 
 	.module-actions {
 		display: flex;
@@ -385,26 +294,7 @@
 		background: var(--accent-muted);
 	}
 
-	.delete-btn {
-		background: none;
-		border: 1px solid var(--border-default);
-		color: var(--text-secondary);
-		padding: 0.3rem 0.4rem;
-		border-radius: 4px;
-		cursor: pointer;
-		font-size: 0.75rem;
-		transition: all 150ms ease-out;
-		min-width: 32px;
-		height: 26px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
 
-	.delete-btn:hover {
-		border-color: var(--status-error);
-		color: var(--status-error);
-	}
 
 	.module-description {
 		font-size: 0.8rem;
@@ -433,75 +323,14 @@
 	}
 
 	/* Delete confirmation modal */
-	.modal-backdrop {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 200;
-	}
 
-	.confirm-modal {
-		background: var(--bg-surface);
-		border: 1px solid var(--border-default);
-		border-radius: 8px;
-		padding: 1.25rem;
-		max-width: 360px;
-		width: 100%;
-	}
 
-	.confirm-modal h4 {
-		margin: 0 0 0.5rem;
-		font-weight: 500;
-		font-size: 0.95rem;
-		color: var(--text-primary);
-	}
 
-	.confirm-modal p {
-		margin: 0 0 1rem;
-		font-size: 0.85rem;
-		color: var(--text-secondary);
-	}
 
-	.confirm-actions {
-		display: flex;
-		gap: 0.75rem;
-	}
 
-	.delete-confirm-btn {
-		flex: 1;
-		padding: 0.5rem;
-		background: var(--status-error);
-		color: var(--text-inverse);
-		border: none;
-		border-radius: 6px;
-		cursor: pointer;
-		font-weight: 500;
-		font-size: 0.85rem;
-		transition: opacity 150ms ease-out;
-	}
 
-	.delete-confirm-btn:hover {
-		opacity: 0.9;
-	}
 
-	.cancel-btn {
-		padding: 0.5rem 1rem;
-		background: none;
-		border: 1px solid var(--border-default);
-		border-radius: 6px;
-		color: var(--text-secondary);
-		cursor: pointer;
-		font-size: 0.85rem;
-		transition: all 150ms ease-out;
-	}
 
-	.cancel-btn:hover {
-		border-color: var(--border-strong);
-		color: var(--text-primary);
-	}
 
 	/* Mobile: full width */
 	@media (max-width: 767px) {
@@ -517,8 +346,7 @@
 			width: 100%;
 		}
 
-		.toggle-btn,
-		.delete-btn {
+		.toggle-btn {
 			flex: 1;
 		}
 	}
