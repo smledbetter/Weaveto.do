@@ -726,9 +726,9 @@ import { TabSync } from '$lib/room/tab-sync';
 					const storedCred = getStoredCredentialId();
 					let result;
 					if (storedCred) {
-						result = await assertWithPrf(storedCred);
+						result = await assertWithPrf(roomId, storedCred);
 					} else {
-						result = await createCredential();
+						result = await createCredential(roomId);
 					}
 					prfSeed = result.seed;
 				} catch {
