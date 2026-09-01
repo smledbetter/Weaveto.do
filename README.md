@@ -2,17 +2,22 @@
 
 Privacy-first, agent-augmented task coordination for decentralized teams.
 
-weaveto.do enables trusted groups — caregiving collectives, event organizers, volunteer networks — to coordinate tasks securely without relying on centralized services. All communication is end-to-end encrypted. No accounts. No tracking. No persistence beyond what's necessary.
+weaveto.do enables trusted groups — caregiving collectives, event organizers, volunteer networks — to coordinate tasks securely without relying on centralized services. All communication is end-to-end encrypted. No accounts, no tracking, and nothing left on the server once a room empties.
 
-> **Status:** weaveto.do is not yet hosted. The app will go live after M8 (Vulnerability Scanning) verifies the security of all shipped milestones. Until then, you can clone this repo and run it locally.
+> **Status:** not yet hosted. You can clone this repo and run it locally. What the app defends against, and what it does not, is written down in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). What the relay can carry is measured in [docs/CAPACITY.md](docs/CAPACITY.md).
 
 ## Project Goals
 
-- **Zero-knowledge relay**: The server only routes ciphertext. It cannot read messages, identify users, or correlate activity.
-- **No accounts**: Identity is device-bound via WebAuthn PRF. No emails, no passwords, no social logins.
-- **Ephemeral by design**: Encryption keys live in memory only. Close the tab, lose the keys. Rooms auto-delete when empty.
-- **Agent automation**: WASM-sandboxed agents handle task splitting, reminders, and load balancing — without accessing plaintext.
-- **Self-hostable and federable**: No cloud vendor lock-in. Run your own node, sync with others via encrypted P2P protocols.
+- **The relay routes ciphertext it cannot read**: it never receives message or task content, and never receives display names. It does know which keys are connected to which room, it holds a push endpoint for anyone who turns on notifications, and it counts connections per client under a salted hash rather than an address. Nothing it holds is written to disk, and a room's entries are dropped when its last member leaves.
+- **No accounts**: identity is device-bound via WebAuthn PRF. No emails, no passwords, no social logins. It is also different in every room, so the relay cannot tell that the same device joined two of them.
+- **Ephemeral by design**: message keys live in memory only, so closing the tab ends the session, and rooms are deleted when the last member leaves. On a device that cannot use a security key you can choose to stay signed in, which stores your identity wrapped by a key derived from a PIN. Nothing is stored unless you ask, and the key is never stored at all.
+- **Agent automation**: WASM-sandboxed agents handle task splitting, reminders, and load balancing. They run on your device in a no-syscall sandbox, they are handed task structure rather than anything anyone typed, and nothing they touch reaches the server.
+- **Self-hostable**: no cloud vendor lock-in. Run your own node. A node is one process today: rooms live in its memory, so a second machine splits them rather than adding capacity.
+
+### Planned, not built
+
+- **Federation**: syncing between independently run nodes. There is no sync protocol in this repository yet.
+- **Tor hidden service**: the relay cannot avoid seeing the address a connection arrives from, and neither can the host in front of it. Reaching it over Tor is the way to remove that, and it is not built.
 
 ## Tech Stack
 
