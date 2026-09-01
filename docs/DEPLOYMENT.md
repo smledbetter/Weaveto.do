@@ -11,6 +11,16 @@ How the WebSocket relay gets to production, what it cannot do, and how to tell w
 
 The two are deployed separately. The client reaches the relay over `VITE_RELAY_URL`, which is read at **build time** in `src/lib/room/session.ts`. A client build without that variable falls back to `<current hostname>:3001`, which is correct in dev and wrong in production. Changing the relay hostname therefore needs a client rebuild, not just a relay deploy.
 
+## Deploying the client
+
+The Vercel project is connected to this repository, so a merge to `main` builds and promotes to production on its own. There is nothing to run by hand.
+
+That connection is worth stating because it was absent for months and nobody noticed. The project had been created with `vercel link` and deployed once from a laptop, so the live site sat frozen at that build while `main` moved on. Every symptom pointed elsewhere: the site loaded, rooms opened, messages sent.
+
+**The two halves can drift apart, and the relay is the half that moves first.** A relay deploy takes effect immediately for every connected client, while a client change reaches people only as their browser picks up a new build. So a protocol change has to be backward compatible with the client that is already out there, in that direction specifically. Display names moved into the encrypted key share this way: the relay stopped sending `displayName` in `member_list` while the deployed client still read that field, which shows other members with no name until the client catches up.
+
+If the site looks stale, check that a deployment exists for the commit before assuming a build problem. A Vercel deployment appears on the repository as a GitHub deployment and as a check on the pull request. No deployment and no check means the integration is not connected, which is a different fault from a failed build and is fixed in Project, Settings, Git.
+
 ## Deploying the relay
 
 Run from the repository root, because the Docker build context is the root and not `server/`.
@@ -52,25 +62,34 @@ A single `shared-cpu-1x` machine with 1GB of memory. These are the limits declar
 
 | Limit | Declared | Reality |
 |-------|----------|---------|
-| Rooms | 10,000 | Unreachable. `removeClient()` deletes a room when its last client leaves, so live rooms are bounded by live connections, which cap at 5,000. This limit is dead code. |
+| Rooms | 5,000 | Bounded by connections in practice. `removeClient()` deletes a room when its last client leaves, so live rooms can never exceed live connections. Set to the number that actually binds. |
 | Total connections | 5,000 | Real. Enforced exactly. Connection 5,001 gets HTTP 503. |
-| Clients per room | 50 | Declared, but not safe at scale. See below. |
-| Connections per IP | 10 | Real. |
-| Messages per second per connection | 30 | Real. |
+| Clients per room | 10 | Real, and the number that decides everything below. Each message is relayed to the other 9. |
+| Connections per IP | 10 | Real. Verified against the deployed relay, not just locally. |
+| Messages per second per connection | 20 | Real. A cheap guard checked before parsing. It has to clear the protocol's own burst: re-keying sends one `key_share` per member with no pacing. |
+| Broadcast messages per second | 5, averaged over 4s | Real. `encrypted` is the only type the relay multiplies, so it is the only type charged here. This is the constant that bounds fan-out. |
 
 That is the capacity ceiling until routing changes. **Do not raise the machine count to get past it.** Horizontal scale requires routing every connection for a room ID to the same process, which is not implemented. Adding a second machine does not add capacity, it corrupts room membership.
 
 Full method, caveats and per-scenario numbers are in `docs/CAPACITY.md`. The summary that matters for deployment is below.
 
-### Memory is not the constraint. Fan-out is.
+### Fan-out was the constraint, and it was fixed
 
-At 5,000 connections with 2 members per room the relay is comfortable. Steady cgroup memory is about 102 MiB, peak about 130 MiB, p95 latency about 21 ms, and no messages are lost.
+This section used to say the relay collapsed inside its own caps: at 5,000 connections in 50-member rooms, 37% of messages never arrived and memory peaked at 463 MiB, 45% of the machine. `handleEncrypted()` called `ws.send()` once per member without ever checking `ws.bufferedAmount`, so outbound frames queued without bound.
 
-Fill rooms to the declared 50 clients each and it collapses inside its own caps. At 5,000 connections **37% of messages fail to arrive within 10 seconds**, p95 pins at the timeout, and cgroup memory peaks at about 463 MiB, which is 45% of the machine. Reproduced three times.
+Measured now, same container, same 1 GB and one CPU:
 
-The cause is in `handleEncrypted()`. It calls `ws.send()` once per room member and never checks `ws.bufferedAmount`, so outbound frames queue without bound. The evidence that it is queued frames rather than application state is that `arrayBuffers` reached 100.5 MiB while the JS heap stayed at 29.4 MiB.
+| At 5,000 connections in full rooms | Before | Now |
+|---|---:|---:|
+| Messages delivered | 63% | **100%** |
+| p95 round trip | 9,468 ms | **1,544 ms** |
+| Memory high-water | 463 MiB | **238 MiB** |
 
-**Treat 50 clients per room as a declared limit that the relay cannot currently serve.** Fixing it means backpressure in `server/relay.ts`, which is not a deployment change.
+**Read the attribution before quoting this.** Cutting clients per room from 50 to 10 did nearly all of it, because it drops amplification from 49x to 9x. Backpressure never fired in that run at all: the harness's clients drain promptly, so the condition it guards never arose. It is a safety net for a slow member, covered by unit tests rather than by these numbers.
+
+Two things are still not bounded, and both are in `docs/CAPACITY.md` rather than implied away. The caps permit 225,000 outbound messages per second against a measured clean ceiling near 89,000. And a per-socket backlog allowance times 5,000 sockets is 4.9 GiB on a 1 GB machine, because backpressure decides who suffers rather than how much memory the relay can reach.
+
+Neither is reached by anything resembling normal use. Both are reachable by someone trying.
 
 ### Idle memory baseline
 
