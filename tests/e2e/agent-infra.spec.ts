@@ -80,10 +80,13 @@ test.describe("M3: Agent Infrastructure", () => {
     await expect(
       page.locator(".module-name", { hasText: "auto-balance" }),
     ).toBeVisible();
-    // Should show "Built-in" badge
-    // One badge per built-in; assert the count rather than a bare .toBeVisible()
-    // which is a strict-mode violation once there is more than one.
-    await expect(page.locator(".builtin-badge")).toHaveCount(BUILTIN_AGENTS.length);
+    // One row per built-in agent. There is no "Built-in" badge any more:
+    // custom agents are roadmap-only, so every agent is built in and the badge
+    // said nothing. Assert the count rather than a bare .toBeVisible(), which
+    // is a strict-mode violation once there is more than one.
+    await expect(page.locator(".agent-panel .module-item")).toHaveCount(
+      BUILTIN_AGENTS.length,
+    );
     // Should NOT show empty state
     await expect(page.locator(".agent-panel .empty-state")).not.toBeVisible();
 
@@ -161,7 +164,7 @@ test.describe("M3.5: Built-in Auto-Balance Agent", () => {
     await page.locator(".agents-toggle").click();
 
     // Should show active status
-    const autoBalanceRow = page.locator(".module-item.builtin", {
+    const autoBalanceRow = page.locator(".module-item", {
       hasText: BUILTIN_AGENTS[0],
     });
     const statusBadge = autoBalanceRow.locator(".status-badge");
@@ -183,17 +186,17 @@ test.describe("M3.5: Built-in Auto-Balance Agent", () => {
     t.assertNoErrors();
   });
 
-  test("built-in agent has no delete button", async ({ page }) => {
+  test("no agent can be deleted", async ({ page }) => {
+    // Deleting only ever applied to an uploaded agent, and there is no way to
+    // upload one. The affordance is gone rather than merely hidden.
     const t = trackErrors(page);
     await createAndJoinRoom(page);
     await page.locator(".agents-toggle").click();
 
-    // Built-in module should be visible
-    await expect(page.locator(".module-item.builtin")).toHaveCount(
+    await expect(page.locator(".agent-panel .module-item")).toHaveCount(
       BUILTIN_AGENTS.length,
     );
-    // No built-in may be deletable.
-    await expect(page.locator(".module-item.builtin .delete-btn")).toHaveCount(0);
+    await expect(page.locator(".agent-panel .delete-btn")).toHaveCount(0);
 
     t.assertNoErrors();
   });
