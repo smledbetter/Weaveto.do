@@ -47,7 +47,7 @@ export async function isPrfSupported(): Promise<boolean> {
  * Create a new WebAuthn credential with PRF support.
  * Used when creating a room (first-time identity on this device).
  */
-export async function createCredential(): Promise<PrfResult> {
+export async function createCredential(roomId: string): Promise<PrfResult> {
   if (!isWebAuthnSupported()) {
     throw new WebAuthnUnsupportedError(
       "WebAuthn is not supported in this browser. Try Chrome 120+ or Edge on a device with a fingerprint reader or security key.",
@@ -104,7 +104,27 @@ export async function createCredential(): Promise<PrfResult> {
   storeCredentialId(credentialId);
 
   // Now do an assertion with PRF to get the actual seed
-  return assertWithPrf(credentialId);
+  return assertWithPrf(roomId, credentialId);
+}
+
+/**
+ * The PRF input that decides which identity this device has.
+ *
+ * It includes the room, so a device gets a different identity in every room.
+ * That is what stops the relay linking one person across rooms: the Olm
+ * identity key it routes by is derived from this, and a constant salt made
+ * that key the same everywhere, forever.
+ *
+ * Both non-PRF paths were already per-room. generateRandomSeed hashes the room
+ * id with a nonce, and stored seeds are keyed by room. This one was the
+ * exception, which is why it reads as an oversight rather than a decision.
+ *
+ * The v2 marks the change. Anyone with a v1 identity gets a new one, which is
+ * the same thing that happens when someone joins from a new device, and the
+ * app has never been deployed.
+ */
+export function prfSaltFor(roomId: string): Uint8Array {
+  return new TextEncoder().encode(`weaveto.do-identity-v2|${roomId}`);
 }
 
 /**
@@ -112,6 +132,7 @@ export async function createCredential(): Promise<PrfResult> {
  * Used when joining a room or re-establishing identity.
  */
 export async function assertWithPrf(
+  roomId: string,
   credentialId?: Uint8Array,
 ): Promise<PrfResult> {
   if (!isWebAuthnSupported()) {
@@ -121,7 +142,7 @@ export async function assertWithPrf(
   }
 
   const challenge = crypto.getRandomValues(new Uint8Array(32));
-  const salt = new TextEncoder().encode("weaveto.do-identity-v1");
+  const salt = prfSaltFor(roomId);
 
   const allowCredentials: PublicKeyCredentialDescriptor[] = credentialId
     ? [{ id: credentialId as BufferSource, type: "public-key" as const }]
