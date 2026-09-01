@@ -5,6 +5,9 @@
  * ratcheted closed until live clients were refused by an idle relay.
  */
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   sweepHeartbeat,
   acquireConnection,
@@ -47,6 +50,24 @@ function fakeSocket(
 /** A peer that answers every ping. */
 function pong(socket: FakeSocket): void {
   socket.isAlive = true;
+}
+
+/**
+ * The per-address cap, read from the relay rather than written down here.
+ *
+ * These assertions used to hardcode 10 and broke when the cap was raised to
+ * 50, which is the wrong kind of failure: the behaviour was still correct and
+ * only the number had moved. Reading it means the tests check the property and
+ * survive the value changing.
+ */
+function perIpCap(): number {
+  const src = readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), "../../server/relay.ts"),
+    "utf8",
+  );
+  const m = src.match(/^const MAX_CONNECTIONS_PER_IP = (\d+)/m);
+  if (!m) throw new Error("MAX_CONNECTIONS_PER_IP not found");
+  return Number(m[1]);
 }
 
 describe("sweepHeartbeat", () => {
@@ -128,7 +149,7 @@ describe("counter drift from half-open sockets", () => {
     // One client fills its bucket, then every socket goes half-open: the peer
     // vanished without a FIN, so `close` never fires on its own and the slots
     // stay claimed.
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < perIpCap(); i++) {
       acquireConnection(state, ip);
       sockets.add(fakeSocket({ onTerminate: () => releaseConnection(state, ip) }));
     }
@@ -141,7 +162,7 @@ describe("counter drift from half-open sockets", () => {
     expect(refused.status).toBe(429);
 
     sweepHeartbeat(sockets); // asks
-    expect(sweepHeartbeat(sockets)).toBe(10); // nobody answered
+    expect(sweepHeartbeat(sockets)).toBe(perIpCap()); // nobody answered
 
     expect(state.total).toBe(0);
     expect(state.perIp.size).toBe(0);
