@@ -18,6 +18,14 @@ import { createAndJoinRoom } from "./utils/room-helpers";
 // String concatenation prevents TypeScript module resolution.
 const MOD = "/src/lib/identity" + "/store.ts";
 
+/**
+ * Any PIN. These exercise the wrapping, not the PIN policy.
+ *
+ * Written as a literal at each use rather than a shared const, because these
+ * bodies run inside page.evaluate, in the browser, where a value declared out
+ * here is not in scope.
+ */
+
 test.describe("M13: Identity Persistence", () => {
 	test.describe("IndexedDB seed store (browser integration)", () => {
 		test("first visit: store + load round-trips a seed in real browser crypto", async ({
@@ -32,8 +40,8 @@ test.describe("M13: Identity Persistence", () => {
 				const roomId = "e2e-test-room-" + Date.now();
 				const seed = crypto.getRandomValues(new Uint8Array(32));
 
-				await storeIdentitySeed(roomId, seed);
-				const loaded = await loadIdentitySeed(roomId);
+				await storeIdentitySeed(roomId, seed, "135790");
+				const loaded = await loadIdentitySeed(roomId, "135790");
 
 				return {
 					stored: Array.from(seed),
@@ -58,7 +66,7 @@ test.describe("M13: Identity Persistence", () => {
 				const roomId = "e2e-persist-room-" + Date.now();
 				const seed = crypto.getRandomValues(new Uint8Array(32));
 
-				await storeIdentitySeed(roomId, seed);
+				await storeIdentitySeed(roomId, seed, "135790");
 
 				return {
 					roomId,
@@ -74,7 +82,7 @@ test.describe("M13: Identity Persistence", () => {
 				async ({ mod, roomId }) => {
 					const { loadIdentitySeed } = await import(mod);
 
-					const loaded = await loadIdentitySeed(roomId);
+					const loaded = await loadIdentitySeed(roomId, "135790");
 					return loaded ? Array.from(loaded) : null;
 				},
 				{ mod: MOD, roomId: session1.roomId },
@@ -94,7 +102,7 @@ test.describe("M13: Identity Persistence", () => {
 
 				const roomId = "e2e-encrypted-check-" + Date.now();
 				const seed = crypto.getRandomValues(new Uint8Array(32));
-				await storeIdentitySeed(roomId, seed);
+				await storeIdentitySeed(roomId, seed, "135790");
 
 				// Read raw record from IndexedDB
 				const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -147,10 +155,10 @@ test.describe("M13: Identity Persistence", () => {
 				const roomId = "e2e-clear-test-" + Date.now();
 				const seed = crypto.getRandomValues(new Uint8Array(32));
 
-				await storeIdentitySeed(roomId, seed);
-				const beforeClear = await loadIdentitySeed(roomId);
+				await storeIdentitySeed(roomId, seed, "135790");
+				const beforeClear = await loadIdentitySeed(roomId, "135790");
 				await clearIdentitySeed(roomId);
-				const afterClear = await loadIdentitySeed(roomId);
+				const afterClear = await loadIdentitySeed(roomId, "135790");
 
 				return {
 					beforeClear: beforeClear ? Array.from(beforeClear) : null,
@@ -162,56 +170,38 @@ test.describe("M13: Identity Persistence", () => {
 			expect(result.afterClear).toBeNull();
 		});
 
-		test("device key persists in localStorage across reloads", async ({
+		test("no key is left on the device that could open the seed", async ({
 			page,
 		}) => {
+			// This used to assert the opposite: that a wrapping key persisted in
+			// localStorage across reloads. It sat beside the data it wrapped, so
+			// anything that could read one could read the other. The seed is now
+			// wrapped by a key derived from a PIN and never written down.
 			await page.goto("/", { waitUntil: "networkidle" });
 
-			// Create device key
-			const key1 = await page.evaluate(async (mod) => {
-				const { getOrCreateDeviceKey } = await import(mod);
-				const key = getOrCreateDeviceKey();
-				return Array.from(key);
+			const keys = await page.evaluate(async (mod) => {
+				const { storeIdentitySeed } = await import(mod);
+				const seed = crypto.getRandomValues(new Uint8Array(32));
+				await storeIdentitySeed("e2e-no-key-" + Date.now(), seed, "123456");
+				return Object.keys(localStorage);
 			}, MOD);
 
-			// Reload and verify same key
-			await page.reload({ waitUntil: "networkidle" });
-
-			const key2 = await page.evaluate(async (mod) => {
-				const { getOrCreateDeviceKey } = await import(mod);
-				const key = getOrCreateDeviceKey();
-				return Array.from(key);
-			}, MOD);
-
-			expect(key1).toEqual(key2);
-			expect(key1.length).toBe(32);
+			expect(keys).not.toContain("weave-device-key");
 		});
 
-		test("different device key cannot decrypt stored seed", async ({
-			page,
-		}) => {
+		test("the wrong PIN cannot decrypt a stored seed", async ({ page }) => {
 			await page.goto("/", { waitUntil: "networkidle" });
 
 			const result = await page.evaluate(async (mod) => {
-				const { storeIdentitySeed, loadIdentitySeed } =
-					await import(mod);
+				const { storeIdentitySeed, loadIdentitySeed } = await import(mod);
 
-				const roomId = "e2e-wrong-key-" + Date.now();
+				const roomId = "e2e-wrong-pin-" + Date.now();
 				const seed = crypto.getRandomValues(new Uint8Array(32));
+				await storeIdentitySeed(roomId, seed, "123456");
 
-				// Store with current device key
-				await storeIdentitySeed(roomId, seed);
-
-				// Replace device key in localStorage
-				const newKey = crypto.getRandomValues(new Uint8Array(32));
-				const encoded = btoa(
-					String.fromCharCode(...new Uint8Array(newKey)),
-				);
-				localStorage.setItem("weave-device-key", encoded);
-
-				// Try to load with wrong device key — should return null (graceful failure)
-				const loaded = await loadIdentitySeed(roomId);
-
+				// Returning null rather than throwing matters: the join flow reads
+				// null as "join as someone new" and a throw would fail the join.
+				const loaded = await loadIdentitySeed(roomId, "654321");
 				return { loaded: loaded ? Array.from(loaded) : null };
 			}, MOD);
 

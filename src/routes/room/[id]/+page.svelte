@@ -1279,7 +1279,12 @@ import { TabSync } from '$lib/room/tab-sync';
 					<button onclick={() => { joinedEmptyRoom = false; }}>Dismiss</button>
 				</div>
 			{/if}
-			{#if usingTempIdentity && !walkthroughCompleted}
+			<!-- Not gated on the walkthrough. The other banners here are onboarding
+			     hints and are fine to show once. This one states a security property
+			     of the session you are in, and hiding it from everyone who has seen
+			     the walkthrough meant almost nobody was told their identity would
+			     not survive the tab closing. -->
+			{#if usingTempIdentity}
 				<div class="warning-banner temp-identity" role="status">
 					{#if showKeepOnDevice}
 						<p>
