@@ -1,15 +1,20 @@
 # Roadmap
 
+*Last updated: 2026-09-01.*
+
 ## Current State
 
-- **Git SHA**: c06a06e
-- **Unit tests**: 647 (Vitest, jsdom)
-- **E2E tests**: 246 (Playwright, Chromium) — ~53 pre-existing CSP nonce failures
-- **Coverage**: ~60% lines (overall), 100% on new components
-- **Lint**: clean (`npm run check` passes, 0 errors, 26 warnings)
-- **Build**: clean (`npm run build` passes)
-- **Milestones complete**: M0-M19 (21 milestones shipped)
-- **LOC**: ~23.5K (src/ + tests/ + server/)
+- **Git SHA**: `c6b5103` on `main`, CI green
+- **Unit tests**: 1,064 across 64 files, Vitest on jsdom
+- **E2E tests**: 261 across 34 files, Playwright. CI runs 5 browser projects plus a production-build job
+- **Coverage**: 60.7% lines, 46% branches
+- **Lint**: `npm run check` passes with 0 errors and 25 warnings
+- **Build**: `npm run build` passes
+- **Milestones complete**: M0 through M19, 21 shipped, plus an unnumbered production phase
+- **LOC**: 41,249 total. 15,795 client, 1,998 relay, 23,456 tests
+- **Production dependencies**: 3
+- **Issues**: 69 closed, 10 open
+- **Deployment**: relay on Fly, client on Vercel, MIT licensed
 
 ## Completed Milestones
 
@@ -27,6 +32,9 @@
 
 ### Flowstate Sprints
 
+*Numbering caveat: the list above collapses `M3.5` into `M4` and omits `M5.5`, so from that point it runs one ahead of the `docs/milestones/` directory names. `M9: Vulnerability Scanning` below is the directory `M8-vulnerability-scanning`. The two schemes agree again from `M11`. See `docs/STATE.md` for the mapping.*
+
+
 - ~~M9: Vulnerability Scanning~~ ✅ (Sprint 1) — Security audit across all shipped milestones. 2 critical, 9 high, 18 medium findings. All critical + high fixed. Security report: `docs/milestones/M8-vulnerability-scanning/SECURITY-REPORT.md`
 - ~~M10: UX & Accessibility~~ ✅ (Sprint 2) — Header decluttered, coach marks, ARIA fixes, focus-visible rings, connection status label, task empty-state prompt. +13 unit tests.
 - ~~M11: Reconnect & Hardening~~ ✅ (Sprint 3) — Stale Olm session clearing on reconnect, re-establishment tracking with UI indicator, timestamp clamping (5-min future window), OTK replenishment (threshold-based). +27 unit tests.
@@ -41,6 +49,30 @@
 
 ---
 
+## Production Hardening (post-M19)
+
+The numbered milestones ended at M19 and the app worked. What followed is roughly twenty merged pull requests with no milestone number, because it was not feature work. It divides in two.
+
+### Making it survive production
+
+- **Stateless relay** (#77). Room state was held in the relay process, so every deploy destroyed every live room. The relay now rebuilds room membership from what reconnecting clients tell it.
+- **Bounded fan-out** (#78). A full room cost every other room. Fan-out gained backpressure on `bufferedAmount` and terminates a socket that will not drain. At 5,000 connections in full rooms this took delivery from 63% to 100%, p95 latency from 9,468 ms to 1,544 ms, and peak memory from 463 MiB to 238 MiB. Attribution matters: the cap cut did nearly all of it, and backpressure never fired in that run.
+- **Multi-member key exchange**. Rooms of three or more had a member who could never decrypt. Every existing member claimed the same single-use one-time key, so the first key share consumed it and the rest failed inside a silent catch. It survived nineteen milestones because the only multi-member test always involved the room creator, who was never the member that failed. Now covered by a full-mesh suite over 2, 3, 4, and 5 members.
+- **Relay container, heartbeat, graceful shutdown, real client IP**. The relay builds, boots, and is probed in CI.
+- **Capacity measured, not estimated**. `docs/CAPACITY.md` records the before and after, states which change caused which improvement, and lists what cannot be measured from here.
+- **Per-address cap raised to 50, with an honest refusal message** (#90).
+
+### Making the claims true
+
+The README was audited line by line against the code. Where the two disagreed, whichever was wrong got fixed.
+
+- **Display names left the wire** (#81). They had travelled in clear text and now sit inside the Olm payload.
+- **Per-room identity** (#83). The PRF salt was a constant, so one device had one identity across every room. It is now per-room, and the relay cannot correlate two rooms to one device.
+- **Blind SSRF closed** (#80). Push endpoints were unvalidated. They are now checked against an allow-list of schemes and hosts, with DNS resolution pinned so the socket connects to the address that was checked.
+- **Push is contentless** (#85, and the M16 design). The relay sends no payload at all. The service worker composes a fixed generic string locally.
+- **Custom agent upload left the UI** (#87). The control existed and nothing behind it worked. It moved to the roadmap, guarded by a test that keeps it out until it ships.
+- **Documentation corrected** (#84, #86, #88). Claims that could not be supported were removed or rewritten, and a "Planned, not built" section was added.
+
 ## Upcoming
 
 ### M20 — Tor Hidden Service (deployment)
@@ -53,3 +85,19 @@ Run the relay as an optional .onion hidden service alongside the normal endpoint
 - Documentation for self-hosters to enable .onion alongside clearnet
 
 **Done when**: Relay is reachable via .onion address. .onion client auto-configures without user input. Self-hosting docs cover Tor setup and `?relay=` parameter.
+
+### Backlog
+
+Filed and tracked, not scheduled.
+
+| Issue | Item | Blocked on |
+|-------|------|------------|
+| [#92](https://github.com/smledbetter/Weaveto.do/issues/92) | Federation between independently run nodes | Design, no sync protocol exists |
+| [#93](https://github.com/smledbetter/Weaveto.do/issues/93) | A supported path to load custom agents | Developer tooling and a trust decision |
+| [#94](https://github.com/smledbetter/Weaveto.do/issues/94) | Enforce the per-address cap only under pressure | Nothing |
+| [#95](https://github.com/smledbetter/Weaveto.do/issues/95) | Privacy policy | A contact address |
+| [#96](https://github.com/smledbetter/Weaveto.do/issues/96) | `SECURITY.md` and `security.txt` | A contact address |
+| [#97](https://github.com/smledbetter/Weaveto.do/issues/97) | Point `weaveto.do` at the app | #95 and #96 |
+| [#69](https://github.com/smledbetter/Weaveto.do/issues/69) | Mobile pinch-zoom ejects the user from the room | A physical iOS device |
+
+`#69` is the only open bug. The auto-zoom that triggers it is fixed and tested. The ejection has no diagnosis that held up, and it cannot be reproduced in CI because Playwright's WebKit is not iOS Safari.

@@ -1,8 +1,24 @@
 # Project State
 
-Last updated: 2026-02-19
+Last updated: 2026-09-01.
 
-## Current Milestone: M8 — Vulnerability Scanning
+## Current Phase: shipped, hardened, not yet launched
+
+All 21 numbered milestones are complete, M0 through M19. A further unnumbered phase of production hardening followed, covering roughly twenty pull requests. See `docs/ROADMAP.md` for that phase in detail.
+
+The app is deployed and works. The relay runs on Fly and the client on Vercel. `weaveto.do` still serves a Coming Soon page, which is the last step and is tracked as issue #97.
+
+### Snapshot
+
+- **Git SHA**: `c6b5103` on `main`, CI green
+- **Unit tests**: 1,064 across 64 files
+- **E2E tests**: 261 across 34 files, 5 CI browser projects plus a production-build job
+- **Coverage**: 60.7% lines, 46% branches
+- **LOC**: 41,249 total. 15,795 client, 1,998 relay, 23,456 tests
+- **Production dependencies**: 3
+- **Issues**: 69 closed, 10 open
+- **License**: MIT
+
 
 ### What's Done
 
@@ -142,17 +158,53 @@ Last updated: 2026-02-19
 - 389 unit tests, 0 regressions
 - See: `docs/milestones/M8-vulnerability-scanning/`
 
-### What's Next (M9 — Encrypted Notifications)
+### What's Done, the Flowstate sprints
 
-Expanded service worker notifications and Web Push API integration.
+Summarised here, recorded in full in `docs/ROADMAP.md`, with per-milestone documents under `docs/milestones/`.
+
+**A note on numbering.** Two schemes are in use and neither is going to be renumbered, because the milestone directories are named after one of them and the sprint record after the other. The GitHub milestones follow the ROADMAP scheme, so the directories are the odd one out, two systems to one. `docs/milestones/README.md` carries the full mapping.
+
+- `docs/milestones/` and the record above number the early work `M0`, `M1`, `M2`, `M3`, `M3.5`, `M4`, `M5`, `M5.5`, `M6`, `M7`, `M8`.
+- `docs/ROADMAP.md` collapses `M3.5` into `M4`, omits `M5.5`, and so runs one ahead from that point on. What it calls `M9: Vulnerability Scanning` is the `M8` entry above, and the directory is `M8-vulnerability-scanning`.
+
+The two schemes agree again from `M11` onward, because the offset closes: the directories have an `M9` that ROADMAP does not, and ROADMAP has an `M10` that the directories do not. `M9-encrypted-notifications` planned notifications and Web Push as one milestone, and the work shipped split across `M14` and `M16`, so that directory is marked superseded. When a number is ambiguous, the directory name is the one to trust, because it is the name on disk.
+
+**M10 — UX and Accessibility** (Complete) — Header decluttered, coach marks, ARIA fixes, focus-visible rings, connection status label.
+
+**M11 — Reconnect and Hardening** (Complete) — Stale Olm session clearing on reconnect, re-establishment tracking, timestamp rejection outside a 5 minute future window, threshold-based OTK replenishment.
+
+**M12 — Mobile UX** (Complete) — Banner consolidation into the walkthrough, bottom navigation for Chat, Tasks, and Auto.
+
+**M13 — Mobile Identity Persistence** (Complete) — IndexedDB identity seed store with a PRF-first fallback chain. Later reworked: see the production phase below.
+
+**M14 — Local Notifications** (Complete) — Contextual opt-in banner on the first due-date task, bell popover with a toggle and quiet hours, service worker quiet-hours enforcement. Silent `requestPermission` removed.
+
+**M15 — Trust and Verification** (Complete) — Emoji key verification, five emoji per member pair derived from the sorted identity keys, ambient in room info with no verify button. Member revocation by room migration. Per-sender sequence counters inside the encrypted payload driving a delivery shield.
+
+**M16 — Web Push** (Complete) — VAPID JWT signing with ES256, relay push dispatch, client push manager, service worker push handler. Zero new dependencies.
+
+**M17 — Offline Task Store** (Complete) — Encrypted IndexedDB task snapshots and event queue, unified `ConnectionIndicator`, offline task creation with a sync dot, event replay on reconnect.
+
+**M18 — Sync and Conflict Resolution** (Complete) — Task event log with a 24 hour sync window, sync over the Megolm channel, convergence under timestamp and actorId rules.
+
+**M19 — Multi-Room Tabs** (Complete) — BroadcastChannel cross-tab coordination, cross-tab PIN lock, tab-aware cleanup. Per-tab Olm and Megolm isolation.
+
+### What's Done, production hardening
+
+No milestone number, because it was not feature work. Two halves.
+
+**Making it survive production.** The relay became stateless by design, so a deploy stops destroying every live room. Fan-out gained backpressure, taking delivery at 5,000 connections from 63% to 100% and p95 latency from 9,468 ms to 1,544 ms. A three-member decryption bug was traced to every member claiming the same single-use one-time key, and is now covered by a full-mesh suite over 2, 3, 4, and 5 members. The relay container builds, boots, and is probed in CI. Capacity is measured rather than estimated, in `docs/CAPACITY.md`.
+
+**Making the claims true.** The README was audited line by line against the code. Display names moved off the wire and into the Olm payload. Identity became per-room, so the relay cannot correlate two rooms to one device. A blind SSRF in push endpoint handling was closed. Identity seed storage was reworked: it is now opt-in and wrapped by a key derived from a PIN that is never stored, replacing a scheme that kept the wrapping key in localStorage beside the data it wrapped. Custom agent upload left the interface, because the control existed and nothing behind it worked.
 
 ### Known Issues
 
-- Service worker notifications show generic body (no decrypted task titles)
-- 24 pre-existing E2E test failures (PIN, task intelligence, task polish — not M7 regressions)
-- 3 pre-existing TypeScript errors in `PinEntry.svelte` (2) and `PinPolicyToggle.svelte` (1) from M6. These are Svelte 5 type inference issues that don't affect runtime behavior. Accepted baseline for `npm run check` gate — verified via stash comparison at M8 ship.
+- **#69, mobile pinch-zoom ejects the user from the room.** The auto-zoom that triggers it is fixed and tested. The ejection has no diagnosis that held up. It cannot be reproduced in CI, because Playwright's WebKit is not iOS Safari. Needs a physical device with Safari remote debugging.
+- **The per-address connection cap is a fixed number.** It binds even when the relay is nearly empty, which costs groups behind one shared address. Tracked as #94.
+- **A node is one process.** Rooms live in its memory, so a second machine splits rooms rather than adding capacity. Tracked as #92.
+- **`npm run check` reports 25 warnings.** Svelte 5 type inference and a11y advisories. 0 errors. Accepted baseline for the gate.
 
-### Milestone Roadmap
+### Milestone Status
 
 | Milestone | Name | Status |
 |-----------|------|--------|
@@ -160,96 +212,39 @@ Expanded service worker notifications and Web Push API integration.
 | M1 | Task Management | Complete |
 | M2 | Task Intelligence | Complete |
 | M3 | Agent Infrastructure | Complete |
-| M3.5 | Built-In Agent | Complete |
+| M3.5 | Built-In Agents | Complete |
 | M4 | Task Polish | Complete |
 | M5 | Burn-After-Use | Complete |
 | M5.5 | UX Polish | Complete |
 | M6 | Session Security | Complete |
 | M7 | Agent Hardening | Complete |
 | M8 | Vulnerability Scanning | Complete |
-| M9 | Encrypted Notifications | Not Started |
-| M10 | Offline & Sync | Not Started |
 
-#### M3.5 — Built-In Agents (Release Goal)
-Users get automatic task distribution and bottleneck detection out of the box, with no setup required.
-- Auto-balance WAT agent (port of autoAssign, default-on)
-- Unblock WAT agent (bottleneck detector — flags blocker tasks as urgent, default-on)
-- Binary host helpers (`host_get_assignment_data`, `host_get_dependency_data`) for WAT consumption
-- `task_urgency_changed` event type (narrow agent write surface for urgent flag)
-- First-run disclosure toast on initial activation
-- AgentPanel: built-in badge, description card, last-run timestamp
-- Upload form hidden until M3.6 ships developer tooling
+The sprints, numbered as `docs/ROADMAP.md` numbers them. Sprint 1 is the same work as `M8` above.
 
-#### M4 — Task Polish (Release Goal)
-Users can describe, sort, and triage tasks more effectively within ephemeral rooms.
-- Task descriptions
-- Due date sorting (single toggle)
-- Quick-pick date buttons (Today / Tomorrow / Next Week)
-- Urgent flag (binary, not P1-P4)
-- Room-scoped task search
+| Milestone | Name | Sprint | Status |
+|-----------|------|--------|--------|
+| M9 | Vulnerability Scanning | 1 | Complete, see `M8` above |
+| M10 | UX and Accessibility | 2 | Complete |
+| M11 | Reconnect and Hardening | 3 | Complete |
+| M12 | Mobile UX | 4 | Complete |
+| M13 | Mobile Identity Persistence | 5 | Complete |
+| M14 | Local Notifications | 6 | Complete |
+| M15 | Trust and Verification | 7 | Complete |
+| M16 | Web Push | 8 | Complete |
+| M17 | Offline Task Store | 9 | Complete |
+| M18 | Sync and Conflict Resolution | 10 | Complete |
+| M19 | Multi-Room Tabs | 11 | Complete |
+| — | Production hardening | — | Complete |
+| M20 | Tor Hidden Service | — | Not started, see issues #37, #38, #39 |
 
-#### M5 — Burn-After-Use (Release Goal)
-Rooms and tasks auto-delete on completion, with manual burn for sensitive coordination.
-- Auto-deletion on room completion
-- Manual burn command (immediate room data destruction)
-- Ephemeral mode (in-memory only, no persistence)
-
-#### M5.5 — UX Polish (Release Goal)
-New users can understand and navigate the app without prior context.
-- Memorable 2-word room names derived from hash (deterministic, no server state)
-- Shortened room URLs (verbal-shareability)
-- Named room modes with use-case guidance (Standard vs Ephemeral)
-- Better onboarding copy for invited users landing on Join page
-- User's own display name visible in room header
-- Agent panel explainer text (what agents are, custom agent guidance, roadmap teaser)
-
-#### M6 — Session Security (Release Goal) ✓
-If one member's device is compromised, the attacker can't access future room content after key rotation.
-- Optional 6-digit PIN (creator can require for all members)
-- PIN → PBKDF2-SHA256 (600K iterations) → 256-bit key derivation (zero new dependencies)
-- PIN key encrypted under PRF-derived HKDF wrapping key in IndexedDB
-- Session lock with configurable inactivity timeout (5/15/30 min, clears Megolm keys from memory)
-- PIN re-entry gate on reconnect with rate limiting (3 failures → 30s wait, exponential backoff, 10 → lockout)
-- Megolm key rotation gated by PIN-derived keys (lockSession/unlockSession, forward secrecy from compromise point)
-- Creator-forced /rotate command invalidates old sessions
-- Shield indicator for PIN-protected rooms
-- Cleanup orchestrator clears PIN keys on room destruction
-- 342 unit tests (43 new PIN tests, 93% PIN coverage), 108 E2E tests (6 new), 0 regressions
-- Ship-readiness audit: 10/10 security principles, 0 vulnerabilities
-
-#### M7 — Agent Hardening (Release Goal)
-Harden the agent infrastructure with true preemption, module signatures, and runtime improvements.
-- Web Worker preemption for WASM execution (replace main-thread timeout)
-- Ed25519 module signature verification
-- Agent event validation against known taskIds
-
-#### M8 — Vulnerability Scanning (Release Goal)
-Security vulnerability scanning across all shipped milestones.
-- E2EE protocol audit
-- WebAuthn PRF identity testing
-- WASM sandbox escape testing
-- Relay server hardening
-- Client-side crypto review
-
-#### M9 — Encrypted Notifications (Release Goal)
-Members get notified of task assignments and due dates even when the tab is closed, with zero plaintext in notification payloads.
-- Expanded service worker notifications (assignment, status change, grouping)
-- Local notification rules (per-room toggle, urgency filter, do-not-disturb)
-- Web Push API integration (VAPID, encrypted push via relay, subscription management)
-- All notification payloads generic ("You have a new task in [room-name]") — no task content
-- Push subscription cleanup on room destruction (burn/auto-delete/ephemeral purge)
-
-#### M10 — Offline & Sync (Release Goal)
-Work offline and sync when reconnected.
-- IndexedDB-backed offline task store
-- Conflict resolution on reconnect
-- Optimistic UI updates
+This file used to carry a second set of per-milestone specifications under "Release Goal" headings. They described work as it was planned rather than as it shipped, and several of them contradicted the record above. They are removed. `docs/milestones/` holds the per-milestone documents, and `docs/ROADMAP.md` holds the summaries.
 
 ### Tech Stack
 
-- **Frontend**: SvelteKit 5, TypeScript, Svelte 5 runes ($state, $derived, $effect)
-- **Crypto**: vodozemac WASM (Olm/Megolm), WebAuthn PRF, HKDF-SHA256
-- **Agents**: Raw WebAssembly API, AES-256-GCM state encryption
-- **Server**: Node.js WebSocket relay (ciphertext-only)
-- **Testing**: Vitest (unit, 80%+ coverage), Playwright (E2E, Chromium)
-- **Build**: Vite, fnm for Node version management
+- **Frontend**: SvelteKit 5, TypeScript, Svelte 5 runes
+- **Crypto**: vodozemac WASM for Olm and Megolm, WebAuthn PRF, HKDF-SHA256, PBKDF2-SHA256 at 600,000 iterations for PIN-derived keys
+- **Agents**: raw WebAssembly API in a Web Worker, AES-256-GCM state encryption
+- **Server**: Node.js WebSocket relay, ciphertext only, no disk
+- **Testing**: Vitest for unit, Playwright for E2E
+- **Deployment**: relay on Fly, client on Vercel
