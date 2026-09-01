@@ -108,6 +108,52 @@ export async function instantiateAgent(
  * Build the host function imports object based on granted permissions.
  * Denied permissions return stub functions that do nothing / return 0.
  */
+/**
+ * What an agent is allowed to see of a task.
+ *
+ * Everything except what a person wrote. `title` and `description` are the
+ * only free-text fields on a task, and no agent needs them: auto-balance works
+ * from ids, status, assignee and dependencies, which is what
+ * buildAssignmentData already passes it.
+ *
+ * The sandbox has no syscalls and no network, so a hostile agent could not
+ * send content anywhere off the device even before this. The reason to project
+ * is least privilege and an honest claim: `read_tasks` used to mean "read
+ * everything a member ever typed", which is not what someone granting it would
+ * expect, and it is about to be grantable to modules the user uploads.
+ *
+ * If an agent ever genuinely needs the text, that is a new permission and a
+ * new claim, not a quiet widening of this one.
+ */
+export interface ProjectedTask {
+  id: string;
+  status: string;
+  assignee?: string;
+  parentId?: string;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+  dueAt?: number;
+  blockedBy?: string[];
+  urgent?: boolean;
+}
+
+/** Strip the free-text fields from a task. Allow-list, not deny-list. */
+export function projectTaskForAgent(task: Task): ProjectedTask {
+  return {
+    id: task.id,
+    status: task.status,
+    assignee: task.assignee,
+    parentId: task.parentId,
+    createdBy: task.createdBy,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
+    dueAt: task.dueAt,
+    blockedBy: task.blockedBy,
+    urgent: task.urgent,
+  };
+}
+
 export function buildHostImports(
   memory: WebAssembly.Memory,
   permissions: AgentPermission[],
@@ -118,16 +164,20 @@ export function buildHostImports(
   return {
     host_get_tasks: has("read_tasks")
       ? (buf_ptr: number, buf_len: number) =>
-          writeJsonToMemory(memory, buf_ptr, buf_len, context.tasks)
+          writeJsonToMemory(
+            memory,
+            buf_ptr,
+            buf_len,
+            context.tasks.map(projectTaskForAgent),
+          )
       : () => 0,
 
     host_get_members: has("read_members")
       ? (buf_ptr: number, buf_len: number) => {
+          // Identity keys only. A display name is the member's own text, and
+          // an agent balancing a workload has no use for it.
           const membersArray = Array.from(context.members.values()).map(
-            (m) => ({
-              identityKey: m.identityKey,
-              displayName: m.displayName,
-            }),
+            (m) => ({ identityKey: m.identityKey }),
           );
           return writeJsonToMemory(memory, buf_ptr, buf_len, membersArray);
         }

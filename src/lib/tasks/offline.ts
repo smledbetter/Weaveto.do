@@ -8,7 +8,6 @@
  * NOT against XSS or malicious same-origin scripts. Treat as defence-in-depth.
  */
 
-import { getOrCreateDeviceKey } from "$lib/identity/store";
 import type { Task, TaskEvent } from "./types";
 
 // --- Database constants ---
@@ -20,6 +19,53 @@ const TASK_SNAPSHOT_STORE = "snapshots";
 const EVENT_QUEUE_DB_NAME = "weave-offline-queue";
 const EVENT_QUEUE_DB_VERSION = 1;
 const EVENT_QUEUE_STORE = "events";
+
+const DEVICE_KEY_STORAGE_KEY = "weave-offline-key";
+const DEVICE_KEY_LENGTH = 32; // bytes
+
+/**
+ * Get the 32-byte key this cache is wrapped with, creating one on first use.
+ *
+ * It moved here when identity seeds stopped using it. The seed is now wrapped
+ * by a key derived from a PIN and never stored, so there is no key at rest to
+ * find. This cache still works the old way, and the header above says plainly
+ * what that is worth: the key sits in localStorage beside the data it wraps,
+ * so it raises the bar against a copied database file and nothing else.
+ *
+ * That is a defensible trade for a cache whose whole purpose is to be readable
+ * without a prompt when someone reopens the tab offline. It is not defensible
+ * to describe it as encryption at rest, so this comment exists instead.
+ */
+let sessionKey: Uint8Array | null = null;
+
+function getOrCreateDeviceKey(): Uint8Array {
+  if (sessionKey) return sessionKey;
+
+  try {
+    const stored = localStorage.getItem(DEVICE_KEY_STORAGE_KEY);
+    if (stored) {
+      const bytes = Uint8Array.from(atob(stored), (c) => c.charCodeAt(0));
+      if (bytes.length === DEVICE_KEY_LENGTH) {
+        sessionKey = bytes;
+        return sessionKey;
+      }
+    }
+    const key = crypto.getRandomValues(new Uint8Array(DEVICE_KEY_LENGTH));
+    localStorage.setItem(
+      DEVICE_KEY_STORAGE_KEY,
+      btoa(String.fromCharCode(...key)),
+    );
+    sessionKey = key;
+    return sessionKey;
+  } catch {
+    // No localStorage: a private window, a blocked origin, or a non-browser
+    // context. Keep a key for this session so the cache still works while the
+    // tab is open. It will not survive a reload, which is the honest outcome
+    // when there is nowhere to put it.
+    sessionKey = crypto.getRandomValues(new Uint8Array(DEVICE_KEY_LENGTH));
+    return sessionKey;
+  }
+}
 
 const HKDF_SALT = "weaveto.do-tasks-offline-v1";
 const HKDF_INFO = "task-store-wrapping";

@@ -17,6 +17,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { createServer } from "http";
 import type { IncomingHttpHeaders } from "http";
 import { parse } from "url";
+import { createHmac, randomBytes } from "crypto";
 import { initVapid, getVapidPublicKey, sendPushNotification } from "./vapid.js";
 import { checkPushEndpoint } from "./push-endpoint.js";
 import type { PushSubscriptionData } from "./push-types.js";
@@ -461,7 +462,9 @@ const TRUST_PROXY =
  * client already put there, so the trustworthy entry is the last one, and
  * reading the wrong end of that list is the same spoofable bypass.
  *
- * The return value is a rate-limit key. It is never logged and never stored.
+ * The return value is never logged. It is not stored either: the caller keys
+ * the connection map on hashClientIp of this value, so the address itself
+ * lives only for the length of that call.
  */
 export function resolveClientIp(
   headers: IncomingHttpHeaders,
@@ -481,6 +484,33 @@ export function resolveClientIp(
     }
   }
   return socketAddress ?? "unknown";
+}
+
+/**
+ * Per-process salt for the connection key. Random at boot, never written down.
+ *
+ * It exists so the salt cannot outlive the process and so two runs produce
+ * unrelated keys for the same address.
+ */
+const IP_HASH_SALT = randomBytes(32);
+
+/**
+ * Turn a client address into the key the connection map is counted under.
+ *
+ * The per-IP cap needs to know that two connections came from the same place.
+ * It does not need to know where that is. Keying the map on a salted hash
+ * means the relay's own memory holds no addresses, so a heap dump, a crash
+ * report or an accidental log of that map reveals nothing about who connected.
+ *
+ * This is a narrow gain and worth stating as one. The kernel still knows the
+ * peer address, and so does whatever sits in front of the relay. It removes
+ * the address from the one place this code controls.
+ *
+ * Truncated to 128 bits, which is far beyond what is needed to avoid
+ * collisions across at most MAX_CONNECTIONS live addresses.
+ */
+export function hashClientIp(address: string, salt: Buffer = IP_HASH_SALT): string {
+  return createHmac("sha256", salt).update(address).digest("hex").slice(0, 32);
 }
 
 /** Claim a connection slot for `ip`. Pairs with releaseConnection. */
@@ -649,10 +679,10 @@ server.on("upgrade", (request, socket, head) => {
   delete request.headers["referer"];
   delete request.headers["accept-language"];
 
-  const ip = resolveClientIp(
-    request.headers,
-    request.socket.remoteAddress,
-    TRUST_PROXY,
+  // Hashed immediately. Everything downstream counts connections per client
+  // without ever holding the address it is counting.
+  const ip = hashClientIp(
+    resolveClientIp(request.headers, request.socket.remoteAddress, TRUST_PROXY),
   );
   const url = parse(request.url || "", true);
 

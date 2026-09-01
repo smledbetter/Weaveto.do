@@ -5,12 +5,14 @@
  * client, so the whole internet shared one bucket of ten.
  */
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   resolveClientIp,
   acquireConnection,
   releaseConnection,
-  evaluateUpgrade,
-} from "../../server/relay";
+  evaluateUpgrade, hashClientIp } from "../../server/relay";
 
 /** A valid room path — the upgrade gate rejects anything else. */
 const ROOM_PATH = "/room/0123456789abcdef0123456789abcdef";
@@ -283,5 +285,60 @@ describe("connection accounting", () => {
     releaseConnection(state, "a");
     expect(state.perIp.get("b")).toBe(1);
     expect(state.total).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The relay counts connections per client without holding the address
+// ---------------------------------------------------------------------------
+
+/**
+ * `perIp` used to be keyed on the client address, so the relay held an address
+ * for every live connection. The cap needs to know two connections came from
+ * the same place. It does not need to know where that is.
+ *
+ * Narrow by design: the kernel still knows the peer address and so does
+ * anything in front of the relay. This removes it from the one place this code
+ * controls, so a heap dump or an accidental log of that map reveals nothing.
+ */
+describe("the connection key is a salted hash, not an address", () => {
+  const salt = Buffer.alloc(32, 7);
+
+  it("does not contain the address", () => {
+    const key = hashClientIp("203.0.113.9", salt);
+    expect(key).not.toContain("203");
+    expect(key).not.toContain("113");
+    expect(key).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it("gives the same client the same key, so the cap still counts", () => {
+    expect(hashClientIp("203.0.113.9", salt)).toBe(
+      hashClientIp("203.0.113.9", salt),
+    );
+  });
+
+  it("gives different clients different keys", () => {
+    expect(hashClientIp("203.0.113.9", salt)).not.toBe(
+      hashClientIp("203.0.113.10", salt),
+    );
+  });
+
+  it("gives unrelated keys under a different salt", () => {
+    // The salt is random per process, so the same address on two runs is not
+    // linkable across them.
+    const other = Buffer.alloc(32, 9);
+    expect(hashClientIp("203.0.113.9", salt)).not.toBe(
+      hashClientIp("203.0.113.9", other),
+    );
+  });
+
+  it("hashes before the address reaches the connection map", () => {
+    // A hash function nothing calls is not a fix. The upgrade handler must
+    // pass the hashed value, not the resolved address.
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "../../server/relay.ts"),
+      "utf8",
+    );
+    expect(src).toMatch(/const ip = hashClientIp\(\s*resolveClientIp\(/);
   });
 });

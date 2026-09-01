@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import {
@@ -16,15 +16,12 @@ import {
 import { createTaskStore } from '$lib/tasks/store.svelte';
 import type { Task, TaskEvent } from '$lib/tasks/types';
 
-// ---------------------------------------------------------------------------
-// Mock $lib/identity/store so getOrCreateDeviceKey() works without localStorage
-// ---------------------------------------------------------------------------
-
-const MOCK_DEVICE_KEY = crypto.getRandomValues(new Uint8Array(32));
-
-vi.mock('$lib/identity/store', () => ({
-  getOrCreateDeviceKey: () => MOCK_DEVICE_KEY,
-}));
+// The wrapping key used to come from $lib/identity/store and was mocked here
+// to avoid localStorage. Identity seeds are now wrapped by a PIN-derived key
+// instead, so this cache owns its own key, and it falls back to a
+// session-lifetime key where localStorage is unavailable. That is exactly this
+// environment, so no mock is needed and none should be added: a mock here
+// would hide whether that fallback works.
 
 // ---------------------------------------------------------------------------
 // Shared fixture builders

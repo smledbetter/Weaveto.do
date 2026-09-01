@@ -1,38 +1,59 @@
 /**
- * Encrypted identity seed storage in IndexedDB.
- * Seeds are wrapped by a key derived from a device key using HKDF-SHA256.
+ * Identity seed storage in IndexedDB, wrapped by a key derived from a PIN.
  *
- * Security note: The device key is stored in localStorage as base64. This means
- * it is accessible to any JavaScript running on the same origin and is NOT protected
- * by the OS credential store. It protects against IndexedDB exfiltration in isolation
- * (e.g., a DB file copied off disk), but NOT against XSS or malicious same-origin
- * scripts. Treat this as defence-in-depth, not a strong security boundary.
+ * Storing a seed at all is the exception, not the rule. On a device with
+ * WebAuthn PRF the seed is re-derived from the authenticator every session and
+ * nothing is written down. This path exists only for devices without PRF,
+ * where the alternative is a fresh identity on every visit.
+ *
+ * It is also opt-in. Nothing is stored unless the person asks to stay on this
+ * device, and asking means choosing a PIN.
+ *
+ * The previous version wrapped the seed with a random key kept in
+ * localStorage, beside the data it wrapped. Anything that could read one could
+ * read the other, so the encryption raised the bar against a copied IndexedDB
+ * file and against nothing else, while reading as though the seed were
+ * protected. A PIN-derived key is never stored, so there is no key at rest to
+ * find. The cost is real and worth stating: forget the PIN and the seed is
+ * gone, because nothing else can open it.
  */
 
+import { derivePinKey, generatePinSalt } from "../pin/derive";
+
 export const DB_NAME = "weave-identity";
-export const DB_VERSION = 1;
+/**
+ * Bumped when the wrapping changed. The upgrade drops every existing record,
+ * because they are sealed with a key this version deliberately deletes and
+ * leaving them would be keeping key material that can never be opened.
+ */
+export const DB_VERSION = 2;
 export const STORE_NAME = "seeds";
 
-const DEVICE_KEY_STORAGE_KEY = "weave-device-key";
-const DEVICE_KEY_LENGTH = 32; // bytes
+/** Where the old random wrapping key lived. Removed on first run. */
+const LEGACY_DEVICE_KEY = "weave-device-key";
 
 interface StoredIdentitySeed {
   roomId: string;
   encryptedSeed: Uint8Array;
   iv: Uint8Array;
+  /** PBKDF2 salt. Not secret, and useless without the PIN. */
+  salt: Uint8Array;
 }
 
 /**
- * Open the identity seeds IndexedDB database.
+ * Open the identity seeds database.
+ *
+ * The version 2 upgrade recreates the store empty. See DB_VERSION.
  */
 export function openIdentityDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: "roomId" });
+      if (db.objectStoreNames.contains(STORE_NAME)) {
+        db.deleteObjectStore(STORE_NAME);
       }
+      db.createObjectStore(STORE_NAME, { keyPath: "roomId" });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(new Error("Failed to open identity database"));
@@ -40,66 +61,52 @@ export function openIdentityDB(): Promise<IDBDatabase> {
 }
 
 /**
- * Get the 32-byte device key from localStorage, creating and persisting one on
- * first call. The key is stored as base64 under DEVICE_KEY_STORAGE_KEY.
+ * Remove the wrapping key the old scheme left in localStorage.
+ *
+ * Safe to call repeatedly. It is called on startup rather than lazily so the
+ * key does not linger on a device whose owner never opens a room again.
  */
-export function getOrCreateDeviceKey(): Uint8Array {
-  const stored = localStorage.getItem(DEVICE_KEY_STORAGE_KEY);
-  if (stored) {
-    const bytes = Uint8Array.from(atob(stored), (c) => c.charCodeAt(0));
-    if (bytes.length === DEVICE_KEY_LENGTH) {
-      return bytes;
-    }
+export function purgeLegacyDeviceKey(): void {
+  try {
+    localStorage.removeItem(LEGACY_DEVICE_KEY);
+  } catch {
+    // Storage unavailable. Nothing to remove and nothing to report.
   }
+}
 
-  // Generate a fresh device key and persist it
-  const key = crypto.getRandomValues(new Uint8Array(DEVICE_KEY_LENGTH));
-  localStorage.setItem(
-    DEVICE_KEY_STORAGE_KEY,
-    btoa(String.fromCharCode(...key)),
-  );
-  return key;
+/** Whether this room has a stored seed, without needing the PIN to find out. */
+export async function hasStoredIdentitySeed(roomId: string): Promise<boolean> {
+  try {
+    const db = await openIdentityDB();
+    return await new Promise<boolean>((resolve) => {
+      const tx = db.transaction(STORE_NAME, "readonly");
+      const request = tx.objectStore(STORE_NAME).count(roomId);
+      request.onsuccess = () => {
+        db.close();
+        resolve(request.result > 0);
+      };
+      request.onerror = () => {
+        db.close();
+        resolve(false);
+      };
+    });
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Derive an AES-GCM-256 wrapping key from the raw device key bytes via
- * HKDF-SHA256 with a fixed salt and info string that namespaces this key
- * to identity seed wrapping only.
- */
-async function deriveWrappingKey(deviceKey: Uint8Array): Promise<CryptoKey> {
-  const encoder = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    deviceKey as BufferSource,
-    "HKDF",
-    false,
-    ["deriveKey"],
-  );
-
-  return crypto.subtle.deriveKey(
-    {
-      name: "HKDF",
-      hash: "SHA-256",
-      salt: encoder.encode("weaveto.do-identity-v1"),
-      info: encoder.encode("identity-seed-wrapping"),
-    },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"],
-  );
-}
-
-/**
- * Encrypt the given seed and store it in IndexedDB under the room's ID.
- * Any existing record for the same roomId is overwritten.
+ * Encrypt a seed under a PIN and store it for this room.
+ *
+ * Overwrites any existing record, so changing the PIN is a re-store.
  */
 export async function storeIdentitySeed(
   roomId: string,
   seed: Uint8Array,
+  pin: string,
 ): Promise<void> {
-  const deviceKey = getOrCreateDeviceKey();
-  const wrappingKey = await deriveWrappingKey(deviceKey);
+  const salt = generatePinSalt();
+  const wrappingKey = await derivePinKey(pin, salt);
 
   const iv = crypto.getRandomValues(new Uint8Array(12)); // AES-GCM 96-bit IV
   const encryptedSeed = await crypto.subtle.encrypt(
@@ -112,6 +119,7 @@ export async function storeIdentitySeed(
     roomId,
     encryptedSeed: new Uint8Array(encryptedSeed),
     iv,
+    salt,
   };
 
   const db = await openIdentityDB();
@@ -130,17 +138,18 @@ export async function storeIdentitySeed(
 }
 
 /**
- * Load and decrypt the identity seed for the given room.
- * Returns null if the record is missing, the device key is absent, or
- * decryption fails (e.g., record was written on a different device).
+ * Load and decrypt this room's identity seed with a PIN.
+ *
+ * Returns null when there is no record, when the PIN is wrong, or when storage
+ * is unavailable. A wrong PIN is indistinguishable from a missing record on
+ * purpose: AES-GCM authentication fails either way, and the caller has nothing
+ * useful to do with the difference.
  */
 export async function loadIdentitySeed(
   roomId: string,
+  pin: string,
 ): Promise<Uint8Array | null> {
   try {
-    const storedKey = localStorage.getItem(DEVICE_KEY_STORAGE_KEY);
-    if (!storedKey) return null;
-
     const db = await openIdentityDB();
     const record = await new Promise<StoredIdentitySeed | undefined>(
       (resolve, reject) => {
@@ -157,11 +166,9 @@ export async function loadIdentitySeed(
       },
     );
 
-    if (!record) return null;
+    if (!record || !record.salt) return null;
 
-    const deviceKey = getOrCreateDeviceKey();
-    const wrappingKey = await deriveWrappingKey(deviceKey);
-
+    const wrappingKey = await derivePinKey(pin, new Uint8Array(record.salt));
     const plaintext = await crypto.subtle.decrypt(
       { name: "AES-GCM", iv: new Uint8Array(record.iv) },
       wrappingKey,
@@ -170,7 +177,7 @@ export async function loadIdentitySeed(
 
     return new Uint8Array(plaintext);
   } catch {
-    // Missing record, corrupted data, wrong device key, or IDB unavailable
+    // Missing record, wrong PIN, corrupted data, or IDB unavailable.
     return null;
   }
 }
@@ -209,5 +216,6 @@ function structuredCloneRecord(record: StoredIdentitySeed): StoredIdentitySeed {
     roomId: record.roomId,
     encryptedSeed: new Uint8Array(record.encryptedSeed),
     iv: new Uint8Array(record.iv),
+    salt: new Uint8Array(record.salt),
   };
 }
