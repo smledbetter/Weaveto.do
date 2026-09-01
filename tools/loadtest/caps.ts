@@ -10,7 +10,15 @@
 import { WebSocket } from "ws";
 import { startRelay, stopRelay } from "./relay-process.js";
 import type { RelayHandle } from "./relay-process.js";
-import { buildJoin, buildProbe, roomIdFor, RELAY_LIMITS } from "./protocol.js";
+import {
+  buildJoin,
+  buildProbe,
+  buildKeyShare,
+  roomIdFor,
+  identityKeyFor,
+  RELAY_LIMITS,
+  BROADCAST_BUDGET,
+} from "./protocol.js";
 import { classifyRelayFrame, parseUpgradeFailure } from "./metrics.js";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -34,14 +42,21 @@ function connectAndJoin(
   roomIndex: number,
   clientIndex: number,
   opts: { create?: boolean; timeoutMs?: number } = {},
-): Promise<{ ok: true; conn: Connected } | { ok: false; reason: string }> {
+): Promise<
+  | { ok: true; conn: Connected; roomExisted: boolean | null }
+  | { ok: false; reason: string }
+> {
   const join = buildJoin(0, clientIndex, 5);
   if (opts.create === false) join.create = false;
   const timeoutMs = opts.timeoutMs ?? 8000;
 
   return new Promise((resolve) => {
     let settled = false;
-    const finish = (r: { ok: true; conn: Connected } | { ok: false; reason: string }) => {
+    const finish = (
+      r:
+        | { ok: true; conn: Connected; roomExisted: boolean | null }
+        | { ok: false; reason: string },
+    ) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -56,7 +71,12 @@ function connectAndJoin(
     ws.on("open", () => ws.send(JSON.stringify(join)));
     ws.on("message", (data: Buffer) => {
       const frame = classifyRelayFrame(data.toString());
-      if (frame.kind === "member_list") finish({ ok: true, conn: { ws, identityKey: join.identityKey } });
+      if (frame.kind === "member_list")
+        finish({
+          ok: true,
+          conn: { ws, identityKey: join.identityKey },
+          roomExisted: frame.roomExisted,
+        });
       else if (frame.kind !== "new_member" && frame.kind !== "member_left") finish({ ok: false, reason: frame.kind });
     });
     ws.on("error", (err: Error & { code?: string }) => {
@@ -149,7 +169,7 @@ async function checkRateLimit(url: string): Promise<CapCheck> {
   });
 
   // One synchronous burst, so every message lands inside the same 1s window.
-  const burst = RELAY_LIMITS.MSG_RATE_LIMIT + 10;
+  const burst = BROADCAST_BUDGET + 10;
   for (let i = 0; i < burst; i++) {
     a.conn.ws.send(JSON.stringify(buildProbe(a.conn.identityKey, `rl${i}`, 64, Date.now())));
   }
@@ -158,15 +178,58 @@ async function checkRateLimit(url: string): Promise<CapCheck> {
   b.conn.ws.close();
   await sleep(200);
 
-  // The join itself counts as the first message in the window, so the relay
-  // accepts MSG_RATE_LIMIT - 1 further messages before it closes the socket.
-  const expectedDelivered = RELAY_LIMITS.MSG_RATE_LIMIT - 1;
+  // Both budgets apply, so a single instantaneous burst is bounded by
+  // whichever binds first. The broadcast budget is averaged over several
+  // seconds, so it cannot all be spent in one instant: the global per-second
+  // limit runs out first, one slot of it already taken by the join.
+  const expectedDelivered = Math.min(
+    BROADCAST_BUDGET,
+    RELAY_LIMITS.MSG_RATE_LIMIT - 1,
+  );
   return {
-    cap: "MSG_RATE_LIMIT",
-    declared: `${RELAY_LIMITS.MSG_RATE_LIMIT}/s, close 4029`,
+    cap: "BROADCAST_RATE_LIMIT",
+    declared: `${RELAY_LIMITS.BROADCAST_RATE_LIMIT}/s of type encrypted averaged over ${RELAY_LIMITS.BROADCAST_WINDOW_MS}ms (${BROADCAST_BUDGET} per window), close 4029`,
     observed: `${delivered} relayed, close ${code ?? "none"}`,
     matches: code === 4029 && delivered === expectedDelivered,
-    note: `sent ${burst} messages in one burst after joining. The join counts against the same window, so ${expectedDelivered} relayed messages is the expected value.`,
+    note: `sent ${burst} encrypted frames in one burst. Only this type is broadcast, so only this type is charged to the tighter budget. That budget is averaged over ${RELAY_LIMITS.BROADCAST_WINDOW_MS}ms so ordinary jitter does not read as abuse, which means a single instant is bounded by the global limit instead.`,
+  };
+}
+
+/**
+ * The protocol's own burst must not read as abuse.
+ *
+ * Joining or re-keying sends one key_share per member in a tight loop. Cutting
+ * the single rate limit to 5 disconnected exactly that, with 4029, in any room
+ * larger than about four people — a launch-blocking regression that no other
+ * check would have caught, because every declared cap still measured as a
+ * match.
+ */
+async function checkProtocolBurstSurvives(url: string): Promise<CapCheck> {
+  const roomIndex = 7500;
+  const a = await connectAndJoin(url, roomIndex, 7501);
+  if (!a.ok) {
+    return { cap: "protocol burst", declared: "not closed", observed: a.reason, matches: false, note: "could not join" };
+  }
+
+  // The worst legal burst: one key_share to every other member of a full room.
+  const burst = RELAY_LIMITS.MAX_CLIENTS_PER_ROOM - 1;
+  for (let i = 0; i < burst; i++) {
+    a.conn.ws.send(
+      JSON.stringify(buildKeyShare(a.conn.identityKey, identityKeyFor(0, 7600 + i))),
+    );
+  }
+  const code = await waitForClose(a.conn.ws, 2500);
+  if (code === null) a.conn.ws.close();
+
+  return {
+    cap: "protocol burst",
+    declared: `${burst} key_share frames back to back stay open`,
+    observed: code === null ? "socket stayed open" : `closed ${code}`,
+    matches: code === null,
+    note:
+      `a client re-keying in a full room emits one key_share per member with no pacing. ` +
+      `MSG_RATE_LIMIT (${RELAY_LIMITS.MSG_RATE_LIMIT}) has to clear that burst, which is why it is ` +
+      `separate from BROADCAST_RATE_LIMIT (${RELAY_LIMITS.BROADCAST_RATE_LIMIT}).`,
   };
 }
 
@@ -248,15 +311,18 @@ async function checkEmptyRoomReclaimed(url: string): Promise<CapCheck> {
 
   // While occupied, a second client joins without create.
   const whileOccupied = await connectAndJoin(url, roomIndex, 4002, { create: false });
-  const persisted = whileOccupied.ok;
+  const persisted = whileOccupied.ok && whileOccupied.roomExisted === true;
   if (whileOccupied.ok) whileOccupied.conn.ws.close();
   await sleep(300);
   creator.conn.ws.close();
   await sleep(600);
 
-  // With nobody left, the room should be gone.
+  // With nobody left the routing entry should be gone. The stateless relay
+  // does not refuse the next join, it rebuilds the entry and reports that the
+  // room was not there — so `roomExisted: false` is what reclamation looks
+  // like now. Watching for a refusal would report "not reclaimed" forever.
   const afterEmpty = await connectAndJoin(url, roomIndex, 4003, { create: false });
-  const reclaimed = !afterEmpty.ok && afterEmpty.reason === "room_not_found";
+  const reclaimed = afterEmpty.ok && afterEmpty.roomExisted === false;
   if (afterEmpty.ok) afterEmpty.conn.ws.close();
 
   return {
@@ -302,6 +368,7 @@ export async function runCapChecks(port: number, verbose: boolean): Promise<CapR
   console.log("phase 2: address-spread hook ON");
   checks.push(await checkPerRoomCap(url));
   checks.push(await checkRateLimit(url));
+  checks.push(await checkProtocolBurstSurvives(url));
   checks.push(await checkMaxMessageSize(url));
   checks.push(await checkMaxCiphertext(url));
   checks.push(await checkBadRoomId(url));

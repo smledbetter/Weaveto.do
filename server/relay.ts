@@ -35,11 +35,89 @@ const ROOM_ID_PATTERN = /^[a-f0-9]{32}$/;
 
 // --- Rate limiting / connection limit constants ---
 
-const MAX_ROOMS = 10_000;
+/**
+ * Bounded by MAX_CONNECTIONS in practice: a room is deleted when its last
+ * client leaves, so live rooms can never exceed live connections. Kept, and
+ * set to the number that actually binds, so it means what a reader assumes.
+ */
+const MAX_ROOMS = 5_000;
 const MAX_CONNECTIONS = 5_000;
-const MAX_CLIENTS_PER_ROOM = 50;
+/**
+ * Every message to a room of n is relayed n-1 times, so this constant is the
+ * amplification factor. At 50 the measured relay lost a third of all messages
+ * inside its own caps. Ten holds amplification to 9x, and a shared to-do list
+ * with more than ten people in it is a different product.
+ */
+const MAX_CLIENTS_PER_ROOM = 10;
 const MAX_CONNECTIONS_PER_IP = 10;
-const MSG_RATE_LIMIT = 30; // messages per second per connection
+/**
+ * Messages per second per connection, counted before the frame is parsed.
+ *
+ * This is a cheap guard against a client burning CPU, not the thing that
+ * bounds fan-out. It has to clear the protocol's own worst burst: joining or
+ * re-keying sends one `key_share` per member in a tight loop, so a client in a
+ * full room legitimately emits MAX_CLIENTS_PER_ROOM - 1 frames back to back.
+ * Set below that and key rotation disconnects itself with 4029, which is what
+ * a first pass at cutting this constant to 5 actually did.
+ */
+const MSG_RATE_LIMIT = 20;
+
+/**
+ * Encrypted messages per second per connection, counted after parsing.
+ *
+ * `encrypted` is the only type the relay broadcasts, so it is the only type
+ * that multiplies: one frame in becomes MAX_CLIENTS_PER_ROOM - 1 frames out.
+ * Every other type is routed to a single peer or handled locally, so counting
+ * them against the same budget would price a 1x path like a 9x one.
+ *
+ * This is the constant that bounds the aggregate. With MAX_CONNECTIONS at
+ * 5,000 and MAX_CLIENTS_PER_ROOM at 10, the worst case the caps permit is
+ * 5,000 x 5 x 9 = 225,000 outbound per second, against a measured loss
+ * threshold near 240,000. See docs/CAPACITY.md.
+ */
+const BROADCAST_RATE_LIMIT = 5;
+
+/**
+ * The window the broadcast budget is averaged over.
+ *
+ * A one-second window with no burst allowance cannot tell sustained abuse from
+ * a client whose timer slipped. Measured: senders pacing themselves at 4/s
+ * against a 5-per-second budget still collected 6,317 disconnects, and they
+ * started at exactly the load where p95 crossed a second — the relay slowing
+ * down is what bunched the sends that then looked like abuse. A real client
+ * bunches for duller reasons: a GC pause, a backgrounded tab, a flaky radio.
+ *
+ * Averaging keeps the sustained rate, and with it the aggregate bound, exactly
+ * the same. It only stops charging a client for the arrival pattern of its
+ * packets. A burst inside the window is still bounded by MSG_RATE_LIMIT per
+ * second and by MAX_BUFFERED_BYTES per socket, so widening it costs nothing
+ * the caps were relying on.
+ *
+ * Four seconds, which is the configuration every number in docs/CAPACITY.md
+ * was measured against. Widening it was tried as a way to survive bulk task
+ * creation and abandoned: the client sends fewer frames now instead, so the
+ * relay ships the configuration that was actually measured.
+ */
+const BROADCAST_WINDOW_MS = 4_000;
+
+/** Frames of type `encrypted` allowed per BROADCAST_WINDOW_MS. */
+const BROADCAST_BUDGET =
+  BROADCAST_RATE_LIMIT * (BROADCAST_WINDOW_MS / 1000);
+
+/**
+ * How many bytes may be queued for one connection before it is dropped.
+ *
+ * `handleEncrypted` used to send to every member without ever asking whether
+ * the last send had left the process. A member who cannot drain as fast as
+ * their room produces then accumulates an unbounded queue, and there can be
+ * MAX_CONNECTIONS of them. Under a load every declared cap permitted, that
+ * reached 463 MiB on a 1 GB machine with 31% of messages never arriving. See
+ * docs/CAPACITY.md.
+ *
+ * Eight frames of headroom: enough that an ordinary burst rides through, small
+ * enough that the aggregate stays bounded by a number worth stating.
+ */
+const MAX_BUFFERED_BYTES = 8 * MAX_MESSAGE_SIZE;
 
 // --- Liveness and shutdown constants ---
 
@@ -550,21 +628,19 @@ wss.on(
       tracked.isAlive = true;
     });
 
-    // Per-connection message timestamps for rate limiting
+    // Per-connection message timestamps for rate limiting. Two windows: every
+    // frame counts against the first, only broadcasts against the second.
     const msgTimestamps: number[] = [];
+    const broadcastTimestamps: number[] = [];
 
     ws.on("message", (data) => {
-      // Rate limiting: allow at most MSG_RATE_LIMIT messages per second
+      // Rate limiting: allow at most MSG_RATE_LIMIT messages per second.
+      // Checked before parsing, so an abusive client is rejected cheaply.
       const now = Date.now();
-      // Drop timestamps older than 1 second
-      while (msgTimestamps.length > 0 && now - msgTimestamps[0] > 1000) {
-        msgTimestamps.shift();
-      }
-      if (msgTimestamps.length >= MSG_RATE_LIMIT) {
+      if (!admitToWindow(msgTimestamps, now, MSG_RATE_LIMIT)) {
         ws.close(4029, "Rate limit exceeded");
         return;
       }
-      msgTimestamps.push(now);
 
       // Enforce max message size
       const raw = data.toString();
@@ -585,6 +661,23 @@ wss.on(
       if (!msg) {
         ws.close(4003, "Invalid message schema");
         return;
+      }
+
+      // The broadcast budget is separate and much tighter, because an
+      // `encrypted` frame is the only one the relay multiplies. It can only be
+      // charged after the type is known, which is why it sits after the parse.
+      if (msg.type === "encrypted") {
+        if (
+          !admitToWindow(
+            broadcastTimestamps,
+            now,
+            BROADCAST_BUDGET,
+            BROADCAST_WINDOW_MS,
+          )
+        ) {
+          ws.close(4029, "Rate limit exceeded");
+          return;
+        }
       }
 
       handleMessage(roomId, ws, msg, client, (c) => {
@@ -734,6 +827,78 @@ function handleKeyShare(
   }
 }
 
+/**
+ * Charge one event against a one-second sliding window.
+ *
+ * Returns false when the window is already full, in which case nothing is
+ * recorded — a refused event must not extend the window it was refused by.
+ * Mutates `timestamps` in place, dropping anything older than a second.
+ */
+export function admitToWindow(
+  timestamps: number[],
+  now: number,
+  limit: number,
+  windowMs: number = 1000,
+): boolean {
+  while (timestamps.length > 0 && now - timestamps[0] > windowMs) {
+    timestamps.shift();
+  }
+  if (timestamps.length >= limit) return false;
+  timestamps.push(now);
+  return true;
+}
+
+/** The part of a WebSocket that fan-out needs, so it can be exercised directly. */
+export interface FanOutSocket {
+  readyState: number;
+  bufferedAmount: number;
+  send(data: string): void;
+  terminate(): void;
+}
+
+/**
+ * Relay one frame to every member of a room except its sender.
+ *
+ * Drops any member whose outbound queue has already passed
+ * `MAX_BUFFERED_BYTES` rather than adding to it. Returns the identity keys
+ * dropped, for the caller to log or assert on. Removal from the room happens
+ * through the ordinary close handler, which `terminate()` triggers.
+ *
+ * Two decisions worth keeping:
+ *
+ * `terminate()`, not `close()`. A peer that has not drained a megabyte will
+ * not drain a close frame either. `close()` queues that frame behind the
+ * backlog and leaves the memory pinned, which is the thing being fixed.
+ *
+ * Disconnect, not silent skip. docs/THREAT-MODEL.md lists silent message
+ * suppression as an undefended threat, so a relay that quietly dropped
+ * messages would be performing that attack on itself. A disconnect is visible
+ * and the client reconnects and re-syncs.
+ *
+ * This bounds one connection, not the total. MAX_CONNECTIONS sockets each
+ * holding the full allowance is still more memory than the machine has, so
+ * this change is only half a fix — the room and rate caps are the other half.
+ */
+export function fanOut(
+  clients: Map<string, { ws: FanOutSocket }>,
+  senderIdentityKey: string,
+  serialized: string,
+  limit: number = MAX_BUFFERED_BYTES,
+): string[] {
+  const dropped: string[] = [];
+  for (const [key, client] of clients) {
+    if (key === senderIdentityKey) continue;
+    if (client.ws.readyState !== WebSocket.OPEN) continue;
+    if (client.ws.bufferedAmount > limit) {
+      client.ws.terminate();
+      dropped.push(key);
+      continue;
+    }
+    client.ws.send(serialized);
+  }
+  return dropped;
+}
+
 function handleEncrypted(
   roomId: string,
   msg: ValidatedEncryptedMessage,
@@ -747,11 +912,7 @@ function handleEncrypted(
 
   // Relay ciphertext to all other members — server cannot decrypt
   const serialized = JSON.stringify(msg);
-  for (const [key, client] of room.clients) {
-    if (key !== sender.identityKey && client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(serialized);
-    }
-  }
+  fanOut(room.clients, sender.identityKey, serialized);
 
   // Send push notifications to subscribed clients who are NOT connected via WebSocket
   const roomSubs = pushSubscriptions.get(roomId);

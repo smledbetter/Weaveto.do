@@ -57,7 +57,7 @@ export function summarize(samples: readonly number[]): LatencySummary | null {
 // --- Relay frame classification --------------------------------------------
 
 export type RelayFrame =
-  | { kind: "member_list"; members: Array<{ identityKey: string; displayName: string }> }
+  | { kind: "member_list"; members: Array<{ identityKey: string; displayName: string }>; roomExisted: boolean | null }
   | { kind: "new_member"; identityKey: string }
   | { kind: "member_left"; identityKey: string }
   | { kind: "encrypted"; senderIdentityKey: string; sessionId: string; timestamp: number }
@@ -94,6 +94,11 @@ export function classifyRelayFrame(raw: string): RelayFrame {
       const members = Array.isArray(obj.members) ? obj.members : [];
       return {
         kind: "member_list",
+        // Since the relay became stateless it does not refuse a join for a
+        // room it has forgotten. It reconstitutes the routing entry and says
+        // whether the room was already there. That flag is now the only way to
+        // observe reclamation from outside.
+        roomExisted: typeof obj.roomExisted === "boolean" ? obj.roomExisted : null,
         members: members.map((m) => {
           const rec = (typeof m === "object" && m !== null ? m : {}) as Record<string, unknown>;
           return {

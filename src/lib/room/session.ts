@@ -134,6 +134,22 @@ const OTK_REPLENISH_COUNT = 20;
  * available without a protocol change. Rooms larger than this can still
  * collide; MAX_CLIENTS_PER_ROOM is 50.
  */
+/**
+ * How long outbound task events are coalesced before they go out as one frame.
+ *
+ * Chosen so the client cannot exceed the relay's broadcast budget from task
+ * events alone. The relay allows 5 broadcast frames per second averaged over a
+ * window, so flushing every 250ms is 4 per second, leaving a frame per second
+ * of headroom for chat and sync.
+ *
+ * The local echo is immediate, so this delay is only ever seen by other
+ * members, and a quarter second in a shared task list is not noticeable.
+ */
+const TASK_EVENT_FLUSH_MS = 250;
+
+/** Most task events in one frame, so a batch stays far under MAX_MESSAGE_SIZE. */
+const MAX_TASK_EVENTS_PER_FRAME = 25;
+
 const OTK_PUBLISH_COUNT = 20;
 
 /**
@@ -582,37 +598,86 @@ export class RoomSession {
       throw new Error("Not connected to room");
     }
 
+    // Show our own task event immediately. Coalescing must not make the local
+    // UI wait for a network flush.
+    this.onMessage?.({
+      senderId: this.identityKey,
+      senderName: this.displayName,
+      plaintext: "",
+      timestamp: Date.now(),
+      encrypted: true,
+      decryptionFailed: false,
+      taskEvent,
+    });
+
+    this.pendingTaskEvents.push(taskEvent);
+    this.scheduleTaskEventFlush();
+  }
+
+  private scheduleTaskEventFlush(): void {
+    if (this.taskEventFlushTimer !== null) return;
+    this.taskEventFlushTimer = setTimeout(() => {
+      this.taskEventFlushTimer = null;
+      this.flushTaskEvents();
+    }, TASK_EVENT_FLUSH_MS);
+  }
+
+  /**
+   * Send queued task events as one frame.
+   *
+   * One frame per event is what the app used to do, and it made bulk task
+   * creation indistinguishable from a flood: 55 tasks created in a few seconds
+   * exceeded the relay's per-connection rate limit and the client was
+   * disconnected partway through with 4029, losing the rest. Raising the limit
+   * would not have fixed it, because nothing bounds how many tasks someone
+   * creates. Sending fewer frames does.
+   *
+   * A batch also costs the relay less: it is broadcast once instead of once
+   * per event, so the fan-out multiplier applies to frames rather than tasks.
+   */
+  private flushTaskEvents(): void {
+    if (this.pendingTaskEvents.length === 0) return;
+    if (
+      !this.outboundSession ||
+      !this.ws ||
+      this.ws.readyState !== WebSocket.OPEN
+    ) {
+      // Keep them queued. The reconnect path flushes again once the socket is
+      // back, which is strictly better than dropping them here.
+      this.scheduleTaskEventFlush();
+      return;
+    }
+
+    const batch = this.pendingTaskEvents.splice(0, MAX_TASK_EVENTS_PER_FRAME);
+
+    // A single event keeps the original wire shape, so the common case is
+    // unchanged and an older peer still understands it.
+    const body =
+      batch.length === 1 ? { taskEvent: batch[0] } : { taskEvents: batch };
+
     const payload = JSON.stringify({
       text: "",
       sender: this.identityKey,
       senderName: this.displayName,
-      taskEvent,
+      ...body,
       sequence: this.deliveryTracker.nextSequence(),
     });
 
     const paddedPayload = padMessage(payload);
     const ciphertext = megolmEncrypt(this.outboundSession, paddedPayload);
-    const timestamp = Date.now();
 
     const msg: EncryptedMessage = {
       type: "encrypted",
       senderIdentityKey: this.identityKey,
       sessionId: this.outboundSessionId,
       ciphertext,
-      timestamp,
+      timestamp: Date.now(),
     };
     this.ws.send(JSON.stringify(msg));
 
-    // Show our own task event locally
-    this.onMessage?.({
-      senderId: this.identityKey,
-      senderName: this.displayName,
-      plaintext: "",
-      timestamp,
-      encrypted: true,
-      decryptionFailed: false,
-      taskEvent,
-    });
+    // More than one frame's worth queued up: keep draining on the same timer,
+    // which is what holds the outbound rate under the relay's limit.
+    if (this.pendingTaskEvents.length > 0) this.scheduleTaskEventFlush();
   }
 
   /**
@@ -787,6 +852,11 @@ export class RoomSession {
    */
   disconnect(): void {
     this.intentionalClose = true;
+    if (this.taskEventFlushTimer !== null) {
+      clearTimeout(this.taskEventFlushTimer);
+      this.taskEventFlushTimer = null;
+    }
+    this.pendingTaskEvents = [];
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -1001,6 +1071,7 @@ export class RoomSession {
         senderName: string;
         taskEvent?: TaskEvent;
         syncEvents?: TaskEvent[];
+        taskEvents?: TaskEvent[];
         sequence?: number;
         rotateKeys?: {
           newSessionId: string;
@@ -1072,6 +1143,24 @@ export class RoomSession {
         this.syncHandler?.(payload.syncEvents);
       }
 
+      // A batch of task events is delivered one at a time, so everything
+      // downstream — the task store, agent dispatch, notifications — sees
+      // exactly what it saw when every event arrived in its own frame.
+      if (payload.taskEvents && Array.isArray(payload.taskEvents)) {
+        for (const taskEvent of payload.taskEvents) {
+          this.onMessage?.({
+            senderId: trustedSenderId,
+            senderName: trustedSenderName,
+            plaintext: "",
+            timestamp: msg.timestamp,
+            encrypted: true,
+            decryptionFailed: false,
+            taskEvent,
+          });
+        }
+        return;
+      }
+
       this.onMessage?.({
         senderId: trustedSenderId,
         senderName: trustedSenderName,
@@ -1105,6 +1194,10 @@ export class RoomSession {
    * Deliberately not updated on reconnect: after a relay restart the room is
    * legitimately empty, and that is not a stale link.
    */
+  /** Task events waiting to go out as one frame. See flushTaskEvents. */
+  private pendingTaskEvents: TaskEvent[] = [];
+  private taskEventFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
   private firstJoinFoundRoom: boolean | null = null;
 
   /** See firstJoinFoundRoom. Null before the first member list arrives. */
