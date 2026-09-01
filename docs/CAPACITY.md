@@ -333,7 +333,7 @@ Neither is reached by anything resembling normal use. Both are reachable by some
 
 Stated as gaps, not filled with estimates.
 
-1. **The fly machine itself.** No deploy, no `shared-cpu-1x`. A shared vCPU is weaker than the dedicated M4 core the container had, so container latency is a floor, not a prediction. The memory figures should carry across better than the latency ones — same kernel family, same page size, same Node image — but x86-64 versus aarch64 is untested.
+1. **Capacity on the fly machine.** The relay is deployed now and has been measured over the real network, but only for latency and cap behaviour. See "Against the deployed relay" below for why a capacity run cannot be done from one host. Memory on `shared-cpu-1x` remains unmeasured, and x86-64 versus aarch64 remains untested.
 2. **Anything above 5,000 connections.** The relay refuses the 5,001st. Finding the real ceiling means raising `MAX_CONNECTIONS`, which is a change to `server/relay.ts`. Memory rises about 10 KiB per connection across the measured range and that number is real, but I am not multiplying it out to a capacity claim.
 3. **Real network conditions.** Loopback and a Docker published port. No TLS handshake, no packet loss, no mobile radio, no reconnect storms. `fly.toml` terminates TLS at the edge so the relay should not pay for it, but that is read from configuration, not measured.
 4. **The file descriptor limit on a fly machine.** 5,000 connections needs 5,000 descriptors. Comfortable here; unverified there.
@@ -396,6 +396,47 @@ Worth recording how the hook had to be written. Patching `https.request` does no
 Push subscriptions do not survive an empty room. A room is deleted the moment its last client disconnects, and `deleteRoomState` takes its subscriptions with it. So a room everyone has left notifies nobody when the next message arrives, which cannot happen anyway because there is no one there to send it.
 
 This is a consequence of the relay holding no state, not a defect, but it does mean push only works while at least one member is connected. It also cost a probe: the first version of the subscription-cap check had its subscribers leave an empty room, so every subscription was deleted and the check measured zero pushes against a working relay.
+
+## Against the deployed relay
+
+`npm run loadtest -- --profile=fly --url=wss://weaveto-relay.fly.dev`, run from a laptop against `shared-cpu-1x` in `ord`.
+
+**A capacity run cannot be done this way, and it is worth being clear why.** `MAX_CONNECTIONS_PER_IP` is 10, and the relay trusts the fly proxy's client-address header, so every connection from one host counts against one key. The eleventh is refused. The local harness gets past this with a preload hook that gives each socket a synthetic address, and that hook cannot reach a relay it did not start, nor should it. Reaching real connection counts needs load from many addresses, which is a different exercise.
+
+What a remote run does give is the two things no local run can produce.
+
+### The per-IP cap fires in production
+
+| Target | Live | Failed | Refusal |
+|---:|---:|---:|---|
+| 2 | 2 | 0 | |
+| 4 | 4 | 0 | |
+| 8 | 8 | 0 | |
+| 12 | **10** | 2 | `max-connections-per-ip` |
+
+This is the **only end-to-end proof that the proxy header is trusted correctly**, and it was previously unverified. The relay keys the cap on `Fly-Client-IP` when `FLY_APP_NAME` is present. If that had been wrong, one of two things would show: every connection keyed on the fly proxy's own address, so the cap would fire at 10 for the whole world at once, or the header ignored and every connection keyed identically, with the same result. Refusing at exactly 10 for one client, while a second client would still be admitted, is what correct looks like.
+
+### Latency over the real network
+
+| Connections | p50 | p95 | Delivered |
+|---:|---:|---:|---:|
+| 4 | 344.6 ms | 405.3 ms | 20/20 |
+| 8 | 343.2 ms | 393.8 ms | 40/40 |
+| 12 | 322.0 ms | 373.9 ms | 40/40 |
+
+No message was lost. Latency is flat across the range, which says the relay is not the constraint at this scale.
+
+**Against the container's 10 ms p50, this is about 30x.** Most of that is distance, not the relay. A control measurement to the same host, taken at the same time:
+
+```
+TCP connect: 147-170 ms   TLS complete: 313-382 ms
+```
+
+So the round trip to `ord` is roughly 150 ms before the relay does anything. A message travels two of those legs, which accounts for about 150 ms of the 320 ms.
+
+**The remaining ~170 ms is not attributable from the client side, and this document will not guess at it.** It could be the fly edge, the shared vCPU, or a path that differs from the one the TCP handshake took. Attributing it needs either server-side timestamps or a harness running in the same region. Neither has been done.
+
+What the number is good for: it sets the expectation that a message between two people takes roughly a third of a second when one of them is far from `ord`, and it confirms the shape the container measured. What it is not good for is comparing against the container figures, which were taken over loopback.
 
 ## The harness
 

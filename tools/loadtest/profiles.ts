@@ -133,6 +133,36 @@ export const PROFILES: Record<string, Profile> = {
     throughputRates: [1, 5, 10],
   },
 
+  fly: {
+    name: "fly",
+    description:
+      "A small ramp against a deployed relay over the real network. Every " +
+      "connection arrives from one address, so MAX_CONNECTIONS_PER_IP binds at " +
+      `${RELAY_LIMITS.MAX_CONNECTIONS_PER_IP} and capacity cannot be reached from here. ` +
+      "What this measures is round-trip latency through TLS and a shared vCPU, " +
+      "which no local run can produce, and whether the per-IP cap fires in " +
+      "production, which is the only end-to-end proof that the proxy's " +
+      "client-address header is being trusted correctly.",
+    // The last step deliberately exceeds the per-IP cap so the refusal is
+    // observed rather than assumed.
+    ramp: { start: 2, max: RELAY_LIMITS.MAX_CONNECTIONS_PER_IP + 2, factor: 2 },
+    clientsPerRoom: 2,
+    oneTimeKeyCount: 5,
+    workers: 2,
+    connectBatch: 2,
+    connectGapMs: 250,
+    connectTimeoutMs: 20_000,
+    settleMs: 2000,
+    probe: { pairsPerWorker: 5, sendersPerRoom: 1, messagesPerPair: 10, intervalMs: LEGAL_SEND_INTERVAL_MS, ciphertextBytes: 1024, timeoutMs: 15_000 },
+    // The final step is meant to be refused, so a high failure rate there is
+    // the expected result rather than a reason to stop.
+    stop: { maxFailureRate: 0.999, maxP95Ms: 20_000, minDeliveryRate: 0.5 },
+    // The hook cannot reach a relay this harness did not start, and should not.
+    ipSpread: false,
+    ipPerAddr: 1,
+    throughputRates: [0.5, 1],
+  },
+
   fanout: {
     name: "fanout",
     description:
