@@ -19,6 +19,7 @@ import type { IncomingHttpHeaders } from "http";
 import { parse } from "url";
 import { initVapid, getVapidPublicKey, sendPushNotification } from "./vapid.js";
 import type { PushSubscriptionData } from "./push-types.js";
+import { computeRelayBuildId, RELAY_BUILD_HEADER } from "./build-id.js";
 
 const PORT = parseInt(process.env.PORT || "3001", 10);
 
@@ -565,7 +566,19 @@ export function closeRemaining(sockets: Iterable<Drainable>): number {
 
 // --- Server ---
 
+/**
+ * Read once, at boot, so the value describes the code this process actually
+ * loaded. A relay left running across an edit keeps reporting the build it
+ * started with, which is exactly what a test run needs to be told.
+ */
+const BUILD_ID = computeRelayBuildId();
+
 const server = createServer((req, res) => {
+  // On every response, including the liveness path the E2E suite already
+  // polls. That is enough for a run to tell a current relay from one started
+  // before the last edit to server/.
+  res.setHeader(RELAY_BUILD_HEADER, BUILD_ID);
+
   if (req.url === "/vapid-key" && req.method === "GET") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ publicKey: getVapidPublicKey() }));

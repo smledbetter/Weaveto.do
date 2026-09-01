@@ -2,6 +2,13 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
+
+  // Refuses the run when the relay on 3001 is not built from the working tree.
+  // The relay has no hot reload and this config reuses whatever is already
+  // listening, so without this check a local run can pass against code that
+  // was replaced before it started. See tests/e2e/utils/relay-build.ts.
+  globalSetup: './tests/e2e/global-setup.ts',
+
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
