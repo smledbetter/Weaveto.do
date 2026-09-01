@@ -27,7 +27,6 @@ const PORT = parseInt(process.env.PORT || "3001", 10);
 // --- Validation constants ---
 
 const MAX_IDENTITY_KEY_LENGTH = 64;
-const MAX_DISPLAY_NAME_LENGTH = 32;
 const MAX_CIPHERTEXT_LENGTH = 65536;
 const MAX_SESSION_ID_LENGTH = 64;
 const MAX_ONE_TIME_KEYS = 20;
@@ -182,7 +181,6 @@ const RECONNECT_HINT_MS = 3_000;
 export interface RoomClient {
   ws: WebSocket;
   identityKey: string;
-  displayName: string;
 }
 
 /**
@@ -282,7 +280,6 @@ interface ValidatedJoinMessage {
   identityKey: string;
   ed25519Key: string;
   oneTimeKeys: Record<string, string>;
-  displayName: string;
 }
 
 interface ValidatedKeyShareMessage {
@@ -347,8 +344,6 @@ function validateMessage(raw: unknown): ValidatedMessage | null {
       if (!isNonEmptyString(raw.identityKey, MAX_IDENTITY_KEY_LENGTH))
         return null;
       if (!isNonEmptyString(raw.ed25519Key, MAX_IDENTITY_KEY_LENGTH))
-        return null;
-      if (!isNonEmptyString(raw.displayName, MAX_DISPLAY_NAME_LENGTH))
         return null;
       if (!validateOneTimeKeys(raw.oneTimeKeys)) return null;
       // `create` and `ephemeral` are accepted and ignored for older clients.
@@ -840,14 +835,19 @@ function handleJoin(
   const client: RoomClient = {
     ws,
     identityKey: msg.identityKey,
-    displayName: msg.displayName,
   };
   setClient(client);
 
-  // Send current member list to the new member (before adding them to the room)
+  // Send current member list to the new member (before adding them to the room).
+  //
+  // Identity keys only. A display name is the one piece of personal data a
+  // member supplies, and it does not need to pass through here: members learn
+  // each other's names over the Olm channel they are about to establish
+  // anyway. Sending it in the join made the relay hold a name for every person
+  // in every room, which is exactly what "the server cannot identify users"
+  // was supposed to mean.
   const memberList = Array.from(room.clients.values()).map((c) => ({
     identityKey: c.identityKey,
-    displayName: c.displayName,
   }));
 
   // Add new client to room BEFORE notifying existing members, so that
@@ -860,7 +860,6 @@ function handleJoin(
     identityKey: msg.identityKey,
     ed25519Key: msg.ed25519Key,
     oneTimeKeys: msg.oneTimeKeys,
-    displayName: msg.displayName,
   });
 
   for (const [, existingClient] of room.clients) {

@@ -36,7 +36,6 @@ import {
   roomIdFor,
   identityKeyFor,
   ed25519KeyFor,
-  displayNameFor,
   oneTimeKeysFor,
   buildJoin,
   buildProbe,
@@ -132,12 +131,12 @@ describe("classifyRelayFrame", () => {
     const frame = classifyRelayFrame(
       JSON.stringify({
         type: "member_list",
-        members: [{ identityKey: "abc", displayName: "lt0-1" }],
+        members: [{ identityKey: "abc" }],
       }),
     );
     expect(frame.kind).toBe("member_list");
     if (frame.kind !== "member_list") throw new Error("wrong kind");
-    expect(frame.members).toEqual([{ identityKey: "abc", displayName: "lt0-1" }]);
+    expect(frame.members).toEqual([{ identityKey: "abc" }]);
   });
 
   it("reads an empty member_list, which the first client in a room receives", () => {
@@ -516,8 +515,6 @@ describe("client identifiers", () => {
       expect(identityKeyFor(w, c).length).toBeGreaterThan(0);
       expect(identityKeyFor(w, c).length).toBeLessThanOrEqual(RELAY_LIMITS.MAX_IDENTITY_KEY_LENGTH);
       expect(ed25519KeyFor(w, c).length).toBeLessThanOrEqual(RELAY_LIMITS.MAX_IDENTITY_KEY_LENGTH);
-      expect(displayNameFor(w, c).length).toBeGreaterThan(0);
-      expect(displayNameFor(w, c).length).toBeLessThanOrEqual(RELAY_LIMITS.MAX_DISPLAY_NAME_LENGTH);
     }
   });
 
@@ -587,7 +584,7 @@ describe("messages the harness sends", () => {
   it("keeps the rule checker honest by rejecting a message that breaks a rule", () => {
     // If the checker passed everything it would guard nothing.
     const bad = buildJoin(0, 0, 5);
-    bad.displayName = "x".repeat(RELAY_LIMITS.MAX_DISPLAY_NAME_LENGTH + 1);
+    bad.identityKey = "x".repeat(RELAY_LIMITS.MAX_IDENTITY_KEY_LENGTH + 1);
     expect(checkJoinAgainstRelayRules(bad)).not.toEqual([]);
 
     const noKeys = buildJoin(0, 0, 5);

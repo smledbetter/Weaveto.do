@@ -57,7 +57,7 @@ export function summarize(samples: readonly number[]): LatencySummary | null {
 // --- Relay frame classification --------------------------------------------
 
 export type RelayFrame =
-  | { kind: "member_list"; members: Array<{ identityKey: string; displayName: string }>; roomExisted: boolean | null }
+  | { kind: "member_list"; members: Array<{ identityKey: string }>; roomExisted: boolean | null }
   | { kind: "new_member"; identityKey: string }
   | { kind: "member_left"; identityKey: string }
   | { kind: "encrypted"; senderIdentityKey: string; sessionId: string; timestamp: number }
@@ -103,7 +103,6 @@ export function classifyRelayFrame(raw: string): RelayFrame {
           const rec = (typeof m === "object" && m !== null ? m : {}) as Record<string, unknown>;
           return {
             identityKey: typeof rec.identityKey === "string" ? rec.identityKey : "",
-            displayName: typeof rec.displayName === "string" ? rec.displayName : "",
           };
         }),
       };

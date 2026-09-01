@@ -32,7 +32,6 @@ function member(identityKey: string, readyState: number = WebSocket.OPEN) {
   const client: RoomClient = {
     ws: ws as unknown as WebSocket,
     identityKey,
-    displayName: identityKey,
   };
   return { client, sent };
 }
