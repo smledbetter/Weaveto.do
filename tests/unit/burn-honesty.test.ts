@@ -37,8 +37,8 @@ vi.mock("$lib/notifications/push", () => ({
 }));
 vi.mock("$lib/tasks/offline", () => ({
   clearOfflineData: vi.fn(),
-  loadTaskSnapshot: vi.fn().mockResolvedValue(null),
-  loadEventQueue: vi.fn().mockResolvedValue(null),
+  hasTaskSnapshot: vi.fn().mockResolvedValue(false),
+  hasEventQueue: vi.fn().mockResolvedValue(false),
 }));
 
 globalThis.sessionStorage = {
@@ -53,14 +53,15 @@ globalThis.sessionStorage = {
 import { cleanupRoom } from "$lib/room/cleanup";
 import { clearPinKey } from "$lib/pin/store";
 import { clearIdentitySeed, hasStoredIdentitySeed } from "$lib/identity/store";
-import { clearOfflineData, loadEventQueue } from "$lib/tasks/offline";
+import { clearOfflineData, hasEventQueue, hasTaskSnapshot } from "$lib/tasks/offline";
 import { clearPushSubscription } from "$lib/notifications/push";
 
 const mockPin = clearPinKey as ReturnType<typeof vi.fn>;
 const mockSeed = clearIdentitySeed as ReturnType<typeof vi.fn>;
 const mockHasSeed = hasStoredIdentitySeed as ReturnType<typeof vi.fn>;
 const mockOffline = clearOfflineData as ReturnType<typeof vi.fn>;
-const mockQueue = loadEventQueue as ReturnType<typeof vi.fn>;
+const mockHasQueue = hasEventQueue as ReturnType<typeof vi.fn>;
+const mockHasSnapshot = hasTaskSnapshot as ReturnType<typeof vi.fn>;
 const mockPush = clearPushSubscription as ReturnType<typeof vi.fn>;
 
 /** A room session that tears down without complaint. */
@@ -76,7 +77,8 @@ describe("burn reports what it actually removed", () => {
     mockOffline.mockResolvedValue(undefined);
     mockPush.mockResolvedValue(undefined);
     mockHasSeed.mockResolvedValue(false);
-    mockQueue.mockResolvedValue(null);
+    mockHasQueue.mockResolvedValue(false);
+    mockHasSnapshot.mockResolvedValue(false);
   });
 
   it("reports complete when every step works and the stores read back empty", () => {
@@ -126,7 +128,7 @@ describe("burn reports what it actually removed", () => {
       // still there. Nothing threw, so `failed` is empty and the old code
       // would have said "Room deleted".
       mockOffline.mockResolvedValue(undefined);
-      mockQueue.mockResolvedValue([{ type: "task_created" }]);
+      mockHasQueue.mockResolvedValue(true);
 
       const result = await cleanupRoom("room-1", session);
 
@@ -143,6 +145,27 @@ describe("burn reports what it actually removed", () => {
 
       expect(result.failed).toEqual([]);
       expect(result.verified.surviving).toContain("identity-seed");
+      expect(result.complete).toBe(false);
+    });
+  });
+
+  describe("a record that survived but can no longer be decrypted", () => {
+    it("still counts as surviving", async () => {
+      // The verifier used to read these stores through loadTaskSnapshot and
+      // loadEventQueue, which return null both for a missing record and for
+      // one that will not decrypt. The offline store's key lives in
+      // localStorage, so clearing site data mints a new one and leaves exactly
+      // this state: ciphertext on the disk that nothing can open.
+      //
+      // Reading it as "gone" made the burn report clean over data that was
+      // still there. Existence is now counted, not readability.
+      mockOffline.mockResolvedValue(undefined);
+      mockHasSnapshot.mockResolvedValue(true);
+
+      const result = await cleanupRoom("room-1", session);
+
+      expect(result.failed).toEqual([]);
+      expect(result.verified.surviving).toContain("task-snapshot");
       expect(result.complete).toBe(false);
     });
   });

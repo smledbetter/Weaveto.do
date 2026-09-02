@@ -252,7 +252,9 @@ export async function saveTaskSnapshot(roomId: string, tasks: Task[]): Promise<v
     const db = await openTaskSnapshotDB();
     await putRecord(db, TASK_SNAPSHOT_STORE, { roomId, encryptedData, iv });
   } catch {
-    // IDB unavailable, encryption failure, or quota exceeded — ignore silently
+    // Nothing should observe this. The snapshot is a cache of state the room
+    // will resend on the next connection, so losing it costs a slower start
+    // offline and nothing else. Quota is the realistic cause.
   }
 }
 
@@ -267,6 +269,9 @@ export async function loadTaskSnapshot(roomId: string): Promise<Task[] | null> {
     if (!record) return null;
     return await decryptJSON<Task[]>(record.encryptedData, record.iv);
   } catch {
+    // Null covers both "nothing stored" and "stored but will not decrypt",
+    // which is right for callers wanting usable data or none. It is wrong for
+    // anyone asking whether data still exists: use hasTaskSnapshot for that.
     return null;
   }
 }
@@ -280,7 +285,9 @@ export async function clearTaskSnapshot(roomId: string): Promise<void> {
     const db = await openTaskSnapshotDB();
     await deleteRecord(db, TASK_SNAPSHOT_STORE, roomId);
   } catch {
-    // Ignore silently
+    // Swallowed here, checked elsewhere. cleanupRoom reads the store back with
+    // hasTaskSnapshot rather than trusting this, because a delete that failed
+    // and a delete that worked look identical from the outside.
   }
 }
 
@@ -296,7 +303,16 @@ export async function saveEventQueue(roomId: string, events: TaskEvent[]): Promi
     const db = await openEventQueueDB();
     await putRecord(db, EVENT_QUEUE_STORE, { roomId, encryptedData, iv });
   } catch {
-    // IDB unavailable, encryption failure, or quota exceeded — ignore silently
+    // Judged and left, but this one is not a cache and the distinction matters.
+    // The queue is the durable copy of work that has not been sent. If this
+    // fails, those events exist only in memory and a reload loses them.
+    //
+    // Left silent because the UI is already honest about the state: every
+    // unsent event carries a pending dot, so nobody is told the work is safe.
+    // What is missing is the narrower fact that it is not written down, and
+    // the only truthful thing to say about it would be a warning nobody can
+    // act on. If quota failures ever show up in practice, the fix is to stop
+    // accepting offline edits rather than to add a notice.
   }
 }
 
@@ -311,6 +327,7 @@ export async function loadEventQueue(roomId: string): Promise<TaskEvent[] | null
     if (!record) return null;
     return await decryptJSON<TaskEvent[]>(record.encryptedData, record.iv);
   } catch {
+    // See loadTaskSnapshot. Presence is hasEventQueue, not this.
     return null;
   }
 }
@@ -324,15 +341,71 @@ export async function clearEventQueue(roomId: string): Promise<void> {
     const db = await openEventQueueDB();
     await deleteRecord(db, EVENT_QUEUE_STORE, roomId);
   } catch {
-    // Ignore silently
+    // As above: verified by hasEventQueue in cleanupRoom, not by this catch.
   }
+}
+
+/**
+ * Whether a room has a stored record, without trying to read it.
+ *
+ * `loadTaskSnapshot` and `loadEventQueue` return null for two different
+ * situations: nothing is stored, and something is stored that will not
+ * decrypt. That conflation is right for their callers, which want usable data
+ * or nothing, and wrong for anyone asking whether data still exists.
+ *
+ * It mattered once already. `verifyRoomCleared` checks a burn by reading these
+ * stores back, and read them through the loaders, so a record that survived a
+ * burn but could no longer be decrypted came back as null and the burn
+ * reported clean. An undecryptable record is still a record. It is still on
+ * the disk, and the key that opens it may not be gone.
+ *
+ * Counting keys avoids decryption entirely, so the answer does not depend on
+ * whether the device key still matches.
+ */
+async function hasRecord(
+  open: () => Promise<IDBDatabase>,
+  storeName: string,
+  roomId: string,
+): Promise<boolean> {
+  const db = await open();
+  return new Promise<boolean>((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    const request = tx.objectStore(storeName).count(roomId);
+    request.onsuccess = () => {
+      db.close();
+      resolve(request.result > 0);
+    };
+    request.onerror = () => {
+      db.close();
+      reject(new Error(`Failed to count records in ${storeName}`));
+    };
+  });
+}
+
+/** Whether a task snapshot exists for this room, decryptable or not. */
+export function hasTaskSnapshot(roomId: string): Promise<boolean> {
+  return hasRecord(openTaskSnapshotDB, TASK_SNAPSHOT_STORE, roomId);
+}
+
+/** Whether a pending event queue exists for this room, decryptable or not. */
+export function hasEventQueue(roomId: string): Promise<boolean> {
+  return hasRecord(openEventQueueDB, EVENT_QUEUE_STORE, roomId);
 }
 
 // --- Convenience: clear both stores for a room ---
 
 /**
  * Clear both the task snapshot and pending event queue for a room.
- * Useful on room leave or purge. Errors are swallowed silently.
+ *
+ * `allSettled` so one store failing does not leave the other untouched. Note
+ * what that costs: this function cannot fail. It resolves whether both
+ * deletions worked or neither did, and the individual clears swallow their own
+ * errors as well, so there is no failure to observe anywhere in this path.
+ *
+ * That is why burn does not trust it. `verifyRoomCleared` reads the stores
+ * back through hasTaskSnapshot and hasEventQueue rather than believing this
+ * resolved. Do not add a return value here and expect callers to check it:
+ * the guarantee has to come from looking, not from reporting.
  */
 export async function clearOfflineData(roomId: string): Promise<void> {
   await Promise.allSettled([clearTaskSnapshot(roomId), clearEventQueue(roomId)]);

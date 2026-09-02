@@ -25,7 +25,7 @@
  */
 
 import { hasStoredIdentitySeed } from "$lib/identity/store";
-import { loadTaskSnapshot, loadEventQueue } from "$lib/tasks/offline";
+import { hasTaskSnapshot, hasEventQueue } from "$lib/tasks/offline";
 
 /** A store that still holds something for a room that was supposed to be gone. */
 export type SurvivingStore =
@@ -66,16 +66,19 @@ export async function verifyRoomCleared(
     unverifiable.push("identity-seed");
   }
 
+  // Existence, not readability. These used to go through loadTaskSnapshot and
+  // loadEventQueue, which return null both when nothing is stored and when
+  // something is stored that will not decrypt. A record that survived a burn
+  // and could no longer be decrypted therefore read as gone, and the burn
+  // reported clean. An undecryptable record is still on the disk.
   try {
-    const snapshot = await loadTaskSnapshot(roomId);
-    if (snapshot !== null) surviving.push("task-snapshot");
+    if (await hasTaskSnapshot(roomId)) surviving.push("task-snapshot");
   } catch {
     unverifiable.push("task-snapshot");
   }
 
   try {
-    const queue = await loadEventQueue(roomId);
-    if (queue !== null) surviving.push("event-queue");
+    if (await hasEventQueue(roomId)) surviving.push("event-queue");
   } catch {
     unverifiable.push("event-queue");
   }
