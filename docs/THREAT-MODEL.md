@@ -58,6 +58,7 @@ Anyone who completes the Olm key exchange (via room link) can decrypt all room c
 | Room member exfiltrates content | Screenshots, copy-paste of decrypted data | Social trust model — no technical mitigation |
 | Relay code authenticity unverifiable | Users trust relay matches open-source repo | No attestation needed (no plaintext), but no proof either. Gap 4 |
 | Any member can burn the room | A single member destroys every online member's local copy | Accepted. Burn is an encrypted message, so holding the Megolm key is the only bar. Gap 8 |
+| Offline task cache readable from the same origin | Task content on the device is wrapped by a key stored beside it | Accepted, and the cache exists to be readable without a prompt. Gap 10 |
 | Push endpoint links a device across rooms | Enabling notifications in two rooms registers the same endpoint under both, so the relay can tell they are the same device | Inherent to Web Push. One endpoint exists per browser (see below) |
 
 ## Open Gaps
@@ -97,6 +98,20 @@ Burn used to be a relay operation. The relay held the creator's identity key and
 For comparison, Signal does not solve this architecturally either. It minimizes and does not retain, which is the same class of answer given here.
 
 **What someone who needs it should do**: run Tor Browser against the ordinary endpoint, which costs nothing and leaves the relay seeing an exit node rather than a user. Or run their own relay and point a client at it with the `?relay=` parameter tracked in #39, which puts the trust anchor on the person who needs the property.
+
+### 10. The Offline Cache Is Wrapped By A Key Stored Beside It
+
+**Gap**: task snapshots and the pending event queue are held in IndexedDB, AES-GCM-256 encrypted under a key derived from a device key that lives in `localStorage`. Anything that can read one can read the other, so the encryption raises the bar against a copied database file and against nothing else.
+
+This is the scheme identity seeds used and no longer do. `src/lib/identity/store.ts` moved to a key derived from a PIN and never stored, and its header says why. The offline cache still works the old way.
+
+**Why this is accepted rather than fixed**: the cache exists to be readable without a prompt when someone reopens the tab offline. Wrapping it behind a PIN would mean asking for one before showing a task list that the person could see a moment earlier, which defeats the feature. The identity seed could take that trade because it is asked for once at join and is worth a prompt. A cache is not.
+
+**What it is worth stating precisely**: this protects against an IndexedDB file lifted off the disk on its own. It does not protect against anything running in the origin, and it does not protect against someone with the whole browser profile.
+
+`src/lib/tasks/offline.ts` says the same thing at the top of the file. It is recorded here because `docs/ROADMAP.md` and `docs/STATE.md` both describe M17 as "encrypted IndexedDB task snapshots" without the caveat, and a reader of this document should not have to open the source to find it.
+
+**Note on burn**: an undecryptable record is still a record. `verifyRoomCleared` counts these stores by existence rather than by whether they open, because reading them through the loaders reported ciphertext-that-will-not-decrypt as absent.
 
 ## Closed Gaps
 
