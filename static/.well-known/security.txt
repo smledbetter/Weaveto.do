@@ -1,0 +1,12 @@
+# Security contact for weaveto.do
+# https://github.com/smledbetter/Weaveto.do/blob/main/SECURITY.md
+
+Contact: mailto:weaveto.dosecurity.scribing608@passinbox.com
+Expires: 2027-09-01T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://weaveto.do/.well-known/security.txt
+Policy: https://github.com/smledbetter/Weaveto.do/blob/main/SECURITY.md
+
+# The threat model is the honest account of what is and is not defended,
+# including the accepted gaps. Worth reading before reporting.
+# https://github.com/smledbetter/Weaveto.do/blob/main/docs/THREAT-MODEL.md

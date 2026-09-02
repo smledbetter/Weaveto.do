@@ -1372,6 +1372,7 @@ import { TabSync } from '$lib/room/tab-sync';
 				<div class="room-info">
 					<h2>{roomName || 'Room'}</h2>
 					<span class="encryption-badge">&#128274; End-to-end encrypted</span>
+					<a href="/privacy" target="_blank" rel="noopener" class="privacy-link">Privacy</a>
 					{#if pinRequired || pinState.status === 'set'}
 						<span class="shield-badge" title="PIN-protected room">&#128737; PIN protected</span>
 					{/if}
@@ -1810,6 +1811,20 @@ import { TabSync } from '$lib/room/tab-sync';
 		font-size: 1rem;
 		font-weight: 500;
 		margin: 0;
+	}
+
+	/* Opens in a new tab on purpose: following it in place would tear down a
+	   live room, and the session keys with it. */
+	.privacy-link {
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+		margin-left: 0.6rem;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	.privacy-link:hover {
+		color: var(--text-primary);
 	}
 
 	.encryption-badge {

@@ -153,6 +153,7 @@
 
 	<footer>
 		<span class="lock">&#128274;</span> End-to-end encrypted. Your messages and tasks never leave your device unencrypted.
+		<a href="/privacy" class="privacy-link">What we can and cannot see</a>
 	</footer>
 </main>
 
@@ -411,6 +412,18 @@
 	}
 
 	.deleted-notice button:hover {
+		color: var(--text-primary);
+	}
+
+	.privacy-link {
+		display: block;
+		margin-top: 0.5rem;
+		color: var(--text-secondary);
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	.privacy-link:hover {
 		color: var(--text-primary);
 	}
 
