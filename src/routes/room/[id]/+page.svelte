@@ -4,8 +4,8 @@
 	import { getRoomName } from '$lib/room/names';
 	import { browser } from '$app/environment';
 	import { RoomSession, type DecryptedMessage, type RoomMember } from '$lib/room/session';
-	import { createCredential, assertWithPrf, getStoredCredentialId, WebAuthnUnsupportedError } from '$lib/webauthn/prf';
-	import { loadIdentitySeed, storeIdentitySeed } from '$lib/identity/store';
+	import { WebAuthnUnsupportedError } from '$lib/webauthn/prf';
+	import { storeIdentitySeed } from '$lib/identity/store';
 	import { isDark, toggleTheme } from '$lib/theme.svelte';
 	import { createTaskStore } from '$lib/tasks/store.svelte';
 	import { parseTaskCommand } from '$lib/tasks/parser';
@@ -45,6 +45,7 @@
 	import { isPushSupported, subscribeToPush, unsubscribeFromPush, initPushDB, storePushSubscription, clearPushSubscription, countPushSubscriptions } from '$lib/notifications/push';
 import { saveTaskSnapshot, loadTaskSnapshot, saveEventQueue, loadEventQueue, clearOfflineData } from '$lib/tasks/offline';
 	import { hasStoredIdentitySeed, purgeLegacyDeviceKey } from '$lib/identity/store';
+	import { resolveIdentity } from '$lib/identity/resolve';
 import ConnectionIndicator from '$lib/components/ConnectionIndicator.svelte';
 import { deriveEmojiString } from '$lib/room/verification';
 import ShieldIcon from '$lib/components/ShieldIcon.svelte';
@@ -73,6 +74,15 @@ import { TabSync } from '$lib/room/tab-sync';
 	let displayName = $state('');
 	let phase: 'name' | 'auth' | 'connecting' | 'pin-setup' | 'connected' | 'error' = $state('name');
 	let error = $state('');
+	/**
+	 * A send that failed, shown by the composer and cleared on the next attempt.
+	 *
+	 * Deliberately not `error`. That renders a full-screen card with "Try Again"
+	 * and "Back to homepage", so using it here would eject someone from the room
+	 * over one dropped frame. A failed send is transient and local to the
+	 * composer, and the draft survives it.
+	 */
+	let sendFailed = $state(false);
 	let showKeyWarning = $state(false);
 	let usingTempIdentity = $state(false);
 	/**
@@ -728,53 +738,24 @@ import { TabSync } from '$lib/room/tab-sync';
 		}
 	}
 
-	async function generateRandomSeed(roomId: string): Promise<Uint8Array> {
-		const encoder = new TextEncoder();
-		const nonce = crypto.randomUUID();
-		const seedMaterial = await crypto.subtle.digest('SHA-256', encoder.encode(`dev-prf-seed-${roomId}-${nonce}`));
-		return new Uint8Array(seedMaterial);
-	}
-
 	async function joinRoom() {
 		if (!displayName.trim()) return;
 		phase = 'auth';
 		error = '';
 
 		try {
-			// WebAuthn PRF ceremony: derive a device-bound seed for crypto identity.
-			// In dev/bypass mode, skip WebAuthn — identity will be random per session.
-			// On devices without PRF support, fall back to random seed automatically.
-			let prfSeed: Uint8Array | undefined;
-			if (import.meta.env.DEV || import.meta.env.VITE_WEBAUTHN_BYPASS === 'true') {
-				prfSeed = await generateRandomSeed(roomId);
-			} else {
-				try {
-					const storedCred = getStoredCredentialId();
-					let result;
-					if (storedCred) {
-						result = await assertWithPrf(roomId, storedCred);
-					} else {
-						result = await createCredential(roomId);
-					}
-					prfSeed = result.seed;
-				} catch {
-					// WebAuthn PRF not supported. An identity can be kept on this
-					// device, but only if the person asked for one and gave a PIN to
-					// wrap it with. Nothing is saved without both.
-					const storedSeed =
-						identitySeedStored && identityPin
-							? await loadIdentitySeed(roomId, identityPin)
-							: null;
-					if (storedSeed) {
-						prfSeed = storedSeed;
-					} else {
-						// A wrong PIN lands here too, which is deliberate. The room
-						// still opens, with an identity that lasts for this session.
-						prfSeed = await generateRandomSeed(roomId);
-						usingTempIdentity = true;
-					}
-				}
-			}
+			// Security key, else a seed saved behind a PIN, else this session only.
+			// The policy and the reasons live in $lib/identity/resolve, where they
+			// can be tested without a browser.
+			const identity = await resolveIdentity({
+				roomId,
+				bypassWebAuthn:
+					import.meta.env.DEV || import.meta.env.VITE_WEBAUTHN_BYPASS === 'true',
+				hasStoredSeed: identitySeedStored,
+				pin: identityPin || null
+			});
+			const prfSeed = identity.seed;
+			usingTempIdentity = identity.temporary;
 
 			phase = 'connecting';
 
@@ -1038,8 +1019,17 @@ import { TabSync } from '$lib/room/tab-sync';
 		try {
 			session.sendMessage(messageInput.trim());
 			messageInput = '';
+			sendFailed = false;
 		} catch {
-			// Send failed — connection may have dropped
+			// sendMessage throws when the socket is not open. The composer is
+			// disabled while `connected` is false, so this is the race where the
+			// socket closes between the last render and the click. It used to be
+			// swallowed: the message never arrived and nothing said so.
+			//
+			// The draft is deliberately kept. `messageInput` is only cleared on
+			// the line above, which this skips, so the text is still there to
+			// send again.
+			sendFailed = true;
 		}
 	}
 
@@ -1459,14 +1449,21 @@ import { TabSync } from '$lib/room/tab-sync';
 						{/each}
 					</div>
 
-					<div class="composer" class:mobile-hidden={mobileView !== 'chat'}>
-						<input
-							type="text"
-							bind:value={messageInput}
-							placeholder={connected ? "Type a message or /task..." : "Reconnecting..."}
-							onkeydown={handleKeydown}
-						/>
-						<button onclick={sendMessage} disabled={!connected || !messageInput.trim()}>Send</button>
+					<div class="composer-wrap" class:mobile-hidden={mobileView !== 'chat'}>
+						{#if sendFailed}
+							<p class="send-failed" role="alert">
+								Not sent. Your message is still here, try again in a moment.
+							</p>
+						{/if}
+						<div class="composer">
+							<input
+								type="text"
+								bind:value={messageInput}
+								placeholder={connected ? "Type a message or /task..." : "Reconnecting..."}
+								onkeydown={handleKeydown}
+							/>
+							<button onclick={sendMessage} disabled={!connected || !messageInput.trim()}>Send</button>
+						</div>
 					</div>
 				</div>
 
@@ -2142,6 +2139,21 @@ import { TabSync } from '$lib/room/tab-sync';
 	.composer button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 	/* Reminder toast */
+	.composer-wrap {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.send-failed {
+		margin: 0 0 0.4rem;
+		padding: 0.4rem 0.6rem;
+		border-radius: 4px;
+		font-size: 0.8rem;
+		background: var(--status-caution-bg);
+		border: 1px solid var(--status-caution-border);
+		color: var(--status-caution);
+	}
+
 	.reminder-toast {
 		position: fixed;
 		top: 1rem;

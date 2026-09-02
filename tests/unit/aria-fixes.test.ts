@@ -64,3 +64,50 @@ describe('ARIA fixes verification', () => {
 		expect(source).toContain('Reconnecting...');
 	});
 });
+
+
+/**
+ * A failed send must not eject anyone from the room.
+ *
+ * `error` renders a full-screen card with "Try Again" and "Back to homepage",
+ * so reaching for it on a dropped frame would throw the person out of a room
+ * that is about to reconnect on its own. The transient case needs a transient
+ * surface.
+ *
+ * These are structural, which this repository has learned to distrust: a test
+ * that asserts an identifier appears can pass against dead code. They are here
+ * because the alternative is a Playwright race that closes the socket between
+ * a render and a click, which would be flaky in exactly the way that gets a
+ * test deleted. Their limit is worth stating: they prove the wiring, not that
+ * the notice is legible on screen.
+ */
+describe('a failed send is transient, not fatal', () => {
+	const page = readFileSync(resolve('src/routes/room/[id]/+page.svelte'), 'utf-8');
+
+	/** The body of sendMessage's catch, which is where the regression would be. */
+	const sendCatch = page.match(/session\.sendMessage\([\s\S]*?\n\t\t\} catch \{([\s\S]*?)\n\t\t\}/);
+
+	it('the catch is found, so the assertions below are looking at something', () => {
+		expect(sendCatch, 'sendMessage catch block not found').toBeTruthy();
+	});
+
+	it('flags the failure rather than swallowing it', () => {
+		expect(sendCatch![1]).toMatch(/sendFailed = true/);
+	});
+
+	it('does not route a dropped frame to the fatal error screen', () => {
+		expect(sendCatch![1]).not.toMatch(/phase = 'error'/);
+		expect(sendCatch![1]).not.toMatch(/\berror = /);
+	});
+
+	it('keeps the draft, by clearing the input only on success', () => {
+		// messageInput is cleared on the line after the send, inside the try, so
+		// a throw skips it and the text survives to be sent again.
+		expect(sendCatch![1]).not.toMatch(/messageInput = ''/);
+	});
+
+	it('renders the notice where the composer is', () => {
+		expect(page).toMatch(/\{#if sendFailed\}/);
+		expect(page).toMatch(/class="send-failed" role="alert"/);
+	});
+});
