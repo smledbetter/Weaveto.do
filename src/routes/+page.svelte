@@ -34,12 +34,23 @@
 		const deleted = params.get('deleted');
 		if (deleted) {
 			showDeletedNotice = true;
-			deletedReason = deleted === 'auto' ? 'Room auto-deleted after completion' : 'Room deleted';
+			// `partial` means cleanup ran and something was still on the device
+			// afterwards. Saying "Room deleted" then would be the one claim this
+			// app must never get wrong.
+			deletedReason =
+				deleted === 'partial'
+					? 'Room closed, but some data could not be removed from this device. Clearing this site\u2019s storage in your browser will finish it.'
+					: deleted === 'auto'
+						? 'Room auto-deleted after completion'
+						: 'Room deleted';
 			// Clean URL
 			window.history.replaceState({}, '', '/');
-			setTimeout(() => {
-				showDeletedNotice = false;
-			}, 5000);
+			setTimeout(
+				() => {
+					showDeletedNotice = false;
+				},
+				deleted === 'partial' ? 15000 : 5000,
+			);
 		}
 	});
 

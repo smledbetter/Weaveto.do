@@ -29,7 +29,7 @@
 	import EphemeralIndicator from '$lib/components/EphemeralIndicator.svelte';
 	import InviteModal from '$lib/components/InviteModal.svelte';
 	import SoloMemberBanner from '$lib/components/SoloMemberBanner.svelte';
-	import { cleanupRoom } from '$lib/room/cleanup';
+	import { cleanupRoom, type CleanupResult } from '$lib/room/cleanup';
 	import { autoDeleteKey } from '$lib/room/types';
 	import type { AutoDeleteState } from '$lib/room/types';
 	import PinSetup from '$lib/components/PinSetup.svelte';
@@ -84,6 +84,8 @@ import { TabSync } from '$lib/room/tab-sync';
 	 * composer, and the draft survives it.
 	 */
 	let sendFailed = $state(false);
+	/** What the last burn actually managed to remove. See cleanupRoom. */
+	let burnResult: CleanupResult | null = null;
 	let showKeyWarning = $state(false);
 	let usingTempIdentity = $state(false);
 	/**
@@ -1080,13 +1082,16 @@ import { TabSync } from '$lib/room/tab-sync';
 				// ours. The relay is not involved and never learns this happened.
 				session.sendBurnInstruction();
 				await new Promise((r) => setTimeout(r, 250));
-				await cleanupRoom(roomId, session, tabSync ?? undefined);
+				burnResult = await cleanupRoom(roomId, session, tabSync ?? undefined);
 			}
 			// Clear notification preferences on room destruction
 			if (notifPrefsDb) {
 				try { await clearNotificationPrefs(notifPrefsDb, roomId); } catch { /* silent */ }
 			}
-			window.location.href = '/?deleted=true';
+			// Only claim the room is gone if it is. cleanupRoom reads the stores
+			// back, because several of the clears it calls cannot report failure.
+			window.location.href =
+				burnResult && !burnResult.complete ? '/?deleted=partial' : '/?deleted=true';
 		} catch (e: unknown) {
 			burnError = e instanceof Error ? e.message : 'Failed to delete room';
 		}
@@ -1108,13 +1113,16 @@ import { TabSync } from '$lib/room/tab-sync';
 				// ours. The relay is not involved and never learns this happened.
 				session.sendBurnInstruction();
 				await new Promise((r) => setTimeout(r, 250));
-				await cleanupRoom(roomId, session, tabSync ?? undefined);
+				burnResult = await cleanupRoom(roomId, session, tabSync ?? undefined);
 			}
 			// Clear notification preferences on room destruction
 			if (notifPrefsDb) {
 				try { await clearNotificationPrefs(notifPrefsDb, roomId); } catch { /* silent */ }
 			}
-			window.location.href = '/?deleted=auto';
+			// Only claim the room is gone if it is. cleanupRoom reads the stores
+			// back, because several of the clears it calls cannot report failure.
+			window.location.href =
+				burnResult && !burnResult.complete ? '/?deleted=partial' : '/?deleted=auto';
 		} catch (e: unknown) {
 			burnError = e instanceof Error ? e.message : 'Failed to delete room';
 		}

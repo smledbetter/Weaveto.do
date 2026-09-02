@@ -118,8 +118,10 @@ describe("cleanupRoom", () => {
   });
 
   it("handles null session gracefully", async () => {
+    // Asserted resolution to undefined until cleanupRoom began reporting what
+    // it removed. The intent was always "does not throw", so say that.
     setupIndexedDBMock();
-    await expect(cleanupRoom("test-room", null)).resolves.toBeUndefined();
+    await expect(cleanupRoom("test-room", null)).resolves.toBeDefined();
   });
 
   it("clears sessionStorage keys", async () => {
@@ -153,7 +155,7 @@ describe("cleanupRoom", () => {
 
     await expect(
       cleanupRoom("test-room", mockSession()),
-    ).resolves.toBeUndefined();
+    ).resolves.toBeDefined();
   });
 
   it("handles IndexedDB errors gracefully", async () => {
@@ -163,10 +165,14 @@ describe("cleanupRoom", () => {
       },
     });
 
-    // Should not throw even if IndexedDB fails
-    await expect(
-      cleanupRoom("test-room", mockSession()),
-    ).resolves.toBeUndefined();
+    // Should not throw even if IndexedDB fails. It should also say so now,
+    // rather than resolving in a way indistinguishable from success. This is
+    // the case that made burn dishonest: every store is unreachable and the
+    // person was still told their room was deleted.
+    const result = await cleanupRoom("test-room", mockSession());
+
+    expect(result.complete).toBe(false);
+    expect(result.failed.length).toBeGreaterThan(0);
   });
 });
 

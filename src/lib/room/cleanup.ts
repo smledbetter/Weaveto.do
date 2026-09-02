@@ -12,64 +12,103 @@ import { clearIdentitySeed } from "$lib/identity/store";
 import { initNotificationPrefsDB, clearNotificationPrefs } from "$lib/notifications/store";
 import { initPushDB, clearPushSubscription } from "$lib/notifications/push";
 import { clearOfflineData } from "$lib/tasks/offline";
+import { verifyRoomCleared, type ClearedReport } from "./verify-cleared";
+
+/** A named teardown step, for reporting which ones did not finish. */
+export type CleanupStep =
+  | "disconnect"
+  | "session-storage"
+  | "agent-data"
+  | "reminders"
+  | "pin-key"
+  | "identity-seed"
+  | "notification-prefs"
+  | "push-subscription"
+  | "offline-tasks"
+  | "tab-sync";
+
+export interface CleanupResult {
+  /** Steps that threw. The room is not fully gone from this device. */
+  failed: CleanupStep[];
+  /** What a read-back of the stores found. See verifyRoomCleared. */
+  verified: ClearedReport;
+  /** True when every step finished and every checkable store came back empty. */
+  complete: boolean;
+}
 
 /**
  * Clean up all client-side state for a destroyed room.
- * Called on manual burn, auto-delete expiry, or room_destroyed from relay.
+ * Called on manual burn, auto-delete expiry, or room_destroyed from the relay.
+ *
+ * Two rules, both learned the hard way.
+ *
+ * A failing step must not stop the others. Burn should destroy as much as it
+ * can reach, so every step runs even when an earlier one threw, and the caller
+ * is told afterwards rather than the sequence aborting half done.
+ *
+ * And the result must be checked, not assumed. This used to swallow every step
+ * and resolve, and the caller then told the person their room was gone. Some
+ * of the clears it calls cannot report failure even in principle, so the
+ * stores are read back at the end. See verifyRoomCleared.
  */
 export async function cleanupRoom(
   roomId: string,
   session: RoomSession | null,
   tabSync?: TabSync,
-): Promise<void> {
-  // 1. Disconnect WebSocket session
-  session?.disconnect();
+): Promise<CleanupResult> {
+  const failed: CleanupStep[] = [];
 
-  // 2. Clear sessionStorage keys for this room
-  sessionStorage.removeItem("weave-olm-pickle");
-  sessionStorage.removeItem("weave-key-warning-shown");
-  sessionStorage.removeItem("weave-task-panel-open");
-  sessionStorage.removeItem(autoDeleteKey(roomId));
+  const steps: Array<[CleanupStep, () => void | Promise<unknown>]> = [
+    ["disconnect", () => session?.disconnect()],
+    [
+      "session-storage",
+      () => {
+        sessionStorage.removeItem("weave-olm-pickle");
+        sessionStorage.removeItem("weave-key-warning-shown");
+        sessionStorage.removeItem("weave-task-panel-open");
+        sessionStorage.removeItem(autoDeleteKey(roomId));
+      },
+    ],
+    ["agent-data", () => clearAgentData(roomId)],
+    ["reminders", () => clearServiceWorkerReminders(roomId)],
+    ["pin-key", () => clearPinKey(roomId)],
+    ["identity-seed", () => clearIdentitySeed(roomId)],
+    [
+      "notification-prefs",
+      async () => {
+        const db = await initNotificationPrefsDB();
+        await clearNotificationPrefs(db, roomId);
+        db.close();
+      },
+    ],
+    [
+      "push-subscription",
+      async () => {
+        const db = await initPushDB();
+        await clearPushSubscription(db, roomId);
+        db.close();
+      },
+    ],
+    ["offline-tasks", () => clearOfflineData(roomId)],
+    // Last: it closes the BroadcastChannel this tab coordinates on.
+    ["tab-sync", () => tabSync?.destroy()],
+  ];
 
-  // 3. Clear IndexedDB agent data for this room
-  await clearAgentData(roomId);
-
-  // 4. Clear service worker reminders for this room
-  await clearServiceWorkerReminders(roomId);
-
-  // 5. Clear PIN key from IndexedDB
-  await clearPinKey(roomId);
-
-  // 6. Clear persisted identity seed from IndexedDB
-  await clearIdentitySeed(roomId);
-
-  // 7. Clear notification preferences from IndexedDB
-  try {
-    const notifPrefsDb = await initNotificationPrefsDB();
-    await clearNotificationPrefs(notifPrefsDb, roomId);
-    notifPrefsDb.close();
-  } catch {
-    // IndexedDB not available or error — skip
+  for (const [name, run] of steps) {
+    try {
+      await run();
+    } catch {
+      // Recorded, not rethrown. The next step still has data to remove.
+      failed.push(name);
+    }
   }
 
-  // 8. Clear push subscription from IndexedDB
-  try {
-    const pushDb = await initPushDB();
-    await clearPushSubscription(pushDb, roomId);
-    pushDb.close();
-  } catch {
-    // IndexedDB not available or error — skip
-  }
-
-  // 9. Clear offline task store and event queue from IndexedDB
-  try {
-    await clearOfflineData(roomId);
-  } catch {
-    // IndexedDB not available or error — skip
-  }
-
-  // 10. Deregister this tab: broadcasts tab-deregister and closes the BroadcastChannel
-  tabSync?.destroy();
+  const verified = await verifyRoomCleared(roomId);
+  return {
+    failed,
+    verified,
+    complete: failed.length === 0 && verified.clean,
+  };
 }
 
 /**
