@@ -75,16 +75,17 @@ The README was audited line by line against the code. Where the two disagreed, w
 
 ## Upcoming
 
-### M20 — Tor Hidden Service (deployment)
+Nothing is scheduled. M19 was the last numbered milestone, the production phase after it is complete, and M20 was dropped.
 
-Run the relay as an optional .onion hidden service alongside the normal endpoint. Closes the IP metadata gap for users who need metadata protection without affecting the default experience.
+### M20 — Tor Hidden Service (dropped)
 
-- Tor hidden service configuration for the relay (deployment-only)
-- .onion hostname serves identical client pre-configured for the .onion relay — navigate to it in Tor Browser and it just works, no settings field
-- Self-hosters: `?relay=wss://custom.example` URL parameter for custom relay endpoints (no UI surface, documented in self-hosting docs)
-- Documentation for self-hosters to enable .onion alongside clearnet
+Planned as an optional `.onion` service alongside the clearnet endpoint, to close the IP metadata gap. Closed as wontfix in #37 rather than built.
 
-**Done when**: Relay is reachable via .onion address. .onion client auto-configures without user input. Self-hosting docs cover Tor setup and `?relay=` parameter.
+The costs were larger than they first appeared. Six-hop routing adds latency of the same order this project treats as failure in `docs/CAPACITY.md`, against an app with live presence and sync. Every onion connection arrives from 127.0.0.1, so the per-address cap cannot meaningfully exist on that listener, and Tor supplies anonymity to attackers as readily as to users. Tor Browser restricts WebAssembly at its higher security levels, and this client is vodozemac compiled to WASM, so the users most motivated to want an onion address are the ones least likely to be able to run the app. Running `tor` beside the relay also means a supervisor as PID 1, which re-arms the signal trap `server/Dockerfile` documents and solved by measurement.
+
+Signal does not solve this architecturally either. It minimizes and does not retain, which is the answer this project already gives, implemented in `hashClientIp`.
+
+`docs/THREAT-MODEL.md` now records the address gap as accepted, with what the minimization is and is not worth, rather than pointing at a milestone that was never going to ship.
 
 ### Backlog
 
@@ -92,6 +93,7 @@ Filed and tracked, not scheduled.
 
 | Issue | Item | Blocked on |
 |-------|------|------------|
+| [#39](https://github.com/smledbetter/Weaveto.do/issues/39) | Relay URL via `?relay=` parameter, so an operator can point a client at their own relay | Nothing |
 | [#92](https://github.com/smledbetter/Weaveto.do/issues/92) | Federation between independently run nodes | Design, no sync protocol exists |
 | [#93](https://github.com/smledbetter/Weaveto.do/issues/93) | A supported path to load custom agents | Developer tooling and a trust decision |
 | [#94](https://github.com/smledbetter/Weaveto.do/issues/94) | Enforce the per-address cap only under pressure | Nothing |
