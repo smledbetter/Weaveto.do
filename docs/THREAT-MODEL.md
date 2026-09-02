@@ -41,49 +41,28 @@ Anyone who completes the Olm key exchange (via room link) can decrypt all room c
 | Cross-origin WebSocket hijack | Origin validation on upgrade | M8 |
 | Relay DoS / resource exhaustion | Per-connection rate limiting, room/connection/IP caps | M8 |
 | Relay aimed at internal addresses by a client (SSRF) | Push endpoints must be https, and the host is resolved at request time with the socket pinned to the checked address | P3 |
+| MITM via fake identity key injection | Five emoji per member pair, derived from SHA-256 of the sorted identity keys, always visible in room info | M15 |
+| Display name spoofing | The same emoji sit beside each display name. They derive from keys, not names, so a spoofed name shows the wrong emoji | M15 |
+| Relay selectively drops messages | Per-sender sequence counters inside the encrypted payload. The shield turns amber on a gap | M15 |
+| Revoked member retains access | Kick migrates the room: new room, new keys, task state carried, old room destroyed | M15 |
+| Timestamp manipulation in task events | Events dated more than five minutes ahead of the receiver's clock are rejected | M11 |
+| Reconnect Olm session divergence | Stale Olm sessions are cleared on reconnect and key exchange re-runs. Decrypt failures are surfaced, not swallowed | M11 |
 
 ## Undefended Threats
 
 | Threat | Impact | Mitigation Path |
 |--------|--------|-----------------|
 | Compromised device / malicious extension | Full key material exposure | Out of scope — client is trust root |
-| Metadata analysis (timing, room graph, IP) | Correlation of users and activity patterns | Address minimized, not hidden. Accepted, see below |
+| Metadata analysis (timing, room graph, IP) | Correlation of users and activity patterns | Address minimized, not hidden. Accepted. Gap 9 |
 | JavaScript GC cannot zero key material | Keys may persist in freed memory | Platform limitation; WASM memory zeroed on teardown |
 | Room member exfiltrates content | Screenshots, copy-paste of decrypted data | Social trust model — no technical mitigation |
-| Relay selectively drops messages | Availability degradation, silent message suppression | No detection mechanism currently |
-| MITM via fake identity key injection | Attacker intercepts Olm session establishment | No key verification UI (see Open Gaps) |
-| Relay code authenticity unverifiable | Users trust relay matches open-source repo | No attestation needed (no plaintext), but no proof either |
-| Display name spoofing | Any member can impersonate another by using their display name | No binding between identity key and display name (see Open Gaps) |
-| Timestamp manipulation in task events | Malicious member sends future timestamps, wins every conflict | No timestamp window validation (see Open Gaps) |
-| Reconnect Olm session divergence | Reconnect generates fresh OTKs but keeps stale Olm sessions; decrypt failures swallowed silently | Clear stale sessions on reconnect (see Open Gaps) |
-| Any member can burn the room | A single member destroys every online member's local copy | Accepted. Burn is an encrypted message, so holding the Megolm key is the only bar (see Open Gaps) |
+| Relay code authenticity unverifiable | Users trust relay matches open-source repo | No attestation needed (no plaintext), but no proof either. Gap 4 |
+| Any member can burn the room | A single member destroys every online member's local copy | Accepted. Burn is an encrypted message, so holding the Megolm key is the only bar. Gap 8 |
 | Push endpoint links a device across rooms | Enabling notifications in two rooms registers the same endpoint under both, so the relay can tell they are the same device | Inherent to Web Push. One endpoint exists per browser (see below) |
 
-## Open Gaps & Planned Mitigations
+## Open Gaps
 
-### 1. No Key Verification UI
-
-**Gap**: Users cannot compare identity key fingerprints out-of-band. A compromised relay could inject its own identity key during key exchange, establishing a MITM position on Olm sessions.
-
-**Planned mitigation**: Emoji safety strings as ambient display. In the room info popover, add a "Security" section showing 5 emoji per member derived from `SHA-256(sorted(identityKeyA, identityKeyB))` — always visible, no action button. One line of text: "Ask members to confirm these match on their screen." Users who care compare out-of-band; others ignore it.
-
-**Priority**: High — this is the only gap where an active attacker can break confidentiality without device compromise.
-
-### 2. No Member Revocation
-
-**Gap**: Once a member has established an Olm session, there is no mechanism to revoke their access without destroying the room. Key rotation (M6) rotates the Megolm session but doesn't prevent a revoked member from re-establishing an Olm session if they still have the room link.
-
-**Planned mitigation**: Room migration. When the creator kicks a member, the client automatically creates a new room, migrates task state, and sends remaining members a redirect. All members re-authenticate into the new room. The old room is destroyed. This is heavier than re-keying but gives a clean cryptographic break — the kicked member has no room ID, no Olm sessions, and no link to the new room.
-
-**Priority**: Medium — social trust model covers most cases, but needed for rooms with evolving membership.
-
-### 3. No Message Delivery Confirmation
-
-**Gap**: The relay could selectively drop or delay messages without detection. There is no delivery-confirmation protocol to detect selective message suppression.
-
-**Planned mitigation**: Per-sender sequential message counters inside encrypted payload. Room-level indicator: shield icon in room header turns green→amber when any gap is detected. Tapping shows "Some messages may have been missed." No per-message warnings, no named members (avoids social alarm). Resets on reconnect. Lightweight — no consensus protocol, just gap detection.
-
-**Priority**: Low — requires a compromised relay, and the relay's power is already minimal.
+Numbers are stable identifiers, not an ordering. Closed gaps keep their number below rather than being renumbered, so a reference to "gap 6" resolves the same way it always did.
 
 ### 4. No Relay Authenticity Proof
 
@@ -93,7 +72,19 @@ Anyone who completes the Olm key exchange (via room link) can decrypt all room c
 
 **Priority**: Low — confidentiality doesn't depend on relay trust, but important for self-hosters. Full metadata protection would need a network-layer defence this project does not provide, and the reasoning is in "The address is minimized, not hidden" below.
 
-### 5. The Address Is Minimized, Not Hidden
+### 8. Burn Is Authorized By Membership, Not By The Creator
+
+**Risk**: Any member can destroy the room for every other member who is online.
+
+Burn used to be a relay operation. The relay held the creator's identity key and refused a purge from anyone else. Making the relay stateless removed that check, because it removed the state the check read. Burn is now an ordinary encrypted message: a client that receives one over the room's Megolm session deletes its local copy and leaves.
+
+**Why this is accepted rather than fixed**: there is no longer a cryptographic notion of a creator anywhere in the system. `isCreator` is read from a URL parameter and is local to one browser. Restoring creator-only burn means putting durable room state back on the relay, which is the design this project deliberately left, or signing burns against a room key distributed at creation, which does not survive the member set changing.
+
+**Why the exposure is smaller than it looks**: every member can already read everything, and the task list is an event log every member can already write to, so a member who wants to destroy the shared state can do so without a burn. Burn adds the ability to clear other people's *local* copies. It does not reach offline members, and it does not reach anyone's data on a device that is not currently in the room.
+
+**Mitigation path**: if this becomes real, the fix is a signed burn tied to an ed25519 key established at room creation and carried in the invite link, so authorization travels with the link rather than with relay state.
+
+### 9. The Address Is Minimized, Not Hidden
 
 **Gap**: the relay sees the address every connection arrives from, and so does the host in front of it. This document previously pointed at a Tor hidden service as the mitigation, under a milestone number that did not exist. That work is dropped, so this is stated as an accepted gap instead of a promise.
 
@@ -107,41 +98,61 @@ For comparison, Signal does not solve this architecturally either. It minimizes 
 
 **What someone who needs it should do**: run Tor Browser against the ordinary endpoint, which costs nothing and leaves the relay seeing an exit node rather than a user. Or run their own relay and point a client at it with the `?relay=` parameter tracked in #39, which puts the trust anchor on the person who needs the property.
 
-### 5. Display Name Spoofing
+## Closed Gaps
 
-**Gap**: Any room member can set an arbitrary display name in their join message. There is no binding between identity key and display name, and no uniqueness enforcement. A malicious member joining as "Alice" is indistinguishable from the real Alice in the UI.
+These were open when this document was written and are now closed. They stayed here as "planned mitigation" long after the work shipped, which made the app read as considerably less hardened than it is. Two of them were marked High.
 
-**Planned mitigation**: Emoji strings (from gap #1) are always visible next to display names in the room info security section. Since emoji are derived from identity keys, spoofed display names will show different emoji — making impersonation visible to anyone who checks. No verified/unverified badge needed; the emoji themselves are the differentiator.
+Each is paired below with the code that closed it and the test that holds it closed.
 
-**Priority**: Medium — trivially exploitable, but impact is limited to social engineering within a room where members already have full access to content.
+### 1. No Key Verification UI — CLOSED
 
-### 6. Timestamp Manipulation in Task Events
+**Was**: users could not compare identity key fingerprints out-of-band, so a compromised relay could inject its own key during exchange and hold a MITM position.
 
-**Gap**: Task conflict resolution uses "highest timestamp wins" with client-supplied `Date.now()`. A malicious member can send events with timestamps far in the future, winning every conflict resolution and gaining unilateral control over task state.
+**Closed by**: `deriveEmojiString` in `src/lib/room/verification.ts`. Both peers sort the two identity keys, hash with SHA-256, and take five emoji from a 256-entry palette, so both sides compute the same string without exchanging anything. Rendered in room info for every member pair, always visible, no verify button.
 
-**Planned mitigation**: Reject task events with timestamps more than 5 minutes in the future relative to the receiver's clock. Events outside the window are dropped or clamped to current time. Simple, cheap, and eliminates the attack without requiring clock synchronization.
+**Held by**: `tests/unit/room-verification.test.ts`, `tests/e2e/verification.spec.ts`. Issue #58.
 
-**Priority**: Medium — undermines task store integrity. Easy fix.
+### 2. No Member Revocation — CLOSED
 
-### 7. Reconnect Olm Session Divergence
+**Was**: once a member held an Olm session there was no way to revoke access short of destroying the room, and Megolm rotation did not stop a holder of the room link re-establishing.
 
-**Gap**: `attemptReconnect()` generates fresh one-time keys and re-joins, but the existing `olmSessions` map is not cleared. Other members' Olm ratchet state diverges from the reconnecting client's state. Key share messages using stale sessions fail, and the catch blocks swallow errors silently — users see no indication that encrypted communication has broken down.
+**Closed by**: `handleKickMember` migrates the room. A new room is created with new keys, task state is carried across, remaining members are redirected, and the old room is destroyed. The kicked member holds a link to a room that no longer exists.
 
-**Planned mitigation**: On reconnect, clear stale Olm sessions and re-establish key exchange with all current members. Surface a transient "Re-establishing encryption..." indicator during re-key. Replace silent catch blocks with user-visible decrypt failure warnings.
+**Held by**: issue #59. `MigrationBanner.svelte` carries the user-facing half.
 
-**Priority**: High — this affects E2EE reliability under normal network conditions (WiFi drops, mobile switching). Users lose encryption silently.
+### 3. No Message Delivery Confirmation — CLOSED
 
-### 8. Burn Is Authorized By Membership, Not By The Creator
+**Was**: the relay could drop or delay messages selectively with no way to detect it.
 
-**Risk**: Any member can destroy the room for every other member who is online.
+**Closed by**: `DeliveryTracker` in `src/lib/room/delivery.ts`. Per-sender sequence counters ride inside the encrypted payload, so the relay never sees them, and a gap latches the room shield from green to amber. Undecryptable key shares also mark it, since those leave no sequence gap of their own.
 
-Burn used to be a relay operation. The relay held the creator's identity key and refused a purge from anyone else. Making the relay stateless removed that check, because it removed the state the check read. Burn is now an ordinary encrypted message: a client that receives one over the room's Megolm session deletes its local copy and leaves.
+**Held by**: `tests/unit/delivery-tracker.test.ts`, and the reconnect suite for the key-share path. Issue #60.
 
-**Why this is accepted rather than fixed**: there is no longer a cryptographic notion of a creator anywhere in the system. `isCreator` is read from a URL parameter and is local to one browser. Restoring creator-only burn means putting durable room state back on the relay, which is the design this project deliberately left, or signing burns against a room key distributed at creation, which does not survive the member set changing.
+### 5. Display Name Spoofing — CLOSED
 
-**Why the exposure is smaller than it looks**: every member can already read everything, and the task list is an event log every member can already write to, so a member who wants to destroy the shared state can do so without a burn. Burn adds the ability to clear other people's *local* copies. It does not reach offline members, and it does not reach anyone's data on a device that is not currently in the room.
+**Was**: display names were unbound to identity keys, so anyone could join as "Alice".
 
-**Mitigation path**: if this becomes real, the fix is a signed burn tied to an ed25519 key established at room creation and carried in the invite link, so authorization travels with the link rather than with relay state.
+**Closed by**: the gap 1 emoji render beside each display name in room info. They derive from keys, not names, so an impersonator shows different emoji from the person being impersonated.
+
+**Held by**: issue #61. Note the related change in the production phase: display names no longer travel in clear text either, and now sit inside the Olm payload.
+
+### 6. Timestamp Manipulation in Task Events — CLOSED
+
+**Was**: conflict resolution is highest-timestamp-wins over client-supplied clocks, so a member sending far-future timestamps won every conflict.
+
+**Closed by**: `MAX_FUTURE_DRIFT_MS` in `src/lib/tasks/store.svelte.ts`. Events dated more than five minutes ahead of the receiver are dropped before they reach the dedup set.
+
+**Deviation worth recording**: this document originally said such events would be "dropped or clamped to current time". The code rejects rather than clamps. Rejection is the stronger choice, because a clamped event still competes at the current timestamp while a rejected one does not compete at all.
+
+**Held by**: `tests/unit/timestamp-clamping.test.ts`, including the exact boundary. Issue #52.
+
+### 7. Reconnect Olm Session Divergence — CLOSED
+
+**Was**: reconnect generated fresh one-time keys but kept the stale `olmSessions` map, so ratchet state diverged, key shares failed, and the catch blocks swallowed it. Encryption broke silently under ordinary WiFi drops.
+
+**Closed by**: `src/lib/room/session.ts` clears `olmSessions` on reconnect open, rebuilds `pendingKeyExchanges` from the member list, and re-runs key exchange. Decrypt failures set `decryptionFailed` and render as "Unable to decrypt this message" rather than disappearing.
+
+**Held by**: `tests/unit/reconnect-olm.test.ts`, `tests/e2e/network-resilience.spec.ts`, `tests/e2e/relay-restart.spec.ts`. Issue #51.
 
 ## What Push Notifications Cost
 
