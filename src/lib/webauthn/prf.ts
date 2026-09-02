@@ -29,20 +29,6 @@ export function isWebAuthnSupported(): boolean {
   );
 }
 
-export async function isPrfSupported(): Promise<boolean> {
-  if (!isWebAuthnSupported()) return false;
-  try {
-    // Check if the platform supports PRF via isUserVerifyingPlatformAuthenticatorAvailable
-    // and the PRF extension. There's no direct API to check PRF support without
-    // attempting a ceremony, so we check basic WebAuthn availability.
-    const available =
-      await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    return available;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Create a new WebAuthn credential with PRF support.
  * Used when creating a room (first-time identity on this device).

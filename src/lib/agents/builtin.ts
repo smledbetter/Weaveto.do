@@ -82,11 +82,3 @@ export async function getBuiltInAgents(
   return result;
 }
 
-/**
- * Get the manifest for a built-in agent by name.
- */
-export function getBuiltInManifest(name: string): AgentManifest | null {
-  if (name === "auto-balance") return autoBalanceManifest;
-  if (name === "unblock") return unblockManifest;
-  return null;
-}

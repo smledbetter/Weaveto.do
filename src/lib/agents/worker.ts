@@ -179,14 +179,3 @@ function handleUpdateContext(request: UpdateContextRequest): void {
 	hostContext.members = membersMap;
 }
 
-/**
- * Send a log message back to the main thread.
- */
-export function workerLog(message: string): void {
-	const response: WorkerResponse = {
-		type: 'log',
-		moduleId: currentModuleId,
-		message
-	};
-	self.postMessage(response);
-}
