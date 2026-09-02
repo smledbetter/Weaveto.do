@@ -26,6 +26,7 @@ const relay = read("server/relay.ts");
 const prf = read("src/lib/webauthn/prf.ts");
 const runtime = read("src/lib/agents/runtime.ts");
 const page = read("src/routes/room/[id]/+page.svelte");
+const threatModel = read("docs/THREAT-MODEL.md");
 
 describe("claims that were retired stay retired", () => {
   it("does not say the relay cannot identify users", () => {
@@ -99,5 +100,32 @@ describe("each surviving claim is paired with the code that makes it true", () =
   it("a room's entries are dropped when its last member leaves", () => {
     expect(readme).toMatch(/dropped when its last member leaves/);
     expect(relay).toMatch(/deleteRoomState\(/);
+  });
+
+  it("does not promise a Tor hidden service", () => {
+    // It was planned as M20 and dropped, because it costs latency this app
+    // cannot absorb, removes the per-address cap, and needs a browser that may
+    // not run the WebAssembly the encryption is compiled to. A dropped plan
+    // that stays in the copy is the same defect as a false capability claim:
+    // a sentence outliving the decision it described.
+    const planned = readme.match(/### Planned, not built[\s\S]*?(?=\n### |\n## )/);
+    expect(planned, "Planned, not built section not found").toBeTruthy();
+    // Word-bounded. A bare /[Tt]or/ matches inside "repository", which is how
+    // the first version of this guard failed against correct copy.
+    expect(planned![0]).not.toMatch(/\bTor\b|\bonion\b|hidden service/i);
+
+    // The threat model must not point at it as the mitigation either. It used
+    // to name a milestone number that never existed.
+    expect(threatModel).not.toMatch(/M19 Tor|M20 Tor|Tor hidden service reduces/);
+    expect(threatModel).toMatch(/Address minimized, not hidden/);
+  });
+
+  it("says what the address minimization is actually worth", () => {
+    // The claim is narrow on purpose. The salted hash removes the address from
+    // the relay's own memory and nothing else, and the salt lives in the same
+    // process, so it stops enumeration rather than confirmation.
+    expect(threatModel).toMatch(/random at boot and never written down/);
+    expect(relay).toMatch(/const IP_HASH_SALT = randomBytes\(32\)/);
+    expect(relay).toMatch(/createHmac\("sha256", salt\)/);
   });
 });

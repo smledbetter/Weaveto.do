@@ -8,6 +8,8 @@ All 21 numbered milestones are complete, M0 through M19. A further unnumbered ph
 
 The app is deployed and works. The relay runs on Fly and the client on Vercel. `weaveto.do` still serves a Coming Soon page, which is the last step and is tracked as issue #97.
 
+M20 was dropped rather than built. Nothing is scheduled after it, so the remaining work is the launch set and an unscheduled backlog.
+
 ### Snapshot
 
 - **Git SHA**: `c6b5103` on `main`, CI green
@@ -236,7 +238,7 @@ The sprints, numbered as `docs/ROADMAP.md` numbers them. Sprint 1 is the same wo
 | M18 | Sync and Conflict Resolution | 10 | Complete |
 | M19 | Multi-Room Tabs | 11 | Complete |
 | — | Production hardening | — | Complete |
-| M20 | Tor Hidden Service | — | Not started, see issues #37, #38, #39 |
+| M20 | Tor Hidden Service | — | Dropped, see #37 |
 
 This file used to carry a second set of per-milestone specifications under "Release Goal" headings. They described work as it was planned rather than as it shipped, and several of them contradicted the record above. They are removed. `docs/milestones/` holds the per-milestone documents, and `docs/ROADMAP.md` holds the summaries.
 

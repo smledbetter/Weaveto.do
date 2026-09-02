@@ -17,9 +17,16 @@ weaveto.do enables trusted groups — caregiving collectives, event organizers, 
 ### Planned, not built
 
 - **Federation**: syncing between independently run nodes. There is no sync protocol in this repository yet.
-- **Tor hidden service**: the relay cannot avoid seeing the address a connection arrives from, and neither can the host in front of it. Reaching it over Tor is the way to remove that, and it is not built.
 - **Custom agents**: the sandbox and the host interface exist and the built-in agents run on them, but there is no way to add your own. Uploading one is not exposed anywhere in the app.
 - **Enforce the per-address cap only under pressure**: the limit on connections from one address exists to stop a single source taking the whole relay. Below a fraction of capacity nothing is being contended, so the cap costs people in shared offices and buys nothing. Raising the number, which is what happens today, trades one against the other permanently. Admitting freely while there is room and tightening as the relay fills would give both.
+
+### Decided against
+
+- **Hiding the address you connect from.** The relay cannot avoid seeing it, and neither can the host in front of it. What the relay does instead is keep it out of everything this code controls: it is never written to disk, and the per-address connection map is keyed on an HMAC under a salt that is random at boot and never written down.
+
+  An onion service was planned to close the rest, and was dropped. It costs latency of the order this project treats as failure, against an app with live presence and sync. It removes the per-address cap, because every connection would arrive from 127.0.0.1. And Tor Browser restricts WebAssembly at its higher security levels, which is what the encryption is compiled to, so the people most likely to want it are the ones least likely to be able to run this.
+
+  Signal does not solve this either. It minimizes and does not retain, which is the same answer given here. If you need more, run Tor Browser against the ordinary endpoint, or run your own relay. `docs/THREAT-MODEL.md` states precisely what the minimization is and is not worth.
 
 ## Tech Stack
 

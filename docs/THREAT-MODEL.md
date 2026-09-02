@@ -15,7 +15,7 @@ The relay is a ciphertext router. It sees:
 - Room IDs (random UUIDs, no semantic meaning)
 - Curve25519 identity keys (ephemeral, not linked to real-world identity)
 - Ciphertext blobs (Megolm-encrypted payloads)
-- IP addresses (not logged, but visible during connection)
+- IP addresses. Never written to disk and never held in plaintext in the relay's own memory, but unavoidably visible for the life of a connection. See "The address is minimized, not hidden" below.
 - Connection timing and room membership graph
 
 It never sees: plaintext messages, task content, display names, PRF seeds, Olm/Megolm session keys, or PIN material.
@@ -47,7 +47,7 @@ Anyone who completes the Olm key exchange (via room link) can decrypt all room c
 | Threat | Impact | Mitigation Path |
 |--------|--------|-----------------|
 | Compromised device / malicious extension | Full key material exposure | Out of scope — client is trust root |
-| Metadata analysis (timing, room graph, IP) | Correlation of users and activity patterns | M19 Tor hidden service reduces IP exposure |
+| Metadata analysis (timing, room graph, IP) | Correlation of users and activity patterns | Address minimized, not hidden. Accepted, see below |
 | JavaScript GC cannot zero key material | Keys may persist in freed memory | Platform limitation; WASM memory zeroed on teardown |
 | Room member exfiltrates content | Screenshots, copy-paste of decrypted data | Social trust model — no technical mitigation |
 | Relay selectively drops messages | Availability degradation, silent message suppression | No detection mechanism currently |
@@ -91,7 +91,21 @@ Anyone who completes the Olm key exchange (via room link) can decrypt all room c
 
 **Planned mitigation**: Reproducible relay builds via Nix. Publish build hashes to a transparency log. Community can rebuild from source and verify hashes match. No TEE needed — the relay never sees plaintext, so this is an integrity/trust measure, not a confidentiality one.
 
-**Priority**: Low — confidentiality doesn't depend on relay trust, but important for self-hosters and high-risk users. Pairs with M19 (Tor) for full metadata protection.
+**Priority**: Low — confidentiality doesn't depend on relay trust, but important for self-hosters. Full metadata protection would need a network-layer defence this project does not provide, and the reasoning is in "The address is minimized, not hidden" below.
+
+### 5. The Address Is Minimized, Not Hidden
+
+**Gap**: the relay sees the address every connection arrives from, and so does the host in front of it. This document previously pointed at a Tor hidden service as the mitigation, under a milestone number that did not exist. That work is dropped, so this is stated as an accepted gap instead of a promise.
+
+**What is actually done**: the address is never written to disk and never held in plaintext in the relay's own memory. `hashClientIp` keys the per-address connection map on an HMAC under a salt that is random at boot and never written down, so the salt cannot outlive the process and two runs produce unrelated keys for the same address.
+
+**What that is worth, precisely**: it removes the address from the one place this code controls. It does not remove it from the kernel socket table, from the host in front of the relay, or from the network path. Anyone holding live process memory holds the salt too, and IPv4 is small enough to brute force against a known salt, so the hash prevents enumeration of who connected but not confirmation of a suspected address.
+
+**Why this is accepted rather than fixed**: hiding the address requires a party who sees it without knowing the destination, and a different party who sees the destination without the address, and those must be genuinely separate. An operator cannot be both, so this cannot be closed with infrastructure this project controls. The available answer was an onion service, and it was dropped as more expensive than it was worth for this application: latency against a real-time board, a per-address cap that cannot exist when every connection arrives from 127.0.0.1, and a Tor Browser stack that may not run WebAssembly at all. See #37.
+
+For comparison, Signal does not solve this architecturally either. It minimizes and does not retain, which is the same class of answer given here.
+
+**What someone who needs it should do**: run Tor Browser against the ordinary endpoint, which costs nothing and leaves the relay seeing an exit node rather than a user. Or run their own relay and point a client at it with the `?relay=` parameter tracked in #39, which puts the trust anchor on the person who needs the property.
 
 ### 5. Display Name Spoofing
 
