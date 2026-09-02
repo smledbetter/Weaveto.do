@@ -117,12 +117,6 @@ export const REQUIRED_EXPORTS = [
   "memory",
 ] as const;
 
-export const ALL_PERMISSIONS: AgentPermission[] = [
-  "read_tasks",
-  "read_members",
-  "emit_events",
-  "persist_state",
-];
 
 // --- Dependency Data Binary Format ---
 

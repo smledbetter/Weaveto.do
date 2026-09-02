@@ -393,10 +393,7 @@ export class RoomSession {
     this.identityKey = keys.curve25519;
     this.ed25519Key = keys.ed25519;
 
-    // Generate one-time keys for key exchange
-    generateOneTimeKeys(this.account, OTK_PUBLISH_COUNT);
-    const oneTimeKeys = getOneTimeKeys(this.account);
-    markKeysAsPublished(this.account);
+    const oneTimeKeys = this.publishOneTimeKeys();
 
     // Create Megolm outbound session for group encryption
     this.outboundSession = createGroupSession();
@@ -412,34 +409,11 @@ export class RoomSession {
       ws.onopen = () => {
         this.onConnectionChanged?.(true);
 
-        // Send join message (include create flag if this is the room creator)
-        const joinMsg: JoinMessage = {
-          type: "join",
-          identityKey: this.identityKey,
-          ed25519Key: this.ed25519Key,
-          oneTimeKeys,
-          ...(this.isCreator ? { create: true } : {}),
-          ...(this.isCreator && this.isEphemeral ? { ephemeral: true } : {}),
-        };
-        ws.send(JSON.stringify(joinMsg));
+        ws.send(JSON.stringify(this.buildJoinMessage(oneTimeKeys, true)));
         resolve();
       };
 
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data as string) as ServerMessage;
-          this.handleServerMessage(msg);
-        } catch {
-          // Invalid server message — ignore silently
-        }
-      };
-
-      ws.onclose = () => {
-        this.onConnectionChanged?.(false);
-        if (!this.intentionalClose && !this.purgeInitiated) {
-          this.scheduleReconnect();
-        }
-      };
+      this.attachSocketHandlers(ws);
 
       ws.onerror = () => {
         this.onConnectionChanged?.(false);
@@ -493,35 +467,11 @@ export class RoomSession {
       this.pendingKeyExchanges.clear();
       this.onReestablishing?.(true);
 
-      // Re-generate one-time keys for key exchange with existing members
-      generateOneTimeKeys(this.account!, OTK_PUBLISH_COUNT);
-      const oneTimeKeys = getOneTimeKeys(this.account!);
-      markKeysAsPublished(this.account!);
-
-      const joinMsg: JoinMessage = {
-        type: "join",
-        identityKey: this.identityKey,
-        ed25519Key: this.ed25519Key,
-        oneTimeKeys,
-      };
-      this.ws!.send(JSON.stringify(joinMsg));
+      const oneTimeKeys = this.publishOneTimeKeys();
+      this.ws!.send(JSON.stringify(this.buildJoinMessage(oneTimeKeys, false)));
     };
 
-    this.ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data as string) as ServerMessage;
-        this.handleServerMessage(msg);
-      } catch {
-        // Invalid server message — ignore silently
-      }
-    };
-
-    this.ws.onclose = () => {
-      this.onConnectionChanged?.(false);
-      if (!this.intentionalClose && !this.purgeInitiated) {
-        this.scheduleReconnect();
-      }
-    };
+    this.attachSocketHandlers(this.ws);
 
     this.ws.onerror = () => {
       this.reconnecting = false;
@@ -737,7 +687,8 @@ export class RoomSession {
         };
         this.ws!.send(JSON.stringify(keyShareMsg));
       } catch {
-        // Olm session may be exhausted — skip this member
+        // Olm session may be exhausted. This member cannot read us now.
+        this.noteKeyShareFailure();
       }
     }
   }
@@ -785,7 +736,9 @@ export class RoomSession {
         };
         this.ws!.send(JSON.stringify(keyShareMsg));
       } catch {
-        // Olm session exhausted — member won't get new key
+        // Olm session exhausted. This member keeps the old key and cannot
+        // read anything sent under the new one.
+        this.noteKeyShareFailure();
       }
     }
 
@@ -961,7 +914,12 @@ export class RoomSession {
       this.identityKey,
       [...this.members.keys()].filter((k) => k !== msg.identityKey),
     );
-    if (!theirOTK) return;
+    if (!theirOTK) {
+      // The joiner published no key we can claim, so no Olm session can be
+      // built and they will never read us. Same outcome as the catches below.
+      this.noteKeyShareFailure();
+      return;
+    }
 
     try {
       const olmSession = createOutboundSession(
@@ -990,7 +948,8 @@ export class RoomSession {
       };
       this.ws!.send(JSON.stringify(keyShareMsg));
     } catch {
-      // Olm session creation failed — skip key share for this member
+      // Olm session creation failed. The joiner never receives our key.
+      this.noteKeyShareFailure();
     }
   }
 
@@ -1087,12 +1046,9 @@ export class RoomSession {
         }
       }
     } catch {
-      // A key share that will not decrypt means this peer's Megolm key never
-      // arrived, so nothing they send will ever be readable. Nothing else
-      // notices: their messages are not counted, so they leave no sequence
-      // gap, and the room reads as healthy while one member is silently
-      // unreadable. Mark delivery degraded so the shield turns amber.
-      this.deliveryTracker.noteDeliveryFailure();
+      // The mirror of the send-side failures: their key never reached us, so
+      // nothing they send is readable. See noteKeyShareFailure.
+      this.noteKeyShareFailure();
     }
   }
 
@@ -1283,6 +1239,95 @@ export class RoomSession {
       }
     }
     this.onMembersChanged?.(this.members);
+  }
+
+  /**
+   * Generate a fresh batch of one-time keys and mark them published.
+   *
+   * Connect and reconnect both have to do this, and both did it inline. Three
+   * lines duplicated is not the risk. The risk is that they were the only two
+   * places the count was applied, so a change to one silently gave the two
+   * paths different key counts.
+   */
+  private publishOneTimeKeys(): Record<string, string> {
+    generateOneTimeKeys(this.account!, OTK_PUBLISH_COUNT);
+    const keys = getOneTimeKeys(this.account!);
+    markKeysAsPublished(this.account!);
+    return keys;
+  }
+
+  /**
+   * Build the join frame.
+   *
+   * `create` and `ephemeral` belong to a first join only. A reconnect must
+   * never claim to create the room it is rejoining. That distinction used to
+   * live in the difference between two hand-written object literals, which is
+   * exactly where a field added to one and not the other would hide.
+   */
+  private buildJoinMessage(
+    oneTimeKeys: Record<string, string>,
+    firstJoin: boolean,
+  ): JoinMessage {
+    return {
+      type: "join",
+      identityKey: this.identityKey,
+      ed25519Key: this.ed25519Key,
+      oneTimeKeys,
+      ...(firstJoin && this.isCreator ? { create: true } : {}),
+      ...(firstJoin && this.isCreator && this.isEphemeral
+        ? { ephemeral: true }
+        : {}),
+    };
+  }
+
+  /**
+   * Attach the message and close handlers to a socket.
+   *
+   * Both were byte-identical in the connect and reconnect paths. The close
+   * handler decides whether to reconnect, so two copies of it is two places to
+   * get a reconnect loop wrong.
+   */
+  private attachSocketHandlers(ws: WebSocket): void {
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data as string) as ServerMessage;
+        this.handleServerMessage(msg);
+      } catch {
+        // A frame the relay should never have sent. Dropping it is the whole
+        // response: there is no sender to tell and nothing to retry.
+      }
+    };
+
+    ws.onclose = () => {
+      this.onConnectionChanged?.(false);
+      if (!this.intentionalClose && !this.purgeInitiated) {
+        this.scheduleReconnect();
+      }
+    };
+  }
+
+  /**
+   * Record that a peer will not be able to read this client's messages.
+   *
+   * Every key-share failure has the same consequence and none of them are
+   * visible on their own. If our Megolm key never reaches a member, nothing
+   * we send is readable by them, for the life of the session. They do not
+   * report it, because from their side no message ever arrived to be missed,
+   * and we do not notice, because sending succeeded from our point of view.
+   * No sequence gap appears, because a message that was never decryptable was
+   * never counted.
+   *
+   * These used to be five separate silent catches with five different
+   * comments, each describing the same outcome and none acting on it. The M8
+   * audit deferred the whole category as "intentional per security policy",
+   * which was right about logging and wrong about observation. See #103.
+   *
+   * This routes them to the indicator the room already polls, at the severity
+   * it already means. Not logged: the zero-console policy in this directory is
+   * deliberate and this does not change it.
+   */
+  private noteKeyShareFailure(): void {
+    this.deliveryTracker.noteDeliveryFailure();
   }
 
   /**

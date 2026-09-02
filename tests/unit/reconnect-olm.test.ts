@@ -412,3 +412,61 @@ describe("RoomSession — undecryptable key share marks delivery degraded", () =
     expect(session.getDeliveryTracker().hasGap()).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Tests — Part D: the join frame differs correctly between connect and reconnect
+// ---------------------------------------------------------------------------
+
+/**
+ * `create` and `ephemeral` belong to a first join only. A reconnect that
+ * claimed to create the room it is rejoining would ask the relay to make a new
+ * room under the same id, and an ephemeral flag replayed on every reconnect
+ * would re-arm purge-on-last-disconnect against a room already in progress.
+ *
+ * That distinction used to live in the difference between two hand-written
+ * object literals in two methods, which is where a field added to one and not
+ * the other would hide. Both now go through buildJoinMessage. These pin the
+ * behaviour rather than the structure, so the guard survives a refactor.
+ */
+describe("RoomSession — the join frame", () => {
+  function joinFrameFrom(ws: MockWebSocket) {
+    const raw = ws.sent.find((m) => JSON.parse(m).type === "join");
+    expect(raw, "no join frame was sent").toBeTruthy();
+    return JSON.parse(raw!) as Record<string, unknown>;
+  }
+
+  it("omits create and ephemeral on reconnect, even for an ephemeral creator", () => {
+    const session = new RoomSession("room-1", "Alice", {
+      isCreator: true,
+      ephemeral: true,
+    });
+    const s = session as unknown as Record<string, unknown>;
+    s.identityKey = "my-identity-key";
+    s.ed25519Key = "my-ed25519";
+    s.account = { id: "mock-account" };
+    s.outboundSession = { id: "mgm-group" };
+    s.outboundSessionId = "session-id";
+
+    const ws = triggerReconnectOpen(session);
+    const join = joinFrameFrom(ws);
+
+    expect(join.create, "a reconnect must not claim to create the room").toBeUndefined();
+    expect(join.ephemeral, "a reconnect must not re-arm ephemeral purge").toBeUndefined();
+  });
+
+  it("still carries identity and fresh one-time keys on reconnect", () => {
+    // The inverse. A join frame stripped of everything would pass the test
+    // above and break key exchange for every existing member.
+    const session = makeSession();
+    const ws = triggerReconnectOpen(session);
+    const join = joinFrameFrom(ws);
+
+    expect(join.type).toBe("join");
+    expect(join.identityKey).toBe("my-identity-key");
+    // Not toBeTruthy: `{}` is truthy, so that version passed against a join
+    // frame carrying no keys at all, which would break key exchange for every
+    // existing member. Assert the keys are actually there.
+    expect(Object.keys(join.oneTimeKeys as Record<string, string>).length)
+      .toBeGreaterThan(0);
+  });
+});
