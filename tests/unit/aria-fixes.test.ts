@@ -111,3 +111,37 @@ describe('a failed send is transient, not fatal', () => {
 		expect(page).toMatch(/class="send-failed" role="alert"/);
 	});
 });
+
+
+/**
+ * A failed replay must not strand the room on "Syncing...".
+ *
+ * `syncing = false` used to sit on a line the throwing path never reached, so
+ * one refused send left the indicator spinning for as long as the room stayed
+ * open, telling the person their backlog was still going out when it had
+ * stopped. It belongs in a `finally`.
+ *
+ * Structural, with the same caveat as the block above: the replay decisions
+ * themselves are covered properly in tests/unit/task-replay.test.ts. This only
+ * pins the wiring that a unit test cannot see, because it is reactive state in
+ * a component.
+ */
+describe('a failed replay stops the spinner', () => {
+	const page = readFileSync(resolve('src/routes/room/[id]/+page.svelte'), 'utf-8');
+	const flush = page.match(/async function flushPendingEvents[\s\S]*?\n\t\}/);
+
+	it('the flush is found, so the assertions below look at something', () => {
+		expect(flush, 'flushPendingEvents not found').toBeTruthy();
+	});
+
+	it('clears the flag in a finally, not on the success path', () => {
+		expect(flush![0]).toMatch(/\} finally \{[\s\S]*?syncing = false;/);
+	});
+
+	it('keeps the durable queue when the replay did not finish', () => {
+		// Clearing offline data on an incomplete replay is the one way this
+		// still loses events: memory has them, IndexedDB would not.
+		expect(flush![0]).toMatch(/if \(outcome\.complete\)/);
+		expect(flush![0]).toMatch(/saveEventQueue\(roomId, pendingEvents\)/);
+	});
+});

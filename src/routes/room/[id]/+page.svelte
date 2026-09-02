@@ -46,6 +46,7 @@
 import { saveTaskSnapshot, loadTaskSnapshot, saveEventQueue, loadEventQueue, clearOfflineData } from '$lib/tasks/offline';
 	import { hasStoredIdentitySeed, purgeLegacyDeviceKey } from '$lib/identity/store';
 	import { resolveIdentity } from '$lib/identity/resolve';
+	import { replayTaskEvents } from '$lib/tasks/replay';
 import ConnectionIndicator from '$lib/components/ConnectionIndicator.svelte';
 import { deriveEmojiString } from '$lib/room/verification';
 import ShieldIcon from '$lib/components/ShieldIcon.svelte';
@@ -369,6 +370,50 @@ import { TabSync } from '$lib/room/tab-sync';
 			}
 		}
 	});
+
+	/**
+	 * How long to let peers answer sendSyncEvents before replaying our own
+	 * backlog. There is no acknowledgement in the protocol to wait on, so this
+	 * is a guess, and it is a guess the conflict rules are designed to absorb:
+	 * events carry timestamps and actor ids, so arriving in the wrong order
+	 * changes nothing about where they land. Getting it wrong costs a redundant
+	 * round of merging, not correctness.
+	 */
+	const SYNC_SETTLE_MS = 500;
+
+	/**
+	 * Send everything queued while the connection was down.
+	 *
+	 * The ordering here is the point. Events leave `pendingEvents` only once
+	 * the transport has taken them, and the durable copy in IndexedDB is only
+	 * dropped when every one of them is gone. sendTaskEvent throws when the
+	 * socket is not open, and a replay runs immediately after a reconnect, so a
+	 * second drop part-way through is an ordinary thing to survive rather than
+	 * an edge case.
+	 */
+	async function flushPendingEvents(roomSession: RoomSession) {
+		try {
+			if (pendingEvents.length === 0) return;
+
+			const outcome = replayTaskEvents(pendingEvents, (e) => roomSession.sendTaskEvent(e));
+			pendingEvents = outcome.remaining;
+			refreshTaskList();
+
+			if (outcome.complete) {
+				await clearOfflineData(roomId);
+				await saveTaskSnapshot(roomId, taskStore.getSnapshot());
+			} else {
+				// Still owed. Keep the durable queue in step with memory so a
+				// reload resumes from here rather than replaying what already went.
+				await saveEventQueue(roomId, pendingEvents);
+			}
+		} finally {
+			// Whatever happened, the spinner stops. It used to be set false on a
+			// line the throwing path never reached, so a failed replay left the
+			// room saying "Syncing..." for as long as it stayed open.
+			syncing = false;
+		}
+	}
 
 	function refreshTaskList() {
 		taskList = taskStore.getTasks();
@@ -840,30 +885,12 @@ import { TabSync } from '$lib/room/tab-sync';
 
 			roomSession.setReestablishingHandler((active: boolean) => {
 				reestablishing = active;
-				// When re-establishment completes, start sync flow
 				if (!active && connected) {
 					syncing = true;
-					// Send our recent events to peers
+					// Tell peers what we have before asking them to accept what we
+					// missed, so their replies are in flight during the wait below.
 					roomSession.sendSyncEvents(taskStore.getRecentEvents());
-
-					// Allow time for sync responses, then replay pending
-					setTimeout(() => {
-						if (pendingEvents.length > 0) {
-							const toReplay = pendingEvents;
-							pendingEvents = [];
-							for (const event of toReplay) {
-								if (event.task) {
-									event.task.pendingSync = false;
-								}
-								roomSession.sendTaskEvent(event);
-							}
-							clearOfflineData(roomId).then(() => {
-								saveTaskSnapshot(roomId, taskStore.getSnapshot());
-							});
-							refreshTaskList();
-						}
-						syncing = false;
-					}, 500);
+					setTimeout(() => { void flushPendingEvents(roomSession); }, SYNC_SETTLE_MS);
 				}
 			});
 
